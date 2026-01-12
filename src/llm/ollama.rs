@@ -4,6 +4,15 @@ use serde::{Deserialize, Serialize};
 
 use super::{LlmClient, LlmError, LlmResponse, Message, Role, ToolCall, ToolDefinition};
 
+/// Check if a URL is using insecure HTTP for a remote (non-localhost) server
+fn is_insecure_remote_url(url: &str) -> bool {
+    let url_lower = url.to_lowercase();
+    url_lower.starts_with("http://")
+        && !url_lower.contains("localhost")
+        && !url_lower.contains("127.0.0.1")
+        && !url_lower.contains("[::1]")
+}
+
 /// Ollama API client
 pub struct OllamaClient {
     client: Client,
@@ -13,9 +22,18 @@ pub struct OllamaClient {
 
 impl OllamaClient {
     pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Self {
+        let base_url = base_url.into();
+
+        if is_insecure_remote_url(&base_url) {
+            tracing::warn!(
+                url = %base_url,
+                "using unencrypted HTTP for non-localhost API; consider using HTTPS"
+            );
+        }
+
         Self {
             client: Client::new(),
-            base_url: base_url.into(),
+            base_url,
             model: model.into(),
         }
     }
@@ -196,5 +214,14 @@ mod tests {
         let ollama_msg: OllamaMessage = (&msg).into();
         assert_eq!(ollama_msg.role, "user");
         assert_eq!(ollama_msg.content, Some("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_insecure_url_detection() {
+        assert!(is_insecure_remote_url("http://api.example.com:11434"));
+        assert!(is_insecure_remote_url("http://192.168.1.1:11434"));
+        assert!(!is_insecure_remote_url("http://localhost:11434"));
+        assert!(!is_insecure_remote_url("http://127.0.0.1:11434"));
+        assert!(!is_insecure_remote_url("https://api.example.com"));
     }
 }
