@@ -1,9 +1,79 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::llm::ToolDefinition;
 
 use super::{ToolResult, bash, file, search};
+
+/// Resolve a user-provided path and validate it stays within the working directory.
+///
+/// This prevents path traversal attacks where `../` sequences could escape
+/// the working directory to access unauthorized files.
+///
+/// # Errors
+/// Returns an error message if:
+/// - The working directory cannot be canonicalized
+/// - The resolved path escapes the working directory
+fn resolve_safe_path(working_dir: &Path, user_path: &str) -> Result<PathBuf, String> {
+    let joined = working_dir.join(user_path);
+
+    let canonical_working = working_dir
+        .canonicalize()
+        .map_err(|e| format!("failed to canonicalize working directory: {e}"))?;
+
+    // For existing files, canonicalize directly
+    if joined.exists() {
+        let canonical_target = joined
+            .canonicalize()
+            .map_err(|e| format!("failed to canonicalize path: {e}"))?;
+
+        if !canonical_target.starts_with(&canonical_working) {
+            return Err("path escapes working directory".to_string());
+        }
+
+        return Ok(canonical_target);
+    }
+
+    // For non-existent files (write operations), validate the parent directory
+    // and construct the final path
+    let parent = joined.parent().ok_or("invalid path: no parent directory")?;
+
+    // If parent is empty (file in current dir), use working dir
+    let canonical_parent = if parent.as_os_str().is_empty() {
+        canonical_working.clone()
+    } else if parent.exists() {
+        parent
+            .canonicalize()
+            .map_err(|e| format!("failed to canonicalize parent directory: {e}"))?
+    } else {
+        // Parent doesn't exist - find deepest existing ancestor
+        let mut ancestor = parent.to_path_buf();
+        while !ancestor.exists() {
+            ancestor = ancestor
+                .parent()
+                .ok_or("no valid ancestor directory")?
+                .to_path_buf();
+        }
+        let canonical_ancestor = ancestor
+            .canonicalize()
+            .map_err(|e| format!("failed to canonicalize ancestor: {e}"))?;
+
+        if !canonical_ancestor.starts_with(&canonical_working) {
+            return Err("path escapes working directory".to_string());
+        }
+
+        // Return the original joined path since we'll create parent dirs
+        return Ok(joined);
+    };
+
+    if !canonical_parent.starts_with(&canonical_working) {
+        return Err("path escapes working directory".to_string());
+    }
+
+    let file_name = joined.file_name().ok_or("invalid path: no filename")?;
+
+    Ok(canonical_parent.join(file_name))
+}
 
 /// Returns tool definitions for all available tools
 pub fn all_tool_definitions() -> Vec<ToolDefinition> {
@@ -196,7 +266,10 @@ async fn execute_read(arguments: &serde_json::Value, working_dir: &Path) -> Tool
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
 
-    let path = working_dir.join(path_str);
+    let path = match resolve_safe_path(working_dir, path_str) {
+        Ok(p) => p,
+        Err(e) => return ToolResult::failure(e),
+    };
 
     match file::read(&path, line_numbers).await {
         Ok(result) => result,
@@ -213,7 +286,10 @@ async fn execute_write(arguments: &serde_json::Value, working_dir: &Path) -> Too
         return ToolResult::failure("missing required argument: contents");
     };
 
-    let path = working_dir.join(path_str);
+    let path = match resolve_safe_path(working_dir, path_str) {
+        Ok(p) => p,
+        Err(e) => return ToolResult::failure(e),
+    };
 
     match file::write(&path, contents).await {
         Ok(result) => result,
@@ -234,7 +310,10 @@ async fn execute_edit(arguments: &serde_json::Value, working_dir: &Path) -> Tool
         return ToolResult::failure("missing required argument: new_string");
     };
 
-    let path = working_dir.join(path_str);
+    let path = match resolve_safe_path(working_dir, path_str) {
+        Ok(p) => p,
+        Err(e) => return ToolResult::failure(e),
+    };
 
     match file::edit(&path, old_string, new_string).await {
         Ok(result) => result,
@@ -353,5 +432,26 @@ mod tests {
         assert!(names.contains(&"edit"));
         assert!(names.contains(&"glob"));
         assert!(names.contains(&"grep"));
+    }
+
+    #[tokio::test]
+    async fn test_path_traversal_blocked_read() {
+        let temp = TempDir::new().unwrap();
+        let args = serde_json::json!({"path": "../../../etc/passwd"});
+        let result = execute_tool("read", &args, temp.path()).await;
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("escapes working directory"));
+    }
+
+    #[tokio::test]
+    async fn test_path_traversal_blocked_write() {
+        let temp = TempDir::new().unwrap();
+        let args = serde_json::json!({
+            "path": "../escape.txt",
+            "contents": "malicious"
+        });
+        let result = execute_tool("write", &args, temp.path()).await;
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("escapes working directory"));
     }
 }

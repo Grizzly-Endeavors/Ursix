@@ -18,7 +18,21 @@ pub async fn glob_search(base_path: &Path, pattern: &str) -> Result<ToolResult, 
         .map_err(|e| ToolError::InvalidArgument(format!("Invalid glob pattern: {e}")))?
         .collect();
 
-    let mut paths = paths.map_err(|e| ToolError::ExecutionFailed(format!("Glob error: {e}")))?;
+    let paths = paths.map_err(|e| ToolError::ExecutionFailed(format!("Glob error: {e}")))?;
+
+    // Filter paths to only those within base_path (prevent directory traversal)
+    let canonical_base = base_path.canonicalize().map_err(|e| {
+        ToolError::ExecutionFailed(format!("failed to canonicalize base path: {e}"))
+    })?;
+
+    let mut paths: Vec<_> = paths
+        .into_iter()
+        .filter(|p| {
+            p.canonicalize()
+                .map(|c| c.starts_with(&canonical_base))
+                .unwrap_or(false)
+        })
+        .collect();
 
     // Sort by modification time (newest first)
     paths.sort_by(|a, b| {
@@ -34,9 +48,13 @@ pub async fn glob_search(base_path: &Path, pattern: &str) -> Result<ToolResult, 
     let output = paths
         .iter()
         .filter_map(|p| {
-            p.strip_prefix(base_path)
-                .ok()
-                .map(|p| p.display().to_string())
+            // Use canonical paths for consistent output (avoids ../ in relative paths)
+            p.canonicalize().ok().and_then(|canonical| {
+                canonical
+                    .strip_prefix(&canonical_base)
+                    .ok()
+                    .map(|rel| rel.display().to_string())
+            })
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -57,10 +75,20 @@ pub async fn grep_search(
     let full_pattern = base_path.join(file_glob);
     let pattern_str = full_pattern.to_string_lossy();
 
+    // Filter paths to only those within base_path (prevent directory traversal)
+    let canonical_base = base_path.canonicalize().map_err(|e| {
+        ToolError::ExecutionFailed(format!("failed to canonicalize base path: {e}"))
+    })?;
+
     let paths: Vec<_> = glob::glob(&pattern_str)
         .map_err(|e| ToolError::InvalidArgument(format!("Invalid glob pattern: {e}")))?
         .filter_map(Result::ok)
         .filter(|p| p.is_file())
+        .filter(|p| {
+            p.canonicalize()
+                .map(|c| c.starts_with(&canonical_base))
+                .unwrap_or(false)
+        })
         .collect();
 
     let mut matches = Vec::new();
@@ -197,5 +225,41 @@ mod tests {
             .unwrap();
         assert!(result.success);
         assert!(result.output.contains("No matches found"));
+    }
+
+    #[tokio::test]
+    async fn test_glob_traversal_blocked() {
+        let temp = TempDir::new().unwrap();
+        // Create a file inside temp
+        tokio::fs::write(temp.path().join("inside.txt"), "content")
+            .await
+            .unwrap();
+        // Try to glob outside working dir - should not find sibling directories
+        let result = glob_search(temp.path(), "../*").await.unwrap();
+        // Paths outside base_path are filtered out by canonicalization check
+        // Output should either be empty or only contain paths inside temp (no "..")
+        assert!(
+            result.output.contains("No files found") || !result.output.contains(".."),
+            "Expected traversal blocked (no '..' in output), got: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn test_grep_traversal_blocked() {
+        let temp = TempDir::new().unwrap();
+        tokio::fs::write(temp.path().join("test.txt"), "findme")
+            .await
+            .unwrap();
+        let result = grep_search(temp.path(), "findme", Some("../*"))
+            .await
+            .unwrap();
+        // Traversal should be blocked - grep should find nothing outside temp
+        // Should either say "No matches found" or only show test.txt from inside temp
+        assert!(
+            result.output.contains("No matches found") || result.output.contains("test.txt"),
+            "Expected traversal blocked, got: {}",
+            result.output
+        );
     }
 }
