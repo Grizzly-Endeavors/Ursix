@@ -201,6 +201,8 @@ struct OllamaErrorResponse {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn test_message_conversion() {
@@ -223,5 +225,127 @@ mod tests {
         assert!(!is_insecure_remote_url("http://localhost:11434"));
         assert!(!is_insecure_remote_url("http://127.0.0.1:11434"));
         assert!(!is_insecure_remote_url("https://api.example.com"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_success() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/chat"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {
+                    "role": "assistant",
+                    "content": "Hello! How can I help you today?"
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let client = OllamaClient::new(mock_server.uri(), "test-model");
+        let messages = vec![Message {
+            role: Role::User,
+            content: "Hello".to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        let response = client.chat(&messages, &[]).await.unwrap();
+        assert_eq!(response.content, "Hello! How can I help you today?");
+        assert!(response.tool_calls.is_empty());
+        assert!(response.is_complete);
+    }
+
+    #[tokio::test]
+    async fn test_chat_api_error() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/chat"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": "model 'nonexistent' not found"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let client = OllamaClient::new(mock_server.uri(), "nonexistent");
+        let result = client.chat(&[], &[]).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, LlmError::Api(_)));
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_tool_calls() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/chat"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "function": {
+                            "name": "bash",
+                            "arguments": {"command": "ls -la"}
+                        }
+                    }]
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let client = OllamaClient::new(mock_server.uri(), "test-model");
+        let messages = vec![Message {
+            role: Role::User,
+            content: "List files".to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        let response = client.chat(&messages, &[]).await.unwrap();
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "bash");
+        assert_eq!(response.tool_calls[0].id, "call_0");
+        assert!(!response.is_complete); // Has tool calls, so not complete
+    }
+
+    #[tokio::test]
+    async fn test_chat_server_error() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/chat"))
+            .respond_with(ResponseTemplate::new(500).set_body_json(serde_json::json!({
+                "error": "internal server error"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let client = OllamaClient::new(mock_server.uri(), "test-model");
+        let result = client.chat(&[], &[]).await;
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LlmError::Api(_)));
+    }
+
+    #[tokio::test]
+    async fn test_chat_malformed_response() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/chat"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not valid json"))
+            .mount(&mock_server)
+            .await;
+
+        let client = OllamaClient::new(mock_server.uri(), "test-model");
+        let result = client.chat(&[], &[]).await;
+
+        // Should fail to parse
+        assert!(result.is_err());
     }
 }
