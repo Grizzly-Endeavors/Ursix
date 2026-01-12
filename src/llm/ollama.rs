@@ -55,13 +55,15 @@ impl LlmClient for OllamaClient {
             stream: false,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await?
-            .error_for_status()?;
+        let response = self.client.post(&url).json(&request).send().await?;
+
+        if !response.status().is_success() {
+            let error_body = response
+                .json::<OllamaErrorResponse>()
+                .await
+                .map_or_else(|_| "unknown error".to_string(), |e| e.error);
+            return Err(LlmError::Api(error_body));
+        }
 
         let chat_response: OllamaChatResponse = response.json().await?;
 
@@ -170,6 +172,11 @@ struct OllamaChatResponse {
 struct OllamaResponseMessage {
     content: Option<String>,
     tool_calls: Option<Vec<OllamaToolCall>>,
+}
+
+#[derive(Deserialize)]
+struct OllamaErrorResponse {
+    error: String,
 }
 
 #[cfg(test)]
