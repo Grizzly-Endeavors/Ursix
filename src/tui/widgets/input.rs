@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Widget},
 };
 
-use crate::tui::state::{AppState, Focus};
+use crate::tui::state::AppState;
 
 /// Input box widget for user text entry
 pub struct InputBox<'a> {
@@ -21,16 +21,12 @@ impl<'a> InputBox<'a> {
 
 impl Widget for InputBox<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let is_focused = self.state.focus == Focus::Input;
         let is_disabled = self.state.is_agent_running();
 
-        // Build border style based on state
         let border_style = if is_disabled {
             Style::default().fg(Color::DarkGray)
-        } else if is_focused {
-            Style::default().fg(Color::Cyan)
         } else {
-            Style::default().fg(Color::Gray)
+            Style::default().fg(Color::Cyan)
         };
 
         let title = if is_disabled {
@@ -44,14 +40,15 @@ impl Widget for InputBox<'_> {
             .border_style(border_style)
             .title(title);
 
-        // Build input text with cursor
         let text_style = if is_disabled {
             Style::default().fg(Color::DarkGray)
         } else {
             Style::default()
         };
 
-        let input_text = if is_focused && !is_disabled {
+        let input_text = if is_disabled {
+            Line::from(Span::styled(self.state.input.clone(), text_style))
+        } else {
             // Show cursor
             let (before, after) = self.state.input.split_at(self.state.cursor_position);
             let cursor_char = after.chars().next().unwrap_or(' ');
@@ -69,8 +66,6 @@ impl Widget for InputBox<'_> {
                 ),
                 Span::styled(after_cursor, text_style),
             ])
-        } else {
-            Line::from(Span::styled(self.state.input.clone(), text_style))
         };
 
         let paragraph = Paragraph::new(input_text).block(block);

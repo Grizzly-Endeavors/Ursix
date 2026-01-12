@@ -76,7 +76,7 @@ impl Widget for StatusBar<'_> {
 
         // Help hint on the right
         let help_span = Span::styled(
-            " Tab:focus  Ctrl+C:quit ",
+            " ↑↓:scroll  Ctrl+C:quit ",
             Style::default().fg(Color::DarkGray),
         );
 

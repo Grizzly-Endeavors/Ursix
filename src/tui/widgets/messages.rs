@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
 
-use crate::tui::state::{AppState, DisplayMessage, Focus};
+use crate::tui::state::{AppState, DisplayMessage};
 
 use super::ToolOutput;
 
@@ -20,12 +20,7 @@ impl<'a> MessageList<'a> {
         Self { state }
     }
 
-    fn render_message(
-        &self,
-        msg: &DisplayMessage,
-        msg_idx: usize,
-        width: u16,
-    ) -> Vec<Line<'static>> {
+    fn render_message(msg: &DisplayMessage, width: u16) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
         let content_width = width.saturating_sub(4) as usize; // Account for borders and padding
 
@@ -70,10 +65,8 @@ impl<'a> MessageList<'a> {
                 }
 
                 // Render tool executions
-                for (tool_idx, tool) in tool_executions.iter().enumerate() {
-                    let is_selected = self.state.selected_message == Some(msg_idx)
-                        && self.state.selected_tool == Some(tool_idx);
-                    let tool_lines = ToolOutput::render_lines(tool, is_selected, content_width);
+                for tool in tool_executions {
+                    let tool_lines = ToolOutput::render_lines(tool, content_width);
                     lines.extend(tool_lines);
                 }
 
@@ -98,17 +91,9 @@ impl<'a> MessageList<'a> {
 
 impl Widget for MessageList<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let is_focused = self.state.focus == Focus::Messages;
-
-        let border_style = if is_focused {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::Gray)
-        };
-
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(border_style)
+            .border_style(Style::default().fg(Color::Gray))
             .title(" Conversation ");
 
         let inner = block.inner(area);
@@ -126,8 +111,8 @@ impl Widget for MessageList<'_> {
 
         // Build all lines for messages
         let mut all_lines: Vec<Line<'static>> = Vec::new();
-        for (idx, msg) in self.state.messages.iter().enumerate() {
-            let msg_lines = self.render_message(msg, idx, inner.width);
+        for msg in &self.state.messages {
+            let msg_lines = Self::render_message(msg, inner.width);
             all_lines.extend(msg_lines);
         }
 

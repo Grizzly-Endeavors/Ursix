@@ -38,14 +38,6 @@ pub enum DisplayMessage {
     Error(String),
 }
 
-/// Focus state for keyboard navigation
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Focus {
-    #[default]
-    Input,
-    Messages,
-}
-
 /// Agent execution status
 #[derive(Debug, Clone, Default)]
 pub enum AgentStatus {
@@ -72,9 +64,6 @@ pub struct AppState {
     /// Scroll offset for messages
     pub scroll_offset: usize,
 
-    /// Current focus (input or messages)
-    pub focus: Focus,
-
     /// Agent execution status
     pub status: AgentStatus,
 
@@ -92,12 +81,6 @@ pub struct AppState {
 
     /// LLM message history (for multi-turn conversations)
     pub history: Vec<Message>,
-
-    /// Index of currently selected message (for navigation)
-    pub selected_message: Option<usize>,
-
-    /// Index of currently selected tool within a message
-    pub selected_tool: Option<usize>,
 }
 
 impl AppState {
@@ -115,15 +98,12 @@ impl AppState {
             input: String::new(),
             cursor_position: 0,
             scroll_offset: 0,
-            focus: Focus::Input,
             status: AgentStatus::Idle,
             current_turn: 0,
             max_turns: config.max_turns,
             tick: 0,
             config,
             history,
-            selected_message: None,
-            selected_tool: None,
         }
     }
 
@@ -252,14 +232,6 @@ impl AppState {
         input
     }
 
-    /// Toggle focus between input and messages
-    pub fn toggle_focus(&mut self) {
-        self.focus = match self.focus {
-            Focus::Input => Focus::Messages,
-            Focus::Messages => Focus::Input,
-        };
-    }
-
     /// Scroll messages up
     pub fn scroll_up(&mut self) {
         self.scroll_offset = self.scroll_offset.saturating_sub(1);
@@ -269,18 +241,6 @@ impl AppState {
     pub fn scroll_down(&mut self, max_offset: usize) {
         if self.scroll_offset < max_offset {
             self.scroll_offset += 1;
-        }
-    }
-
-    /// Toggle collapse state of the selected tool
-    pub fn toggle_tool_collapse(&mut self) {
-        if let (Some(msg_idx), Some(tool_idx)) = (self.selected_message, self.selected_tool)
-            && let Some(DisplayMessage::Assistant {
-                tool_executions, ..
-            }) = self.messages.get_mut(msg_idx)
-            && let Some(tool) = tool_executions.get_mut(tool_idx)
-        {
-            tool.collapsed = !tool.collapsed;
         }
     }
 
@@ -310,8 +270,6 @@ impl AppState {
             tool_call_id: None,
         }];
         self.scroll_offset = 0;
-        self.selected_message = None;
-        self.selected_tool = None;
         self.status = AgentStatus::Idle;
     }
 }
@@ -327,7 +285,6 @@ mod tests {
         let state = AppState::new(default_config());
         assert!(state.messages.is_empty());
         assert!(state.input.is_empty());
-        assert_eq!(state.focus, Focus::Input);
         assert!(matches!(state.status, AgentStatus::Idle));
         assert_eq!(state.history.len(), 1); // System prompt
     }
@@ -362,18 +319,6 @@ mod tests {
 
         state.move_cursor_end();
         assert_eq!(state.cursor_position, 5);
-    }
-
-    #[test]
-    fn test_toggle_focus() {
-        let mut state = AppState::new(default_config());
-        assert_eq!(state.focus, Focus::Input);
-
-        state.toggle_focus();
-        assert_eq!(state.focus, Focus::Messages);
-
-        state.toggle_focus();
-        assert_eq!(state.focus, Focus::Input);
     }
 
     #[test]

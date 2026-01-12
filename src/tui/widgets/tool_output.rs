@@ -13,14 +13,10 @@ pub struct ToolOutput;
 
 impl ToolOutput {
     /// Render tool execution as lines of text
-    pub fn render_lines(
-        tool: &ToolExecution,
-        is_selected: bool,
-        max_width: usize,
-    ) -> Vec<Line<'static>> {
+    pub fn render_lines(tool: &ToolExecution, max_width: usize) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
 
-        lines.push(Self::render_header(tool, is_selected));
+        lines.push(Self::render_header(tool));
 
         if tool.collapsed {
             return lines;
@@ -32,7 +28,7 @@ impl ToolOutput {
         lines
     }
 
-    fn render_header(tool: &ToolExecution, is_selected: bool) -> Line<'static> {
+    fn render_header(tool: &ToolExecution) -> Line<'static> {
         let collapse_indicator = if tool.collapsed { "[+]" } else { "[-]" };
 
         let status_indicator = match &tool.result {
@@ -48,16 +44,11 @@ impl ToolOutput {
             .map(|ms| format!(" ({ms}ms)"))
             .unwrap_or_default();
 
-        let header_style = if is_selected {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Gray)
-        };
-
         Line::from(vec![
-            Span::styled(format!("  {collapse_indicator} "), header_style),
+            Span::styled(
+                format!("  {collapse_indicator} "),
+                Style::default().fg(Color::Gray),
+            ),
             status_indicator,
             Span::styled(
                 tool.name.clone(),
@@ -170,7 +161,7 @@ mod tests {
             collapsed: true,
         };
 
-        let lines = ToolOutput::render_lines(&tool, false, 80);
+        let lines = ToolOutput::render_lines(&tool, 80);
         assert_eq!(lines.len(), 1); // Only header when collapsed
     }
 
@@ -185,7 +176,7 @@ mod tests {
             collapsed: false,
         };
 
-        let lines = ToolOutput::render_lines(&tool, false, 80);
+        let lines = ToolOutput::render_lines(&tool, 80);
         assert!(lines.len() > 1); // Header + args + output
     }
 
@@ -200,7 +191,7 @@ mod tests {
             collapsed: false,
         };
 
-        let lines = ToolOutput::render_lines(&tool, false, 80);
+        let lines = ToolOutput::render_lines(&tool, 80);
         // Should have header and args, but no output section
         assert!(lines.len() >= 2);
     }
@@ -216,7 +207,7 @@ mod tests {
             collapsed: false,
         };
 
-        let lines = ToolOutput::render_lines(&tool, false, 80);
+        let lines = ToolOutput::render_lines(&tool, 80);
         // Check that we have output showing the error
         let all_text: String = lines
             .iter()

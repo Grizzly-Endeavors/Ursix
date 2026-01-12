@@ -134,27 +134,24 @@ impl TuiApp {
     ///
     /// Returns true if the application should quit
     async fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
-        // Global key bindings
+        // Global key bindings (always available)
         match (key.modifiers, key.code) {
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
                 return Ok(true); // Quit
             }
-            (KeyModifiers::NONE, KeyCode::Tab) => {
-                self.state.toggle_focus();
+            (KeyModifiers::NONE, KeyCode::Up) => {
+                self.state.scroll_up();
+                return Ok(false);
+            }
+            (KeyModifiers::NONE, KeyCode::Down) => {
+                let max_scroll = self.state.messages.len().saturating_mul(5);
+                self.state.scroll_down(max_scroll);
                 return Ok(false);
             }
             _ => {}
         }
 
-        // Context-specific handling
-        match self.state.focus {
-            state::Focus::Input => self.handle_input_key(key).await,
-            state::Focus::Messages => Ok(self.handle_messages_key(key)),
-        }
-    }
-
-    async fn handle_input_key(&mut self, key: KeyEvent) -> Result<bool> {
-        // Don't process input if agent is running
+        // Input handling (disabled while agent is running)
         if self.state.is_agent_running() {
             return Ok(false);
         }
@@ -188,28 +185,6 @@ impl TuiApp {
         }
 
         Ok(false)
-    }
-
-    fn handle_messages_key(&mut self, key: KeyEvent) -> bool {
-        match (key.modifiers, key.code) {
-            (KeyModifiers::NONE, KeyCode::Up | KeyCode::Char('k')) => {
-                self.state.scroll_up();
-            }
-            (KeyModifiers::NONE, KeyCode::Down | KeyCode::Char('j')) => {
-                // Calculate max scroll based on content
-                let max_scroll = self.state.messages.len().saturating_mul(5);
-                self.state.scroll_down(max_scroll);
-            }
-            (KeyModifiers::NONE, KeyCode::Char(' ')) => {
-                self.state.toggle_tool_collapse();
-            }
-            (KeyModifiers::NONE, KeyCode::Char('q')) => {
-                return true; // Quit
-            }
-            _ => {}
-        }
-
-        false
     }
 
     async fn submit_input(&mut self) -> Result<()> {
