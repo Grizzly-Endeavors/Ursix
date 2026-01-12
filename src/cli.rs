@@ -4,6 +4,7 @@ use clap::Parser;
 use crate::agent::Agent;
 use crate::config::Config;
 use crate::llm::ollama::OllamaClient;
+use crate::repl::Session;
 
 #[derive(Parser, Debug)]
 #[command(name = "rust-code")]
@@ -42,15 +43,14 @@ pub async fn run() -> Result<()> {
         max_turns: args.max_turns,
     };
 
-    let client = OllamaClient::new(&args.ollama_url, &args.model);
-    let agent = Agent::new(config, client);
-
     if let Some(prompt) = args.prompt {
+        let client = OllamaClient::new(&config.ollama_url, &config.model);
+        let agent = Agent::new(config, client);
         let result = agent.run(&prompt).await?;
         println!("{result}");
     } else {
-        println!("Interactive mode not yet implemented");
-        println!("Usage: rust-code \"your prompt here\"");
+        let mut session = Session::new(config);
+        session.run().await?;
     }
 
     Ok(())

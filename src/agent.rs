@@ -6,7 +6,7 @@ use crate::llm::{LlmClient, LlmError, Message, Role};
 use crate::tools::executor;
 
 /// System prompt that defines the agent's behavior and available tools
-const SYSTEM_PROMPT: &str = r"You are a helpful coding assistant with access to tools for interacting with the local filesystem and running commands.
+pub(crate) const SYSTEM_PROMPT: &str = r"You are a helpful coding assistant with access to tools for interacting with the local filesystem and running commands.
 
 Available tools:
 - bash: Execute shell commands
@@ -38,38 +38,54 @@ impl<L: LlmClient> Agent<L> {
         Self { config, client }
     }
 
-    /// Run the agent loop with an initial user message
+    /// Run the agent loop with an initial user message (creates fresh history)
     ///
     /// # Errors
     /// Returns error if LLM communication fails or `max_turns` exceeded without completion
     pub async fn run(&self, initial_message: &str) -> Result<String, AgentError> {
-        let mut messages = vec![
-            Message {
-                role: Role::System,
-                content: SYSTEM_PROMPT.to_string(),
-                tool_calls: None,
-                tool_call_id: None,
-            },
-            Message {
-                role: Role::User,
-                content: initial_message.to_string(),
-                tool_calls: None,
-                tool_call_id: None,
-            },
-        ];
+        let mut messages = vec![Message {
+            role: Role::System,
+            content: SYSTEM_PROMPT.to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        self.run_with_history(&mut messages, initial_message).await
+    }
+
+    /// Run the agent loop using external message history
+    ///
+    /// Appends user message, runs turns, returns final assistant response.
+    /// Message history is updated in-place for multi-turn support.
+    ///
+    /// # Errors
+    /// Returns error if LLM communication fails or `max_turns` exceeded without completion
+    pub async fn run_with_history(
+        &self,
+        messages: &mut Vec<Message>,
+        user_message: &str,
+    ) -> Result<String, AgentError> {
+        // Add user message to history
+        messages.push(Message {
+            role: Role::User,
+            content: user_message.to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        });
 
         let tools = executor::all_tool_definitions();
 
         info!(
             model = %self.client.model_name(),
             max_turns = self.config.max_turns,
+            history_len = messages.len(),
             "starting agent loop"
         );
 
         for turn in 0..self.config.max_turns {
             info!(turn, "agent turn");
 
-            let response = self.client.chat(&messages, &tools).await?;
+            let response = self.client.chat(messages, &tools).await?;
 
             debug!(
                 content_len = response.content.len(),
@@ -259,5 +275,46 @@ mod tests {
 
         let result = agent.run("Use unknown tool").await.unwrap();
         assert!(result.contains("error"));
+    }
+
+    #[tokio::test]
+    async fn test_run_with_history_multi_turn() {
+        // Test that message history accumulates correctly across multiple calls
+        let client = MockClient::new(vec![
+            LlmResponse::new("First response".to_string(), vec![]),
+            LlmResponse::new("Second response".to_string(), vec![]),
+        ]);
+        let config = Config::default();
+        let agent = Agent::new(config, client);
+
+        // Start with just system prompt
+        let mut messages = vec![Message {
+            role: Role::System,
+            content: SYSTEM_PROMPT.to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        // First turn
+        let r1 = agent
+            .run_with_history(&mut messages, "First question")
+            .await
+            .unwrap();
+        assert_eq!(r1, "First response");
+        // Should have: system + user + assistant
+        assert_eq!(messages.len(), 3);
+        assert!(matches!(messages[1].role, Role::User));
+        assert!(matches!(messages[2].role, Role::Assistant));
+
+        // Second turn
+        let r2 = agent
+            .run_with_history(&mut messages, "Second question")
+            .await
+            .unwrap();
+        assert_eq!(r2, "Second response");
+        // Should have: system + user + assistant + user + assistant
+        assert_eq!(messages.len(), 5);
+        assert!(matches!(messages[3].role, Role::User));
+        assert!(matches!(messages[4].role, Role::Assistant));
     }
 }
