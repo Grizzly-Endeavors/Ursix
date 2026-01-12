@@ -19,6 +19,7 @@ src/
     ├── file.rs      # read, write, edit operations
     └── search.rs    # glob, grep operations
 ```
+# Commit Requirements, Linting, and Formatting. 
 
 ## Git Hooks
 
@@ -38,22 +39,43 @@ Clippy pedantic is enabled with strict error handling:
 
 Test modules have `#[allow(clippy::unwrap_used)]` for readability.
 
-## Tool Return Values
+DO NOT, under any circumstance, change this config or add allow macros without explicit approval from the user. 
 
-Return `Result<ToolResult, ToolError>` from tool functions:
-- `ToolResult::success(output)` - tool succeeded
-- `ToolResult::failure(msg)` - tool-level failure (file not found, invalid args)
-- `ToolError` - system-level errors only (IO failures that bubble up)
+# Style Guidelines
 
-## Adding a New LLM Backend
+## Naming
+- **Domain-specific names**: Prefer descriptive names that match the domain (`send_chat_completion` over generic `run`)
+- **Common abbreviations OK**: `cfg`, `dir`, `msg`, `ctx`, `cmd` are fine; avoid obscure ones
 
-1. Create `src/llm/newbackend.rs`
-2. Implement `LlmClient` trait with `#[async_trait]`
-3. Add `pub mod newbackend;` to `src/llm/mod.rs`
-4. Add constructor and conversion tests
+## Error Messages
+- Always include context: `"failed to parse config at {path}"` not just `"parse error"`
+- Lowercase, no trailing period (Unix style, chains well with `anyhow` context)
 
-## Adding a New Tool
+## Comments
+- Explain **why**, never **what** — the code shows what, comments explain non-obvious reasoning
+- Doc comments: one-line `///` summary for public items; expand only for complex behavior
 
-1. Add async function to `src/tools/*.rs` (new file requires `pub mod` in `mod.rs`)
-2. Return `Result<ToolResult, ToolError>`
-3. Add tests for success, failure, and edge cases
+## Module Organization
+- Group related types in one file (e.g., `Message`, `Role`, `ToolCall` together in `llm/mod.rs`)
+- Tests: unit tests in `#[cfg(test)] mod tests` at file bottom; integration tests in `tests/`
+
+## Visibility
+- Private-first: start with no visibility modifier, add `pub(crate)` or `pub` only when needed
+- Treat `pub` as a commitment — once public, it's API
+
+## Function Signatures
+- **Strings**: `&str` for read-only, `impl Into<String>` when storing, owned `String` when caller must give up ownership
+- **Async**: async-first; only use sync for trivial or CPU-bound operations
+- **Generics**: default to concrete types, generify at public API boundaries when flexibility is needed
+
+## Construction
+- Prefer `new()` with required args + `Default` trait for optional configuration
+- Avoid builder pattern unless struct has many optional fields
+
+## Logging (tracing)
+- **error**: failures that stop an operation
+- **warn**: recoverable issues, degraded behavior
+- **info**: major operations (agent loop start/end, tool execution)
+- **debug**: internal details, state transitions
+- **trace**: verbose diagnostics (full payloads, timing)
+- Use structured fields: `info!(tool = %name, "executing tool")` not string interpolation

@@ -32,10 +32,13 @@ fn cli_shows_help() -> TestResult {
 
 #[test]
 fn cli_accepts_model_flag() -> TestResult {
+    // Without a prompt, CLI shows interactive mode message
     Command::cargo_bin("rust-code")?
         .args(["--model", "test-model"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Model: test-model"));
+        .stdout(predicate::str::contains(
+            "Interactive mode not yet implemented",
+        ));
     Ok(())
 }

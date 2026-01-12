@@ -1,5 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
+
+use crate::agent::Agent;
+use crate::config::Config;
+use crate::llm::ollama::OllamaClient;
 
 #[derive(Parser, Debug)]
 #[command(name = "rust-code")]
@@ -14,21 +18,39 @@ pub struct Args {
     #[arg(long, default_value = "http://localhost:11434")]
     pub ollama_url: String,
 
+    /// Maximum agent turns before stopping
+    #[arg(long, default_value = "50")]
+    pub max_turns: usize,
+
     /// Initial prompt (if not provided, starts interactive mode)
     pub prompt: Option<String>,
 }
 
+/// Run the CLI application
+///
+/// # Errors
+/// Returns error if agent execution fails or if working directory cannot be determined
 pub async fn run() -> Result<()> {
     let args = Args::parse();
 
-    println!("rust-code v{}", env!("CARGO_PKG_VERSION"));
-    println!("Model: {}", args.model);
-    println!("Ollama URL: {}", args.ollama_url);
+    let working_dir = std::env::current_dir().context("failed to get current directory")?;
 
-    if let Some(prompt) = &args.prompt {
-        println!("Prompt: {prompt}");
+    let config = Config {
+        model: args.model.clone(),
+        ollama_url: args.ollama_url.clone(),
+        working_dir,
+        max_turns: args.max_turns,
+    };
+
+    let client = OllamaClient::new(&args.ollama_url, &args.model);
+    let agent = Agent::new(config, client);
+
+    if let Some(prompt) = args.prompt {
+        let result = agent.run(&prompt).await?;
+        println!("{result}");
     } else {
-        println!("Interactive mode (not yet implemented)");
+        println!("Interactive mode not yet implemented");
+        println!("Usage: rust-code \"your prompt here\"");
     }
 
     Ok(())

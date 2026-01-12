@@ -1,4 +1,5 @@
 pub mod bash;
+pub mod executor;
 pub mod file;
 pub mod search;
 
