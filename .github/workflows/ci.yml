@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check
+    runs-on: [self-hosted, kubernetes]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run cargo check
+        run: cargo check --all-targets
+
+  fmt:
+    name: Format
+    runs-on: [self-hosted, kubernetes]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run cargo fmt
+        run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy
+    runs-on: [self-hosted, kubernetes]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: Test
+    runs-on: [self-hosted, kubernetes]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run cargo test
+        run: cargo test --all-targets
+
+  deny:
+    name: Cargo Deny
+    runs-on: [self-hosted, kubernetes]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Run cargo deny
+        run: cargo deny check

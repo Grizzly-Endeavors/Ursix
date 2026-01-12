@@ -1,0 +1,40 @@
+//! Integration tests for rust-code CLI
+
+#![allow(clippy::unwrap_used)]
+
+use assert_cmd::assert::OutputAssertExt;
+use assert_cmd::cargo::CommandCargoExt;
+use predicates::prelude::*;
+use std::process::Command;
+
+type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+#[test]
+fn cli_shows_version() -> TestResult {
+    Command::cargo_bin("rust-code")?
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+    Ok(())
+}
+
+#[test]
+fn cli_shows_help() -> TestResult {
+    Command::cargo_bin("rust-code")?
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("extensible agentic CLI"));
+    Ok(())
+}
+
+#[test]
+fn cli_accepts_model_flag() -> TestResult {
+    Command::cargo_bin("rust-code")?
+        .args(["--model", "test-model"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Model: test-model"));
+    Ok(())
+}
