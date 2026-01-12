@@ -2,7 +2,6 @@ mod agent;
 mod cli;
 mod config;
 mod llm;
-mod repl;
 mod tools;
 mod tui;
 

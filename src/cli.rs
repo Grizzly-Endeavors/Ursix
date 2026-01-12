@@ -4,7 +4,6 @@ use clap::Parser;
 use crate::agent::Agent;
 use crate::config::Config;
 use crate::llm::ollama::OllamaClient;
-use crate::repl::Session;
 use crate::tui::TuiApp;
 
 #[derive(Parser, Debug)]
@@ -24,11 +23,7 @@ pub struct Args {
     #[arg(long, default_value = "50")]
     pub max_turns: usize,
 
-    /// Use TUI mode instead of REPL
-    #[arg(long)]
-    pub tui: bool,
-
-    /// Initial prompt (if not provided, starts interactive mode)
+    /// Initial prompt (if not provided, starts interactive TUI mode)
     pub prompt: Option<String>,
 }
 
@@ -53,12 +48,9 @@ pub async fn run() -> Result<()> {
         let agent = Agent::new(config, client);
         let result = agent.run(&prompt).await?;
         println!("{result}");
-    } else if args.tui {
+    } else {
         let mut app = TuiApp::new(config)?;
         app.run().await?;
-    } else {
-        let mut session = Session::new(config);
-        session.run().await?;
     }
 
     Ok(())

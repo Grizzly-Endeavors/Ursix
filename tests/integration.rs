@@ -32,11 +32,12 @@ fn cli_shows_help() -> TestResult {
 
 #[test]
 fn cli_accepts_model_flag() -> TestResult {
-    // Without a prompt, CLI enters interactive mode (exits immediately on EOF)
+    // Verify --model flag is accepted by checking help output still works after it
+    // (clap will error if an unknown flag is passed before --help)
     Command::cargo_bin("rust-code")?
-        .args(["--model", "test-model"])
+        .args(["--model", "test-model", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("interactive mode"));
+        .stdout(predicate::str::contains("extensible agentic CLI"));
     Ok(())
 }
