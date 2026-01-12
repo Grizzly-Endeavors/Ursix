@@ -2,6 +2,13 @@
 
 A Rust project.
 
+## Setup
+
+After cloning, install git hooks:
+```bash
+./.githooks/install.sh
+```
+
 ## Build
 
 \`\`\`bash

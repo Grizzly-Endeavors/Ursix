@@ -20,22 +20,6 @@ src/
     └── search.rs    # glob, grep operations
 ```
 
-## Commands
-
-```bash
-cargo build          # Build
-cargo test           # Run tests
-cargo clippy         # Lint - fix all errors before committing
-cargo fmt            # Format - run before committing
-```
-
-## Setup
-
-After cloning, install git hooks:
-```bash
-./.githooks/install.sh
-```
-
 ## Git Hooks
 
 Pre-commit hooks enforce quality gates:
@@ -43,13 +27,13 @@ Pre-commit hooks enforce quality gates:
 - **commit-msg**: validates message format
 - **pre-push**: full test suite
 
-Bypass with `--no-verify` (not recommended).
+Bypass is **FORBIDDEN**.
 
 ## Lint Rules
 
 Clippy pedantic is enabled with strict error handling:
 - `unsafe_code` - forbidden
-- `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented` - **denied** (won't compile)
+- `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented` - **denied**
 - `missing_errors_doc`, `missing_panics_doc`, `must_use_candidate` - warnings
 
 Test modules have `#[allow(clippy::unwrap_used)]` for readability.

@@ -35,9 +35,11 @@ insta = { version = "1", features = ["json"] }
 assert_cmd = "2"
 predicates = "3"
 
-# Clippy lint configuration
+# Lint configuration
 [lints.rust]
 unsafe_code = "forbid"
+# TODO: Remove once scaffolding is wired up
+dead_code = "allow"
 
 [lints.clippy]
 # Pedantic level - strict but reasonable

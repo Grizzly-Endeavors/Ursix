@@ -28,18 +28,11 @@ if [ -n "$STAGED_RS_FILES" ] || [ -n "$STAGED_TOML_FILES" ]; then
     fi
     echo -e "${GREEN}✓ Formatting OK${NC}"
 
-    # 2. Run clippy (respects deny lints in Cargo.toml)
+    # 2. Run clippy (warnings are errors)
     echo -e "\n${YELLOW}[2/3] Running clippy...${NC}"
-    if ! cargo clippy --all-targets --quiet 2>&1 | grep -q "^error"; then
-        # Check exit code separately since grep changes it
-        if ! cargo clippy --all-targets --quiet 2>/dev/null; then
-            echo -e "${RED}ERROR: Clippy found issues.${NC}"
-            echo "Run 'cargo clippy --all-targets' to see details."
-            exit 1
-        fi
-    else
-        echo -e "${RED}ERROR: Clippy found errors.${NC}"
-        echo "Run 'cargo clippy --all-targets' to see details."
+    if ! cargo clippy --all-targets -- -D warnings 2>/dev/null; then
+        echo -e "${RED}ERROR: Clippy found issues.${NC}"
+        echo "Run 'cargo clippy --all-targets -- -D warnings' to see details."
         exit 1
     fi
     echo -e "${GREEN}✓ Clippy OK${NC}"

@@ -1,6 +1,7 @@
 //! Integration tests for rust-code CLI
 
 #![allow(clippy::unwrap_used)]
+#![allow(deprecated)] // cargo_bin deprecation - revisit when assert_cmd stabilizes new API
 
 use assert_cmd::assert::OutputAssertExt;
 use assert_cmd::cargo::CommandCargoExt;
