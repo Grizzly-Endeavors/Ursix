@@ -40,7 +40,10 @@ impl EventHandler {
         std::thread::spawn(move || {
             loop {
                 // Poll for terminal events with timeout
-                if event::poll(tick_rate).unwrap_or(false) {
+                if event::poll(tick_rate)
+                    .inspect_err(|e| tracing::debug!(error = %e, "terminal event poll error"))
+                    .unwrap_or(false)
+                {
                     if let Ok(evt) = event::read() {
                         let tui_event = match evt {
                             Event::Key(key) => TuiEvent::Input(key),

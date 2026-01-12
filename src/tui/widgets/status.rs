@@ -49,21 +49,17 @@ impl Widget for StatusBar<'_> {
 
         let turn_span = Span::styled(turn_info, Style::default().fg(Color::DarkGray));
 
-        let (status_text, status_style) = match &self.state.status {
-            AgentStatus::Idle => ("Ready", Style::default().fg(Color::Green)),
-            AgentStatus::Thinking => ("Thinking...", Style::default().fg(Color::Yellow)),
-            AgentStatus::ExecutingTool { name } => {
-                let text = format!("Running {name}...");
-                // We can't return a reference to a local String, so we'll handle this differently
-                (
-                    text.leak() as &'static str,
-                    Style::default().fg(Color::Yellow),
-                )
-            }
-            AgentStatus::Error(msg) => {
-                let text = format!("Error: {msg}");
-                (text.leak() as &'static str, Style::default().fg(Color::Red))
-            }
+        let (status_text, status_style): (String, Style) = match &self.state.status {
+            AgentStatus::Idle => ("Ready".to_string(), Style::default().fg(Color::Green)),
+            AgentStatus::Thinking => (
+                "Thinking...".to_string(),
+                Style::default().fg(Color::Yellow),
+            ),
+            AgentStatus::ExecutingTool { name } => (
+                format!("Running {name}..."),
+                Style::default().fg(Color::Yellow),
+            ),
+            AgentStatus::Error(msg) => (format!("Error: {msg}"), Style::default().fg(Color::Red)),
         };
 
         let status_span = Span::styled(format!(" {status_text} "), status_style);

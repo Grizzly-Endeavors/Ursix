@@ -48,15 +48,3 @@ impl ToolResult {
         }
     }
 }
-
-/// Trait for tool implementations
-pub trait Tool: Send + Sync {
-    /// The name of the tool (used in LLM tool definitions)
-    fn name(&self) -> &'static str;
-
-    /// Description of what the tool does
-    fn description(&self) -> &'static str;
-
-    /// JSON schema for the tool's parameters
-    fn parameters_schema(&self) -> serde_json::Value;
-}
