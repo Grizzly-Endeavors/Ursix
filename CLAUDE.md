@@ -25,15 +25,34 @@ src/
 ```bash
 cargo build          # Build
 cargo test           # Run tests
-cargo clippy         # Lint - fix all warnings before committing
+cargo clippy         # Lint - fix all errors before committing
 cargo fmt            # Format - run before committing
 ```
 
+## Setup
+
+After cloning, install git hooks:
+```bash
+./.githooks/install.sh
+```
+
+## Git Hooks
+
+Pre-commit hooks enforce quality gates:
+- **pre-commit**: `cargo fmt --check`, `cargo clippy`, `cargo test`
+- **commit-msg**: validates message format
+- **pre-push**: full test suite
+
+Bypass with `--no-verify` (not recommended).
+
 ## Lint Rules
 
-Clippy pedantic is enabled. Handle errors properly:
-- `unsafe_code` is forbidden
-- `unwrap_used`, `expect_used`, `panic`, `todo` emit warnings - use `?` or proper error handling
+Clippy pedantic is enabled with strict error handling:
+- `unsafe_code` - forbidden
+- `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented` - **denied** (won't compile)
+- `missing_errors_doc`, `missing_panics_doc`, `must_use_candidate` - warnings
+
+Test modules have `#[allow(clippy::unwrap_used)]` for readability.
 
 ## Tool Return Values
 
