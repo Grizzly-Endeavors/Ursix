@@ -5,6 +5,25 @@ use crate::llm::ToolDefinition;
 
 use super::{ToolResult, bash, file, search};
 
+/// Extract a required string argument from JSON
+fn get_required_str<'a>(args: &'a serde_json::Value, key: &str) -> Result<&'a str, ToolResult> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ToolResult::failure(format!("missing required argument: {key}")))
+}
+
+/// Extract an optional string argument from JSON
+fn get_optional_str<'a>(args: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    args.get(key).and_then(|v| v.as_str())
+}
+
+/// Extract an optional bool argument from JSON with default
+fn get_optional_bool(args: &serde_json::Value, key: &str, default: bool) -> bool {
+    args.get(key)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(default)
+}
+
 /// Resolve a user-provided path and validate it stays within the working directory.
 ///
 /// This prevents path traversal attacks where `../` sequences could escape
@@ -241,8 +260,9 @@ fn grep_definition() -> ToolDefinition {
 }
 
 async fn execute_bash(arguments: &serde_json::Value) -> ToolResult {
-    let Some(command) = arguments.get("command").and_then(|v| v.as_str()) else {
-        return ToolResult::failure("missing required argument: command");
+    let command = match get_required_str(arguments, "command") {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let timeout = arguments
@@ -257,14 +277,12 @@ async fn execute_bash(arguments: &serde_json::Value) -> ToolResult {
 }
 
 async fn execute_read(arguments: &serde_json::Value, working_dir: &Path) -> ToolResult {
-    let Some(path_str) = arguments.get("path").and_then(|v| v.as_str()) else {
-        return ToolResult::failure("missing required argument: path");
+    let path_str = match get_required_str(arguments, "path") {
+        Ok(p) => p,
+        Err(e) => return e,
     };
 
-    let line_numbers = arguments
-        .get("line_numbers")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
+    let line_numbers = get_optional_bool(arguments, "line_numbers", false);
 
     let path = match resolve_safe_path(working_dir, path_str) {
         Ok(p) => p,
@@ -278,12 +296,14 @@ async fn execute_read(arguments: &serde_json::Value, working_dir: &Path) -> Tool
 }
 
 async fn execute_write(arguments: &serde_json::Value, working_dir: &Path) -> ToolResult {
-    let Some(path_str) = arguments.get("path").and_then(|v| v.as_str()) else {
-        return ToolResult::failure("missing required argument: path");
+    let path_str = match get_required_str(arguments, "path") {
+        Ok(p) => p,
+        Err(e) => return e,
     };
 
-    let Some(contents) = arguments.get("contents").and_then(|v| v.as_str()) else {
-        return ToolResult::failure("missing required argument: contents");
+    let contents = match get_required_str(arguments, "contents") {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let path = match resolve_safe_path(working_dir, path_str) {
@@ -298,16 +318,19 @@ async fn execute_write(arguments: &serde_json::Value, working_dir: &Path) -> Too
 }
 
 async fn execute_edit(arguments: &serde_json::Value, working_dir: &Path) -> ToolResult {
-    let Some(path_str) = arguments.get("path").and_then(|v| v.as_str()) else {
-        return ToolResult::failure("missing required argument: path");
+    let path_str = match get_required_str(arguments, "path") {
+        Ok(p) => p,
+        Err(e) => return e,
     };
 
-    let Some(old_string) = arguments.get("old_string").and_then(|v| v.as_str()) else {
-        return ToolResult::failure("missing required argument: old_string");
+    let old_string = match get_required_str(arguments, "old_string") {
+        Ok(s) => s,
+        Err(e) => return e,
     };
 
-    let Some(new_string) = arguments.get("new_string").and_then(|v| v.as_str()) else {
-        return ToolResult::failure("missing required argument: new_string");
+    let new_string = match get_required_str(arguments, "new_string") {
+        Ok(s) => s,
+        Err(e) => return e,
     };
 
     let path = match resolve_safe_path(working_dir, path_str) {
@@ -322,8 +345,9 @@ async fn execute_edit(arguments: &serde_json::Value, working_dir: &Path) -> Tool
 }
 
 async fn execute_glob(arguments: &serde_json::Value, working_dir: &Path) -> ToolResult {
-    let Some(pattern) = arguments.get("pattern").and_then(|v| v.as_str()) else {
-        return ToolResult::failure("missing required argument: pattern");
+    let pattern = match get_required_str(arguments, "pattern") {
+        Ok(p) => p,
+        Err(e) => return e,
     };
 
     match search::glob_search(working_dir, pattern).await {
@@ -333,11 +357,12 @@ async fn execute_glob(arguments: &serde_json::Value, working_dir: &Path) -> Tool
 }
 
 async fn execute_grep(arguments: &serde_json::Value, working_dir: &Path) -> ToolResult {
-    let Some(pattern) = arguments.get("pattern").and_then(|v| v.as_str()) else {
-        return ToolResult::failure("missing required argument: pattern");
+    let pattern = match get_required_str(arguments, "pattern") {
+        Ok(p) => p,
+        Err(e) => return e,
     };
 
-    let file_pattern = arguments.get("file_pattern").and_then(|v| v.as_str());
+    let file_pattern = get_optional_str(arguments, "file_pattern");
 
     match search::grep_search(working_dir, pattern, file_pattern).await {
         Ok(result) => result,
