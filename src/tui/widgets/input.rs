@@ -82,18 +82,9 @@ impl Widget for InputBox<'_> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::config::Config;
+    use crate::tui::test_helpers::default_config;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-
-    fn default_config() -> Config {
-        Config {
-            model: "test".to_string(),
-            ollama_url: "http://localhost:11434".to_string(),
-            working_dir: std::path::PathBuf::from("/tmp"),
-            max_turns: 10,
-        }
-    }
 
     #[test]
     fn test_input_box_renders() {

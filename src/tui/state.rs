@@ -190,6 +190,9 @@ impl AppState {
                 self.status = AgentStatus::Error(message.clone());
                 self.messages.push(DisplayMessage::Error(message));
             }
+            AgentEvent::HistoryUpdated { history } => {
+                self.history = history;
+            }
         }
     }
 
@@ -317,15 +320,7 @@ impl AppState {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-
-    fn default_config() -> Config {
-        Config {
-            model: "test".to_string(),
-            ollama_url: "http://localhost:11434".to_string(),
-            working_dir: std::path::PathBuf::from("/tmp"),
-            max_turns: 10,
-        }
-    }
+    use crate::tui::test_helpers::default_config;
 
     #[test]
     fn test_new_state_initializes_correctly() {

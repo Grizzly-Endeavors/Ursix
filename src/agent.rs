@@ -66,6 +66,9 @@ pub enum AgentEvent {
 
     /// Agent encountered an error
     Error { message: String },
+
+    /// Updated history after agent completes (success or failure)
+    HistoryUpdated { history: Vec<Message> },
 }
 
 /// The core agent loop that orchestrates LLM calls and tool execution
@@ -106,96 +109,7 @@ impl<L: LlmClient> Agent<L> {
         messages: &mut Vec<Message>,
         user_message: &str,
     ) -> Result<String, AgentError> {
-        // Add user message to history
-        messages.push(Message {
-            role: Role::User,
-            content: user_message.to_string(),
-            tool_calls: None,
-            tool_call_id: None,
-        });
-
-        let tools = executor::all_tool_definitions();
-
-        info!(
-            model = %self.client.model_name(),
-            max_turns = self.config.max_turns,
-            history_len = messages.len(),
-            "starting agent loop"
-        );
-
-        for turn in 0..self.config.max_turns {
-            info!(turn, "agent turn");
-
-            let response = self.client.chat(messages, &tools).await?;
-
-            debug!(
-                content_len = response.content.len(),
-                tool_calls = response.tool_calls.len(),
-                is_complete = response.is_complete,
-                "received LLM response"
-            );
-
-            // Add assistant message to history
-            messages.push(Message {
-                role: Role::Assistant,
-                content: response.content.clone(),
-                tool_calls: if response.tool_calls.is_empty() {
-                    None
-                } else {
-                    Some(response.tool_calls.clone())
-                },
-                tool_call_id: None,
-            });
-
-            // Check for completion (no tool calls and has content)
-            if response.is_complete {
-                info!(turn, "agent completed");
-                return Ok(response.content);
-            }
-
-            // Execute each tool call
-            for tool_call in &response.tool_calls {
-                info!(
-                    tool = %tool_call.name,
-                    call_id = %tool_call.id,
-                    "executing tool"
-                );
-
-                let result = executor::execute_tool(
-                    &tool_call.name,
-                    &tool_call.arguments,
-                    &self.config.working_dir,
-                )
-                .await;
-
-                debug!(
-                    tool = %tool_call.name,
-                    success = result.success,
-                    output_len = result.output.len(),
-                    "tool execution complete"
-                );
-
-                // Format result for the LLM
-                let result_content = if result.success {
-                    result.output
-                } else {
-                    format!(
-                        "Error: {}",
-                        result.error.unwrap_or_else(|| "unknown error".to_string())
-                    )
-                };
-
-                // Add tool result to history
-                messages.push(Message {
-                    role: Role::Tool,
-                    content: result_content,
-                    tool_calls: None,
-                    tool_call_id: Some(tool_call.id.clone()),
-                });
-            }
-        }
-
-        Err(AgentError::MaxTurnsExceeded(self.config.max_turns))
+        self.run_loop(messages, user_message, None).await
     }
 
     /// Run the agent loop with event reporting for TUI updates
@@ -210,6 +124,20 @@ impl<L: LlmClient> Agent<L> {
         messages: &mut Vec<Message>,
         user_message: &str,
         event_tx: Option<mpsc::UnboundedSender<AgentEvent>>,
+    ) -> Result<String, AgentError> {
+        self.run_loop(messages, user_message, event_tx.as_ref())
+            .await
+    }
+
+    /// Core agent loop implementation
+    ///
+    /// Handles the main agent loop logic with optional event reporting.
+    /// Events are only sent when `event_tx` is `Some`.
+    async fn run_loop(
+        &self,
+        messages: &mut Vec<Message>,
+        user_message: &str,
+        event_tx: Option<&mpsc::UnboundedSender<AgentEvent>>,
     ) -> Result<String, AgentError> {
         messages.push(Message {
             role: Role::User,
@@ -228,7 +156,7 @@ impl<L: LlmClient> Agent<L> {
         );
 
         send_event(
-            event_tx.as_ref(),
+            event_tx,
             AgentEvent::Started {
                 turn: 0,
                 max_turns: self.config.max_turns,
@@ -236,84 +164,98 @@ impl<L: LlmClient> Agent<L> {
         );
 
         for turn in 0..self.config.max_turns {
-            info!(turn, "agent turn");
-            send_event(event_tx.as_ref(), AgentEvent::LlmCallStarted);
-
-            let response = match self.client.chat(messages, &tools).await {
-                Ok(r) => r,
-                Err(e) => {
-                    send_event(
-                        event_tx.as_ref(),
-                        AgentEvent::Error {
-                            message: e.to_string(),
-                        },
-                    );
-                    return Err(e.into());
-                }
-            };
-
-            debug!(
-                content_len = response.content.len(),
-                tool_calls = response.tool_calls.len(),
-                is_complete = response.is_complete,
-                "received LLM response"
-            );
-
-            send_event(
-                event_tx.as_ref(),
-                AgentEvent::LlmResponse {
-                    content: response.content.clone(),
-                    tool_count: response.tool_calls.len(),
-                    turn,
-                },
-            );
-
-            messages.push(Message {
-                role: Role::Assistant,
-                content: response.content.clone(),
-                tool_calls: if response.tool_calls.is_empty() {
-                    None
-                } else {
-                    Some(response.tool_calls.clone())
-                },
-                tool_call_id: None,
-            });
-
-            if response.is_complete {
-                info!(turn, "agent completed");
-                send_event(
-                    event_tx.as_ref(),
-                    AgentEvent::Completed {
-                        final_response: response.content.clone(),
-                    },
-                );
-                return Ok(response.content);
-            }
-
-            for tool_call in &response.tool_calls {
-                let result_content = self
-                    .execute_tool_with_events(tool_call, event_tx.as_ref())
-                    .await;
-
-                messages.push(Message {
-                    role: Role::Tool,
-                    content: result_content,
-                    tool_calls: None,
-                    tool_call_id: Some(tool_call.id.clone()),
-                });
+            match self.process_turn(messages, &tools, turn, event_tx).await {
+                TurnResult::Complete(response) => return Ok(response),
+                TurnResult::Continue => {}
+                TurnResult::Error(e) => return Err(e),
             }
         }
 
-        send_event(
-            event_tx.as_ref(),
-            AgentEvent::Error {
-                message: format!(
-                    "max turns ({}) reached without completion",
-                    self.config.max_turns
-                ),
-            },
+        send_error_with_history(
+            event_tx,
+            format!(
+                "max turns ({}) reached without completion",
+                self.config.max_turns
+            ),
+            messages,
         );
         Err(AgentError::MaxTurnsExceeded(self.config.max_turns))
+    }
+
+    /// Process a single turn of the agent loop
+    async fn process_turn(
+        &self,
+        messages: &mut Vec<Message>,
+        tools: &[crate::llm::ToolDefinition],
+        turn: usize,
+        event_tx: Option<&mpsc::UnboundedSender<AgentEvent>>,
+    ) -> TurnResult {
+        info!(turn, "agent turn");
+        send_event(event_tx, AgentEvent::LlmCallStarted);
+
+        let response = match self.client.chat(messages, tools).await {
+            Ok(r) => r,
+            Err(e) => {
+                send_error_with_history(event_tx, e.to_string(), messages);
+                return TurnResult::Error(e.into());
+            }
+        };
+
+        debug!(
+            content_len = response.content.len(),
+            tool_calls = response.tool_calls.len(),
+            is_complete = response.is_complete,
+            "received LLM response"
+        );
+
+        send_event(
+            event_tx,
+            AgentEvent::LlmResponse {
+                content: response.content.clone(),
+                tool_count: response.tool_calls.len(),
+                turn,
+            },
+        );
+
+        messages.push(Message {
+            role: Role::Assistant,
+            content: response.content.clone(),
+            tool_calls: if response.tool_calls.is_empty() {
+                None
+            } else {
+                Some(response.tool_calls.clone())
+            },
+            tool_call_id: None,
+        });
+
+        if response.is_complete {
+            info!(turn, "agent completed");
+            send_event(
+                event_tx,
+                AgentEvent::Completed {
+                    final_response: response.content.clone(),
+                },
+            );
+            send_event(
+                event_tx,
+                AgentEvent::HistoryUpdated {
+                    history: messages.clone(),
+                },
+            );
+            return TurnResult::Complete(response.content);
+        }
+
+        for tool_call in &response.tool_calls {
+            let result_content = self.execute_tool_with_events(tool_call, event_tx).await;
+            messages.push(Message {
+                role: Role::Tool,
+                content: result_content,
+                tool_calls: None,
+                tool_call_id: Some(tool_call.id.clone()),
+            });
+        }
+
+        TurnResult::Continue
     }
 
     async fn execute_tool_with_events(
@@ -374,11 +316,36 @@ impl<L: LlmClient> Agent<L> {
     }
 }
 
+/// Result of processing a single agent turn
+enum TurnResult {
+    /// Agent completed with final response
+    Complete(String),
+    /// Continue to next turn
+    Continue,
+    /// Error occurred
+    Error(AgentError),
+}
+
 /// Send an event if the channel is available (ignores send errors)
 fn send_event(event_tx: Option<&mpsc::UnboundedSender<AgentEvent>>, event: AgentEvent) {
     if let Some(tx) = event_tx {
         let _ = tx.send(event);
     }
+}
+
+/// Send error event followed by history update
+fn send_error_with_history(
+    event_tx: Option<&mpsc::UnboundedSender<AgentEvent>>,
+    message: String,
+    messages: &[Message],
+) {
+    send_event(event_tx, AgentEvent::Error { message });
+    send_event(
+        event_tx,
+        AgentEvent::HistoryUpdated {
+            history: messages.to_vec(),
+        },
+    );
 }
 
 #[cfg(test)]

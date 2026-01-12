@@ -111,18 +111,9 @@ impl Widget for StatusBar<'_> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::config::Config;
+    use crate::tui::test_helpers::default_config;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-
-    fn default_config() -> Config {
-        Config {
-            model: "llama3.2".to_string(),
-            ollama_url: "http://localhost:11434".to_string(),
-            working_dir: std::path::PathBuf::from("/tmp"),
-            max_turns: 10,
-        }
-    }
 
     #[test]
     fn test_status_bar_renders_model() {
@@ -145,7 +136,7 @@ mod tests {
             .iter()
             .map(ratatui::buffer::Cell::symbol)
             .collect();
-        assert!(content.contains("llama3.2"));
+        assert!(content.contains("test"));
         assert!(content.contains("Ready"));
     }
 }

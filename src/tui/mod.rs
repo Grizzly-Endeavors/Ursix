@@ -2,6 +2,9 @@ mod event;
 mod state;
 mod widgets;
 
+#[cfg(test)]
+pub(crate) mod test_helpers;
+
 use std::io::{self, Stdout};
 use std::time::Duration;
 
@@ -245,7 +248,7 @@ impl TuiApp {
         });
 
         // Run agent in background task
-        let mut history = std::mem::take(&mut self.state.history);
+        let mut history = self.state.history.clone();
         let prompt = input;
 
         tokio::spawn(async move {
