@@ -13,7 +13,6 @@ pub struct ToolOutput;
 
 impl ToolOutput {
     /// Render tool execution as lines of text
-    #[allow(clippy::too_many_lines)]
     pub fn render_lines(
         tool: &ToolExecution,
         is_selected: bool,
@@ -21,7 +20,19 @@ impl ToolOutput {
     ) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
 
-        // Build header line
+        lines.push(Self::render_header(tool, is_selected));
+
+        if tool.collapsed {
+            return lines;
+        }
+
+        Self::render_arguments(tool, max_width, &mut lines);
+        Self::render_output(tool, max_width, &mut lines);
+
+        lines
+    }
+
+    fn render_header(tool: &ToolExecution, is_selected: bool) -> Line<'static> {
         let collapse_indicator = if tool.collapsed { "[+]" } else { "[-]" };
 
         let status_indicator = match &tool.result {
@@ -29,7 +40,7 @@ impl ToolOutput {
                 Span::styled(" ✓ ", Style::default().fg(Color::Green))
             }
             Some(_) => Span::styled(" ✗ ", Style::default().fg(Color::Red)),
-            None => Span::styled(" ● ", Style::default().fg(Color::Yellow)), // Running
+            None => Span::styled(" ● ", Style::default().fg(Color::Yellow)),
         };
 
         let duration_text = tool
@@ -45,7 +56,7 @@ impl ToolOutput {
             Style::default().fg(Color::Gray)
         };
 
-        let header = Line::from(vec![
+        Line::from(vec![
             Span::styled(format!("  {collapse_indicator} "), header_style),
             status_indicator,
             Span::styled(
@@ -53,27 +64,17 @@ impl ToolOutput {
                 Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::styled(duration_text, Style::default().fg(Color::DarkGray)),
-        ]);
-        lines.push(header);
+        ])
+    }
 
-        // If collapsed, don't show details
-        if tool.collapsed {
-            return lines;
-        }
-
-        // Show arguments (truncated)
+    fn render_arguments(tool: &ToolExecution, max_width: usize, lines: &mut Vec<Line<'static>>) {
         let args_str = serde_json::to_string_pretty(&tool.arguments)
             .unwrap_or_else(|_| tool.arguments.to_string());
+
         let args_preview: String = args_str
             .lines()
             .take(3)
-            .map(|l| {
-                if l.len() > max_width.saturating_sub(6) {
-                    format!("{}...", &l[..max_width.saturating_sub(9)])
-                } else {
-                    l.to_string()
-                }
-            })
+            .map(|l| truncate_line(l, max_width.saturating_sub(6)))
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -82,67 +83,73 @@ impl ToolOutput {
             Style::default().fg(Color::DarkGray),
         )));
 
-        // Show more arg lines if present
         for line in args_preview.lines().skip(1) {
             lines.push(Line::from(Span::styled(
                 format!("            {line}"),
                 Style::default().fg(Color::DarkGray),
             )));
         }
+    }
 
-        // Show output if completed
-        if let Some(result) = &tool.result {
-            let output_style = if result.success {
-                Style::default().fg(Color::White)
-            } else {
-                Style::default().fg(Color::Red)
-            };
+    fn render_output(tool: &ToolExecution, max_width: usize, lines: &mut Vec<Line<'static>>) {
+        let Some(result) = &tool.result else {
+            return;
+        };
 
-            let output_text = if result.success {
-                &result.output
-            } else {
-                result.error.as_deref().unwrap_or("Unknown error")
-            };
+        let output_style = if result.success {
+            Style::default().fg(Color::White)
+        } else {
+            Style::default().fg(Color::Red)
+        };
 
-            if !output_text.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    "      Output:",
-                    Style::default().fg(Color::DarkGray),
-                )));
+        let output_text = if result.success {
+            &result.output
+        } else {
+            result.error.as_deref().unwrap_or("Unknown error")
+        };
 
-                let output_lines: Vec<&str> = output_text.lines().collect();
-                let truncated = output_lines.len() > MAX_OUTPUT_LINES;
-                let display_lines = if truncated {
-                    &output_lines[..MAX_OUTPUT_LINES]
-                } else {
-                    &output_lines[..]
-                };
-
-                for line in display_lines {
-                    let truncated_line = if line.len() > max_width.saturating_sub(8) {
-                        format!("{}...", &line[..max_width.saturating_sub(11)])
-                    } else {
-                        line.to_string()
-                    };
-                    lines.push(Line::from(Span::styled(
-                        format!("        {truncated_line}"),
-                        output_style,
-                    )));
-                }
-
-                if truncated {
-                    lines.push(Line::from(Span::styled(
-                        format!(
-                            "        ... ({} more lines)",
-                            output_lines.len() - MAX_OUTPUT_LINES
-                        ),
-                        Style::default().fg(Color::DarkGray),
-                    )));
-                }
-            }
+        if output_text.is_empty() {
+            return;
         }
 
-        lines
+        lines.push(Line::from(Span::styled(
+            "      Output:",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        let output_lines: Vec<&str> = output_text.lines().collect();
+        let truncated = output_lines.len() > MAX_OUTPUT_LINES;
+        let display_lines = if truncated {
+            &output_lines[..MAX_OUTPUT_LINES]
+        } else {
+            &output_lines[..]
+        };
+
+        for line in display_lines {
+            let truncated_line = truncate_line(line, max_width.saturating_sub(8));
+            lines.push(Line::from(Span::styled(
+                format!("        {truncated_line}"),
+                output_style,
+            )));
+        }
+
+        if truncated {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "        ... ({} more lines)",
+                    output_lines.len() - MAX_OUTPUT_LINES
+                ),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+}
+
+fn truncate_line(line: &str, max_len: usize) -> String {
+    if line.len() > max_len {
+        format!("{}...", &line[..max_len.saturating_sub(3)])
+    } else {
+        line.to_string()
     }
 }
 
@@ -217,5 +224,11 @@ mod tests {
             .map(|s| s.content.to_string())
             .collect();
         assert!(all_text.contains("command failed") || all_text.contains("Output"));
+    }
+
+    #[test]
+    fn test_truncate_line() {
+        assert_eq!(truncate_line("short", 10), "short");
+        assert_eq!(truncate_line("this is a long line", 10), "this is...");
     }
 }
