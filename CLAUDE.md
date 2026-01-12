@@ -79,3 +79,8 @@ DO NOT, under any circumstance, change this config or add allow macros without e
 - **debug**: internal details, state transitions
 - **trace**: verbose diagnostics (full payloads, timing)
 - Use structured fields: `info!(tool = %name, "executing tool")` not string interpolation
+
+# Misc Notes
+- Testing is a first class operation, NEVER skip test implementation.
+- Commits should be made frequently, especially for large multi-phase tasks.
+- All changes must be pushed before giving the user a completion summary.  

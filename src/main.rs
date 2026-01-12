@@ -4,6 +4,7 @@ mod config;
 mod llm;
 mod repl;
 mod tools;
+mod tui;
 
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
