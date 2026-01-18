@@ -37,6 +37,26 @@ impl OllamaClient {
             model: model.into(),
         }
     }
+
+    /// List available models from Ollama
+    ///
+    /// # Errors
+    /// Returns error if the API request fails or response cannot be parsed
+    pub async fn list_models(&self) -> Result<Vec<String>, LlmError> {
+        let url = format!("{}/api/tags", self.base_url);
+        let response = self.client.get(&url).send().await?;
+
+        if !response.status().is_success() {
+            let error_body = response
+                .json::<OllamaErrorResponse>()
+                .await
+                .map_or_else(|_| "unknown error".to_string(), |e| e.error);
+            return Err(LlmError::Api(error_body));
+        }
+
+        let tags_response: OllamaTagsResponse = response.json().await?;
+        Ok(tags_response.models.into_iter().map(|m| m.name).collect())
+    }
 }
 
 #[async_trait]
@@ -195,6 +215,16 @@ struct OllamaResponseMessage {
 #[derive(Deserialize)]
 struct OllamaErrorResponse {
     error: String,
+}
+
+#[derive(Deserialize)]
+struct OllamaTagsResponse {
+    models: Vec<OllamaModel>,
+}
+
+#[derive(Deserialize)]
+struct OllamaModel {
+    name: String,
 }
 
 #[cfg(test)]
