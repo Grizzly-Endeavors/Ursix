@@ -2,6 +2,7 @@ mod agent;
 mod cli;
 mod config;
 mod llm;
+mod output;
 mod tools;
 
 use anyhow::Result;

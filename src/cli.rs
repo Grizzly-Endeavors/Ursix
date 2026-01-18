@@ -4,6 +4,9 @@ use clap::{Parser, Subcommand};
 use crate::agent::Agent;
 use crate::config::Config;
 use crate::llm::ollama::OllamaClient;
+use crate::output::{
+    AskResult, CommandOutput, ConfigEntry, ConfigResult, ModelsResult, OutputMode,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "ur")]
@@ -114,51 +117,78 @@ pub async fn run() -> Result<()> {
 
     let working_dir = std::env::current_dir().context("failed to get current directory")?;
 
-    // Build config from defaults, then apply CLI overrides
-    let config = Config {
-        model: cli.model.clone().unwrap_or_else(|| "llama3.2".to_string()),
-        ollama_url: cli
-            .ollama_url
-            .clone()
-            .unwrap_or_else(|| "http://localhost:11434".to_string()),
-        working_dir,
-        max_turns: cli.max_turns.unwrap_or(50),
+    // Determine output mode
+    let output_mode = if cli.json {
+        OutputMode::Json
+    } else {
+        OutputMode::Human
     };
 
+    // Load config from files and env vars, then apply CLI overrides
+    let mut config = Config::load().context("failed to load configuration")?;
+    config.working_dir = working_dir;
+
+    // CLI flags override everything
+    if let Some(ref model) = cli.model {
+        config.model.clone_from(model);
+    }
+    if let Some(ref url) = cli.ollama_url {
+        config.ollama_url.clone_from(url);
+    }
+    if let Some(turns) = cli.max_turns {
+        config.max_turns = turns;
+    }
+
     match cli.command {
-        Command::Ask { prompt } => cmd_ask(&config, prompt).await,
-        Command::Explain { target, context } => cmd_explain(&config, &target, context).await,
-        Command::Review { diff, files } => cmd_review(&config, diff, files).await,
+        Command::Ask { prompt } => cmd_ask(&config, prompt, output_mode).await,
+        Command::Explain { target, context } => {
+            cmd_explain(&config, &target, context, output_mode).await
+        }
+        Command::Review { diff, files } => cmd_review(&config, diff, files, output_mode).await,
         Command::Fix {
             target,
             lint,
             apply,
-        } => cmd_fix(&config, &target, lint, apply).await,
-        Command::Commit { body, style } => cmd_commit(&config, body, &style).await,
-        Command::Config { key, value, list } => cmd_config(&config, key, value, list),
-        Command::Models => cmd_models(&config).await,
+        } => cmd_fix(&config, &target, lint, apply, output_mode).await,
+        Command::Commit { body, style } => cmd_commit(&config, body, &style, output_mode).await,
+        Command::Config { key, value, list } => cmd_config(&config, key, value, list, output_mode),
+        Command::Models => cmd_models(&config, output_mode).await,
     }
 }
 
-async fn cmd_ask(config: &Config, prompt: Vec<String>) -> Result<()> {
+async fn cmd_ask(config: &Config, prompt: Vec<String>, output_mode: OutputMode) -> Result<()> {
     let prompt = prompt.join(" ");
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     let agent = Agent::new(config.clone(), client);
-    let result = agent.run(&prompt).await?;
-    println!("{result}");
+    let response = agent.run(&prompt).await?;
+
+    let result = AskResult { response, turns: 1 };
+    println!("{}", result.render(output_mode));
     Ok(())
 }
 
-async fn cmd_explain(config: &Config, target: &str, _context: Option<usize>) -> Result<()> {
+async fn cmd_explain(
+    config: &Config,
+    target: &str,
+    _context: Option<usize>,
+    output_mode: OutputMode,
+) -> Result<()> {
     let prompt = format!("Explain the code in: {target}");
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     let agent = Agent::new(config.clone(), client);
-    let result = agent.run(&prompt).await?;
-    println!("{result}");
+    let response = agent.run(&prompt).await?;
+
+    let result = AskResult { response, turns: 1 };
+    println!("{}", result.render(output_mode));
     Ok(())
 }
 
-async fn cmd_review(config: &Config, diff: Option<String>, files: Vec<String>) -> Result<()> {
+async fn cmd_review(
+    config: &Config,
+    diff: Option<String>,
+    files: Vec<String>,
+    output_mode: OutputMode,
+) -> Result<()> {
     let prompt = if let Some(ref d) = diff {
         format!("Review the changes in git diff {d}")
     } else if !files.is_empty() {
@@ -168,12 +198,20 @@ async fn cmd_review(config: &Config, diff: Option<String>, files: Vec<String>) -
     };
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     let agent = Agent::new(config.clone(), client);
-    let result = agent.run(&prompt).await?;
-    println!("{result}");
+    let response = agent.run(&prompt).await?;
+
+    let result = AskResult { response, turns: 1 };
+    println!("{}", result.render(output_mode));
     Ok(())
 }
 
-async fn cmd_fix(config: &Config, target: &str, lint: bool, _apply: bool) -> Result<()> {
+async fn cmd_fix(
+    config: &Config,
+    target: &str,
+    lint: bool,
+    _apply: bool,
+    output_mode: OutputMode,
+) -> Result<()> {
     let prompt = if lint {
         format!("Fix lint/clippy issues in: {target}")
     } else {
@@ -181,12 +219,19 @@ async fn cmd_fix(config: &Config, target: &str, lint: bool, _apply: bool) -> Res
     };
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     let agent = Agent::new(config.clone(), client);
-    let result = agent.run(&prompt).await?;
-    println!("{result}");
+    let response = agent.run(&prompt).await?;
+
+    let result = AskResult { response, turns: 1 };
+    println!("{}", result.render(output_mode));
     Ok(())
 }
 
-async fn cmd_commit(config: &Config, body: bool, style: &str) -> Result<()> {
+async fn cmd_commit(
+    config: &Config,
+    body: bool,
+    style: &str,
+    output_mode: OutputMode,
+) -> Result<()> {
     let prompt = format!(
         "Generate a {} commit message{}",
         style,
@@ -194,8 +239,10 @@ async fn cmd_commit(config: &Config, body: bool, style: &str) -> Result<()> {
     );
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     let agent = Agent::new(config.clone(), client);
-    let result = agent.run(&prompt).await?;
-    println!("{result}");
+    let response = agent.run(&prompt).await?;
+
+    let result = AskResult { response, turns: 1 };
+    println!("{}", result.render(output_mode));
     Ok(())
 }
 
@@ -205,23 +252,45 @@ fn cmd_config(
     key: Option<String>,
     value: Option<String>,
     list: bool,
+    output_mode: OutputMode,
 ) -> Result<()> {
     if list {
-        println!("model = {}", config.model);
-        println!("ollama_url = {}", config.ollama_url);
-        println!("max_turns = {}", config.max_turns);
-        println!("working_dir = {}", config.working_dir.display());
+        let result = ConfigResult {
+            entries: vec![
+                ConfigEntry {
+                    key: "model".to_string(),
+                    value: config.model.clone(),
+                },
+                ConfigEntry {
+                    key: "ollama_url".to_string(),
+                    value: config.ollama_url.clone(),
+                },
+                ConfigEntry {
+                    key: "max_turns".to_string(),
+                    value: config.max_turns.to_string(),
+                },
+                ConfigEntry {
+                    key: "working_dir".to_string(),
+                    value: config.working_dir.display().to_string(),
+                },
+            ],
+        };
+        println!("{}", result.render(output_mode));
     } else if let Some(k) = key {
         if let Some(v) = value {
             println!("Setting {k} = {v} (not yet implemented)");
         } else {
-            match k.as_str() {
-                "model" => println!("{}", config.model),
-                "ollama_url" => println!("{}", config.ollama_url),
-                "max_turns" => println!("{}", config.max_turns),
-                "working_dir" => println!("{}", config.working_dir.display()),
-                _ => println!("Unknown config key: {k}"),
-            }
+            let val = match k.as_str() {
+                "model" => config.model.clone(),
+                "ollama_url" => config.ollama_url.clone(),
+                "max_turns" => config.max_turns.to_string(),
+                "working_dir" => config.working_dir.display().to_string(),
+                _ => format!("Unknown config key: {k}"),
+            };
+            let result = ConfigResult {
+                entries: vec![ConfigEntry { key: k, value: val }],
+            };
+            println!("{}", result.render(output_mode));
         }
     } else {
         println!("Usage: ur config <key> [value] or ur config --list");
@@ -229,13 +298,12 @@ fn cmd_config(
     Ok(())
 }
 
-async fn cmd_models(config: &Config) -> Result<()> {
+async fn cmd_models(config: &Config, output_mode: OutputMode) -> Result<()> {
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     match client.list_models().await {
         Ok(models) => {
-            for model in models {
-                println!("{model}");
-            }
+            let result = ModelsResult { models };
+            println!("{}", result.render(output_mode));
         }
         Err(e) => {
             eprintln!("Failed to list models: {e}");

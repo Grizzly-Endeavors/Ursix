@@ -84,10 +84,25 @@ fn cli_accepts_model_flag() -> TestResult {
 
 #[test]
 fn cli_accepts_json_flag() -> TestResult {
-    // Verify --json flag is accepted (doesn't affect config output yet, but should parse)
+    // Verify --json flag produces valid JSON output
     Command::cargo_bin("ur")?
         .args(["--json", "config", "--list"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("\"key\":"))
+        .stdout(predicate::str::contains("\"value\":"));
+    Ok(())
+}
+
+#[test]
+fn cli_json_output_is_valid() -> TestResult {
+    // Verify config --list with --json produces parseable JSON
+    let output = Command::cargo_bin("ur")?
+        .args(["--json", "config", "--list"])
+        .output()?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Should be valid JSON
+    serde_json::from_str::<serde_json::Value>(&stdout)?;
     Ok(())
 }
