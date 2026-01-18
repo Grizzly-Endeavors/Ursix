@@ -7,6 +7,7 @@ use crate::llm::ollama::OllamaClient;
 use crate::output::{
     AskResult, CommandOutput, ConfigEntry, ConfigResult, ModelsResult, OutputMode,
 };
+use crate::prompts;
 
 #[derive(Parser, Debug)]
 #[command(name = "ur")]
@@ -160,7 +161,7 @@ async fn cmd_ask(config: &Config, prompt: Vec<String>, output_mode: OutputMode) 
     let prompt = prompt.join(" ");
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     let agent = Agent::new(config.clone(), client);
-    let response = agent.run(&prompt).await?;
+    let response = agent.run_with_prompt(prompts::ASK_PROMPT, &prompt).await?;
 
     let result = AskResult { response, turns: 1 };
     println!("{}", result.render(output_mode));
@@ -176,7 +177,9 @@ async fn cmd_explain(
     let prompt = format!("Explain the code in: {target}");
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     let agent = Agent::new(config.clone(), client);
-    let response = agent.run(&prompt).await?;
+    let response = agent
+        .run_with_prompt(prompts::EXPLAIN_PROMPT, &prompt)
+        .await?;
 
     let result = AskResult { response, turns: 1 };
     println!("{}", result.render(output_mode));
@@ -194,11 +197,13 @@ async fn cmd_review(
     } else if !files.is_empty() {
         format!("Review the code in: {}", files.join(", "))
     } else {
-        "Review the staged changes".to_string()
+        "Review the staged changes (use git diff --cached)".to_string()
     };
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     let agent = Agent::new(config.clone(), client);
-    let response = agent.run(&prompt).await?;
+    let response = agent
+        .run_with_prompt(prompts::REVIEW_PROMPT, &prompt)
+        .await?;
 
     let result = AskResult { response, turns: 1 };
     println!("{}", result.render(output_mode));
@@ -213,13 +218,13 @@ async fn cmd_fix(
     output_mode: OutputMode,
 ) -> Result<()> {
     let prompt = if lint {
-        format!("Fix lint/clippy issues in: {target}")
+        format!("Fix lint/clippy issues in: {target}. Run clippy first to identify issues.")
     } else {
         format!("Fix issues in: {target}")
     };
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     let agent = Agent::new(config.clone(), client);
-    let response = agent.run(&prompt).await?;
+    let response = agent.run_with_prompt(prompts::FIX_PROMPT, &prompt).await?;
 
     let result = AskResult { response, turns: 1 };
     println!("{}", result.render(output_mode));
@@ -233,13 +238,19 @@ async fn cmd_commit(
     output_mode: OutputMode,
 ) -> Result<()> {
     let prompt = format!(
-        "Generate a {} commit message{}",
+        "Generate a {} commit message for the staged changes{}.",
         style,
-        if body { " with detailed body" } else { "" }
+        if body {
+            " with a detailed body explaining the changes"
+        } else {
+            ""
+        }
     );
     let client = OllamaClient::new(&config.ollama_url, &config.model);
     let agent = Agent::new(config.clone(), client);
-    let response = agent.run(&prompt).await?;
+    let response = agent
+        .run_with_prompt(prompts::COMMIT_PROMPT, &prompt)
+        .await?;
 
     let result = AskResult { response, turns: 1 };
     println!("{}", result.render(output_mode));

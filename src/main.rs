@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod llm;
 mod output;
+mod prompts;
 mod tools;
 
 use anyhow::Result;

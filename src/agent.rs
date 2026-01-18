@@ -84,12 +84,26 @@ impl<L: LlmClient> Agent<L> {
 
     /// Run the agent loop with an initial user message (creates fresh history)
     ///
+    /// Uses the default system prompt.
+    ///
     /// # Errors
     /// Returns error if LLM communication fails or `max_turns` exceeded without completion
     pub async fn run(&self, initial_message: &str) -> Result<String, AgentError> {
+        self.run_with_prompt(SYSTEM_PROMPT, initial_message).await
+    }
+
+    /// Run the agent loop with a custom system prompt
+    ///
+    /// # Errors
+    /// Returns error if LLM communication fails or `max_turns` exceeded without completion
+    pub async fn run_with_prompt(
+        &self,
+        system_prompt: &str,
+        initial_message: &str,
+    ) -> Result<String, AgentError> {
         let mut messages = vec![Message {
             role: Role::System,
-            content: SYSTEM_PROMPT.to_string(),
+            content: system_prompt.to_string(),
             tool_calls: None,
             tool_call_id: None,
         }];
