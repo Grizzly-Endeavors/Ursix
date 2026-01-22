@@ -2,8 +2,10 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use crate::agent::Agent;
-use crate::config::Config;
+use crate::config::{Config, Provider};
+use crate::llm::LlmClient;
 use crate::llm::ollama::OllamaClient;
+use crate::llm::openai::OpenAiClient;
 use crate::output::{
     AskResult, CommandOutput, ConfigEntry, ConfigResult, ModelsResult, OutputMode,
 };
@@ -18,6 +20,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
+    /// LLM provider (ollama, openai)
+    #[arg(long, global = true)]
+    pub provider: Option<Provider>,
+
     /// Model to use (overrides config)
     #[arg(short, long, global = true)]
     pub model: Option<String>,
@@ -25,6 +31,14 @@ pub struct Cli {
     /// Ollama API base URL (overrides config)
     #[arg(long, global = true)]
     pub ollama_url: Option<String>,
+
+    /// OpenAI-compatible API base URL (overrides config)
+    #[arg(long, global = true)]
+    pub openai_url: Option<String>,
+
+    /// API key for OpenAI-compatible endpoints (overrides environment variable)
+    #[arg(long, global = true, env = "URSUS_OPENAI_API_KEY")]
+    pub openai_api_key: Option<String>,
 
     /// Maximum agent turns before stopping
     #[arg(long, global = true)]
@@ -130,11 +144,20 @@ pub async fn run() -> Result<()> {
     config.working_dir = working_dir;
 
     // CLI flags override everything
+    if let Some(provider) = cli.provider {
+        config.provider = provider;
+    }
     if let Some(ref model) = cli.model {
         config.model.clone_from(model);
     }
     if let Some(ref url) = cli.ollama_url {
         config.ollama_url.clone_from(url);
+    }
+    if let Some(ref url) = cli.openai_url {
+        config.openai_url.clone_from(url);
+    }
+    if let Some(ref key) = cli.openai_api_key {
+        config.openai_api_key = Some(key.clone());
     }
     if let Some(turns) = cli.max_turns {
         config.max_turns = turns;
@@ -157,11 +180,61 @@ pub async fn run() -> Result<()> {
     }
 }
 
+/// Check if a URL points to localhost
+fn is_local_url(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    lower.contains("localhost") || lower.contains("127.0.0.1") || lower.contains("[::1]")
+}
+
+/// Create an [`OpenAiClient`] from config, handling API key requirements
+fn create_openai_client(config: &Config) -> Result<OpenAiClient> {
+    if let Some(ref key) = config.openai_api_key {
+        Ok(OpenAiClient::with_api_key(
+            &config.openai_url,
+            &config.model,
+            key,
+        ))
+    } else if is_local_url(&config.openai_url) {
+        Ok(OpenAiClient::new(&config.openai_url, &config.model))
+    } else {
+        anyhow::bail!(
+            "OpenAI API key required for remote endpoints. \
+             Set OPENAI_API_KEY environment variable or use --openai-api-key flag."
+        )
+    }
+}
+
+/// Run the agent with the appropriate provider
+async fn run_agent(config: &Config, system_prompt: &str, user_prompt: &str) -> Result<String> {
+    match config.provider {
+        Provider::Ollama => {
+            let client = OllamaClient::new(&config.ollama_url, &config.model);
+            run_agent_with_client(config, client, system_prompt, user_prompt).await
+        }
+        Provider::OpenAi => {
+            let client = create_openai_client(config)?;
+            run_agent_with_client(config, client, system_prompt, user_prompt).await
+        }
+    }
+}
+
+/// Run the agent with a specific LLM client
+async fn run_agent_with_client<C: LlmClient>(
+    config: &Config,
+    client: C,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<String> {
+    let agent = Agent::new(config.clone(), client);
+    agent
+        .run_with_prompt(system_prompt, user_prompt)
+        .await
+        .map_err(Into::into)
+}
+
 async fn cmd_ask(config: &Config, prompt: Vec<String>, output_mode: OutputMode) -> Result<()> {
     let prompt = prompt.join(" ");
-    let client = OllamaClient::new(&config.ollama_url, &config.model);
-    let agent = Agent::new(config.clone(), client);
-    let response = agent.run_with_prompt(prompts::ASK_PROMPT, &prompt).await?;
+    let response = run_agent(config, prompts::ASK_PROMPT, &prompt).await?;
 
     let result = AskResult { response, turns: 1 };
     println!("{}", result.render(output_mode));
@@ -175,11 +248,7 @@ async fn cmd_explain(
     output_mode: OutputMode,
 ) -> Result<()> {
     let prompt = format!("Explain the code in: {target}");
-    let client = OllamaClient::new(&config.ollama_url, &config.model);
-    let agent = Agent::new(config.clone(), client);
-    let response = agent
-        .run_with_prompt(prompts::EXPLAIN_PROMPT, &prompt)
-        .await?;
+    let response = run_agent(config, prompts::EXPLAIN_PROMPT, &prompt).await?;
 
     let result = AskResult { response, turns: 1 };
     println!("{}", result.render(output_mode));
@@ -199,11 +268,7 @@ async fn cmd_review(
     } else {
         "Review the staged changes (use git diff --cached)".to_string()
     };
-    let client = OllamaClient::new(&config.ollama_url, &config.model);
-    let agent = Agent::new(config.clone(), client);
-    let response = agent
-        .run_with_prompt(prompts::REVIEW_PROMPT, &prompt)
-        .await?;
+    let response = run_agent(config, prompts::REVIEW_PROMPT, &prompt).await?;
 
     let result = AskResult { response, turns: 1 };
     println!("{}", result.render(output_mode));
@@ -222,9 +287,7 @@ async fn cmd_fix(
     } else {
         format!("Fix issues in: {target}")
     };
-    let client = OllamaClient::new(&config.ollama_url, &config.model);
-    let agent = Agent::new(config.clone(), client);
-    let response = agent.run_with_prompt(prompts::FIX_PROMPT, &prompt).await?;
+    let response = run_agent(config, prompts::FIX_PROMPT, &prompt).await?;
 
     let result = AskResult { response, turns: 1 };
     println!("{}", result.render(output_mode));
@@ -246,11 +309,7 @@ async fn cmd_commit(
             ""
         }
     );
-    let client = OllamaClient::new(&config.ollama_url, &config.model);
-    let agent = Agent::new(config.clone(), client);
-    let response = agent
-        .run_with_prompt(prompts::COMMIT_PROMPT, &prompt)
-        .await?;
+    let response = run_agent(config, prompts::COMMIT_PROMPT, &prompt).await?;
 
     let result = AskResult { response, turns: 1 };
     println!("{}", result.render(output_mode));
@@ -265,9 +324,19 @@ fn cmd_config(
     list: bool,
     output_mode: OutputMode,
 ) -> Result<()> {
+    let api_key_display = if config.openai_api_key.is_some() {
+        "[set]".to_string()
+    } else {
+        "[not set]".to_string()
+    };
+
     if list {
         let result = ConfigResult {
             entries: vec![
+                ConfigEntry {
+                    key: "provider".to_string(),
+                    value: config.provider.to_string(),
+                },
                 ConfigEntry {
                     key: "model".to_string(),
                     value: config.model.clone(),
@@ -275,6 +344,14 @@ fn cmd_config(
                 ConfigEntry {
                     key: "ollama_url".to_string(),
                     value: config.ollama_url.clone(),
+                },
+                ConfigEntry {
+                    key: "openai_url".to_string(),
+                    value: config.openai_url.clone(),
+                },
+                ConfigEntry {
+                    key: "openai_api_key".to_string(),
+                    value: api_key_display.clone(),
                 },
                 ConfigEntry {
                     key: "max_turns".to_string(),
@@ -292,8 +369,11 @@ fn cmd_config(
             println!("Setting {k} = {v} (not yet implemented)");
         } else {
             let val = match k.as_str() {
+                "provider" => config.provider.to_string(),
                 "model" => config.model.clone(),
                 "ollama_url" => config.ollama_url.clone(),
+                "openai_url" => config.openai_url.clone(),
+                "openai_api_key" => api_key_display,
                 "max_turns" => config.max_turns.to_string(),
                 "working_dir" => config.working_dir.display().to_string(),
                 _ => format!("Unknown config key: {k}"),
@@ -310,14 +390,26 @@ fn cmd_config(
 }
 
 async fn cmd_models(config: &Config, output_mode: OutputMode) -> Result<()> {
-    let client = OllamaClient::new(&config.ollama_url, &config.model);
-    match client.list_models().await {
-        Ok(models) => {
-            let result = ModelsResult { models };
-            println!("{}", result.render(output_mode));
+    match config.provider {
+        Provider::Ollama => {
+            let client = OllamaClient::new(&config.ollama_url, &config.model);
+            match client.list_models().await {
+                Ok(models) => {
+                    let result = ModelsResult { models };
+                    println!("{}", result.render(output_mode));
+                }
+                Err(e) => {
+                    eprintln!("Failed to list models: {e}");
+                }
+            }
         }
-        Err(e) => {
-            eprintln!("Failed to list models: {e}");
+        Provider::OpenAi => {
+            // OpenAI's /v1/models endpoint requires authentication and returns
+            // a different format. For now, inform the user to check OpenAI docs.
+            println!(
+                "Model listing is not available for OpenAI provider.\n\
+                 See https://platform.openai.com/docs/models for available models."
+            );
         }
     }
     Ok(())
