@@ -8,12 +8,21 @@ use thiserror::Error;
 
 use crate::context::GatheredContext;
 use crate::llm::{ChatOptions, LlmClient, LlmError, Message, Role};
+use crate::output::{ExitCode, ToExitCode};
 
 /// Error type for pipeline execution
 #[derive(Debug, Error)]
 pub enum PipelineError {
     #[error("LLM error: {0}")]
     Llm(#[from] LlmError),
+}
+
+impl ToExitCode for PipelineError {
+    fn to_exit_code(&self) -> ExitCode {
+        match self {
+            Self::Llm(e) => e.to_exit_code(),
+        }
+    }
 }
 
 /// Format gathered context into a string suitable for inclusion in a prompt
@@ -366,5 +375,19 @@ mod tests {
 
         let formatted = format_context(&context);
         assert!(!formatted.contains("## Git Diff"));
+    }
+
+    #[test]
+    fn test_pipeline_error_to_exit_code_llm_parse() {
+        use crate::llm::LlmError;
+        let err = PipelineError::Llm(LlmError::Parse("bad json".to_string()));
+        assert_eq!(err.to_exit_code(), ExitCode::ParseError);
+    }
+
+    #[test]
+    fn test_pipeline_error_to_exit_code_llm_api() {
+        use crate::llm::LlmError;
+        let err = PipelineError::Llm(LlmError::Api("rate limit".to_string()));
+        assert_eq!(err.to_exit_code(), ExitCode::ApiError);
     }
 }

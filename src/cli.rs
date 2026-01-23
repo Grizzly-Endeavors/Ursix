@@ -3,9 +3,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use thiserror::Error;
 use tokio::process::Command as TokioCommand;
 
-use crate::agent::{Agent, AgentResult};
+use crate::agent::{Agent, AgentError, AgentResult};
 use crate::config::{Config, Provider};
 use crate::context::{
     GatheredContext, gather_commit_context, gather_explain_context, gather_fix_context,
@@ -17,9 +18,10 @@ use crate::llm::openai::OpenAiClient;
 use crate::output::{
     AppliedFix, ApplyResults, ApplyStatus, AskResult, CommandOutput, CommitResult, ConfigEntry,
     ConfigResult, ExitCode, ExitStatus, ExplainResult, Fix, FixResult, OutputMode, ReviewIssue,
-    ReviewResult,
+    ReviewResult, ToExitCode,
 };
 use crate::pipeline::Pipeline;
+use crate::pipeline::PipelineError;
 use crate::prompts::{
     EXPLAIN_PROMPT, FIX_PROMPT, REVIEW_PROMPT, build_review_prompt, pipeline_prompt_for_command,
 };
@@ -144,6 +146,41 @@ pub enum Command {
     },
 }
 
+/// CLI-specific errors with appropriate exit codes
+#[derive(Debug, Error)]
+pub enum CliError {
+    #[error("{0}")]
+    Config(#[source] anyhow::Error),
+
+    #[error("{0}")]
+    Input(#[source] anyhow::Error),
+
+    #[error("{0}")]
+    Git(#[source] anyhow::Error),
+
+    #[error("{0}")]
+    Parse(#[source] anyhow::Error),
+
+    #[error("{0}")]
+    Pipeline(#[from] PipelineError),
+
+    #[error("{0}")]
+    Agent(#[from] AgentError),
+}
+
+impl ToExitCode for CliError {
+    fn to_exit_code(&self) -> ExitCode {
+        match self {
+            Self::Config(_) => ExitCode::ConfigError,
+            Self::Input(_) => ExitCode::InputError,
+            Self::Git(_) => ExitCode::GitError,
+            Self::Parse(_) => ExitCode::ParseError,
+            Self::Pipeline(e) => e.to_exit_code(),
+            Self::Agent(e) => e.to_exit_code(),
+        }
+    }
+}
+
 /// Run the CLI application
 ///
 /// # Errors
@@ -228,10 +265,11 @@ fn create_openai_client(config: &Config) -> Result<OpenAiClient> {
     } else if is_local_url(&config.openai_url) {
         Ok(OpenAiClient::new(&config.openai_url, &config.model))
     } else {
-        anyhow::bail!(
+        Err(CliError::Config(anyhow::anyhow!(
             "OpenAI API key required for remote endpoints. \
              Set OPENAI_API_KEY environment variable or use --openai-api-key flag."
-        )
+        ))
+        .into())
     }
 }
 
@@ -479,7 +517,7 @@ async fn execute_git_commit(working_dir: &std::path::Path, message: &str) -> Res
         Ok(stdout.to_string())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("git commit failed: {}", stderr.trim())
+        Err(CliError::Git(anyhow::anyhow!("git commit failed: {}", stderr.trim())).into())
     }
 }
 
@@ -924,7 +962,7 @@ async fn cmd_commit(
         .as_ref()
         .is_some_and(|diff| diff.trim().is_empty())
     {
-        anyhow::bail!("no staged changes to commit");
+        return Err(CliError::Git(anyhow::anyhow!("no staged changes to commit")).into());
     }
 
     let user_request = format!(
@@ -1140,5 +1178,35 @@ That's the JSON."#;
         let result = parse_fix_response(input).unwrap();
         assert!(result.fixes.is_empty());
         assert_eq!(result.diagnosis, "no issues found");
+    }
+
+    #[test]
+    fn test_cli_error_to_exit_code_config() {
+        let err = CliError::Config(anyhow::anyhow!("invalid config"));
+        assert_eq!(err.to_exit_code(), ExitCode::ConfigError);
+    }
+
+    #[test]
+    fn test_cli_error_to_exit_code_input() {
+        let err = CliError::Input(anyhow::anyhow!("file not found"));
+        assert_eq!(err.to_exit_code(), ExitCode::InputError);
+    }
+
+    #[test]
+    fn test_cli_error_to_exit_code_git() {
+        let err = CliError::Git(anyhow::anyhow!("not a git repo"));
+        assert_eq!(err.to_exit_code(), ExitCode::GitError);
+    }
+
+    #[test]
+    fn test_cli_error_to_exit_code_parse() {
+        let err = CliError::Parse(anyhow::anyhow!("invalid json"));
+        assert_eq!(err.to_exit_code(), ExitCode::ParseError);
+    }
+
+    #[test]
+    fn test_cli_error_to_exit_code_agent() {
+        let err = CliError::Agent(AgentError::MaxTurnsExceeded(10));
+        assert_eq!(err.to_exit_code(), ExitCode::AgentLimitError);
     }
 }

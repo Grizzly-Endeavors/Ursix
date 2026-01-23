@@ -7,10 +7,10 @@ use serde::Serialize;
 
 /// Exit codes for CLI commands
 ///
-/// Follows Unix conventions:
+/// Follows Unix conventions with granular error categorization:
 /// - 0 for success
 /// - 1 for issues/warnings found (e.g., review found problems)
-/// - 2 for errors (command failed to execute properly)
+/// - 2+ for specific error categories
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ExitCode {
@@ -18,8 +18,30 @@ pub enum ExitCode {
     Success = 0,
     /// Command completed but found issues (e.g., review found problems)
     IssuesFound = 1,
-    /// Command failed due to an error
-    Error = 2,
+    /// Invalid CLI arguments (handled by clap)
+    UsageError = 2,
+    /// Configuration file errors, invalid settings
+    ConfigError = 3,
+    /// File not found, cannot read input, stdin errors
+    InputError = 4,
+    /// Git command failures, not a git repo
+    GitError = 5,
+    /// HTTP request failures, connection timeouts
+    NetworkError = 6,
+    /// LLM API errors (auth, rate limits, bad responses)
+    ApiError = 7,
+    /// Failed to parse LLM response
+    ParseError = 8,
+    /// Agent exceeded max turns
+    AgentLimitError = 9,
+    /// Unexpected internal errors (catch-all)
+    InternalError = 10,
+}
+
+/// Trait for error types that can map to an exit code
+pub trait ToExitCode {
+    /// Returns the appropriate exit code for this error
+    fn to_exit_code(&self) -> ExitCode;
 }
 
 impl From<ExitCode> for u8 {
@@ -470,14 +492,30 @@ mod tests {
     fn test_exit_code_values() {
         assert_eq!(u8::from(ExitCode::Success), 0);
         assert_eq!(u8::from(ExitCode::IssuesFound), 1);
-        assert_eq!(u8::from(ExitCode::Error), 2);
+        assert_eq!(u8::from(ExitCode::UsageError), 2);
+        assert_eq!(u8::from(ExitCode::ConfigError), 3);
+        assert_eq!(u8::from(ExitCode::InputError), 4);
+        assert_eq!(u8::from(ExitCode::GitError), 5);
+        assert_eq!(u8::from(ExitCode::NetworkError), 6);
+        assert_eq!(u8::from(ExitCode::ApiError), 7);
+        assert_eq!(u8::from(ExitCode::ParseError), 8);
+        assert_eq!(u8::from(ExitCode::AgentLimitError), 9);
+        assert_eq!(u8::from(ExitCode::InternalError), 10);
     }
 
     #[test]
     fn test_exit_code_to_i32() {
         assert_eq!(i32::from(ExitCode::Success), 0);
         assert_eq!(i32::from(ExitCode::IssuesFound), 1);
-        assert_eq!(i32::from(ExitCode::Error), 2);
+        assert_eq!(i32::from(ExitCode::UsageError), 2);
+        assert_eq!(i32::from(ExitCode::ConfigError), 3);
+        assert_eq!(i32::from(ExitCode::InputError), 4);
+        assert_eq!(i32::from(ExitCode::GitError), 5);
+        assert_eq!(i32::from(ExitCode::NetworkError), 6);
+        assert_eq!(i32::from(ExitCode::ApiError), 7);
+        assert_eq!(i32::from(ExitCode::ParseError), 8);
+        assert_eq!(i32::from(ExitCode::AgentLimitError), 9);
+        assert_eq!(i32::from(ExitCode::InternalError), 10);
     }
 
     #[test]

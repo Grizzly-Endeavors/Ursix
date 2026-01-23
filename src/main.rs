@@ -9,7 +9,49 @@ mod prompts;
 mod rules;
 mod tools;
 
+use output::{ExitCode, ToExitCode};
 use tracing_subscriber::EnvFilter;
+
+/// Extract an appropriate exit code from an anyhow error by downcasting
+fn extract_exit_code(error: &anyhow::Error) -> ExitCode {
+    // Try downcasting to known error types in order of specificity
+    if let Some(e) = error.downcast_ref::<cli::CliError>() {
+        return e.to_exit_code();
+    }
+    if let Some(e) = error.downcast_ref::<agent::AgentError>() {
+        return e.to_exit_code();
+    }
+    if let Some(e) = error.downcast_ref::<pipeline::PipelineError>() {
+        return e.to_exit_code();
+    }
+    if let Some(e) = error.downcast_ref::<llm::LlmError>() {
+        return e.to_exit_code();
+    }
+    if let Some(e) = error.downcast_ref::<tools::ToolError>() {
+        return e.to_exit_code();
+    }
+
+    // Check error chain for known types
+    for cause in error.chain().skip(1) {
+        if let Some(e) = cause.downcast_ref::<cli::CliError>() {
+            return e.to_exit_code();
+        }
+        if let Some(e) = cause.downcast_ref::<agent::AgentError>() {
+            return e.to_exit_code();
+        }
+        if let Some(e) = cause.downcast_ref::<pipeline::PipelineError>() {
+            return e.to_exit_code();
+        }
+        if let Some(e) = cause.downcast_ref::<llm::LlmError>() {
+            return e.to_exit_code();
+        }
+        if let Some(e) = cause.downcast_ref::<tools::ToolError>() {
+            return e.to_exit_code();
+        }
+    }
+
+    ExitCode::InternalError
+}
 
 #[tokio::main]
 async fn main() {
@@ -22,7 +64,7 @@ async fn main() {
         Ok(code) => i32::from(code),
         Err(e) => {
             eprintln!("Error: {e:?}");
-            2 // ExitCode::Error
+            i32::from(extract_exit_code(&e))
         }
     };
     std::process::exit(exit_code);

@@ -5,6 +5,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::output::{ExitCode, ToExitCode};
+
 #[derive(Error, Debug)]
 pub enum LlmError {
     #[error("HTTP request failed: {0}")]
@@ -15,6 +17,16 @@ pub enum LlmError {
 
     #[error("API error: {0}")]
     Api(String),
+}
+
+impl ToExitCode for LlmError {
+    fn to_exit_code(&self) -> ExitCode {
+        match self {
+            Self::Request(_) => ExitCode::NetworkError,
+            Self::Parse(_) => ExitCode::ParseError,
+            Self::Api(_) => ExitCode::ApiError,
+        }
+    }
 }
 
 /// A message in the conversation
@@ -108,4 +120,21 @@ pub trait LlmClient: Send + Sync {
 
     /// Get the model identifier
     fn model_name(&self) -> &str;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_llm_error_to_exit_code_parse() {
+        let err = LlmError::Parse("bad json".to_string());
+        assert_eq!(err.to_exit_code(), ExitCode::ParseError);
+    }
+
+    #[test]
+    fn test_llm_error_to_exit_code_api() {
+        let err = LlmError::Api("rate limited".to_string());
+        assert_eq!(err.to_exit_code(), ExitCode::ApiError);
+    }
 }

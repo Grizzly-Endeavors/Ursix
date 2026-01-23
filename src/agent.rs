@@ -6,6 +6,7 @@ use tracing::{debug, info, warn};
 
 use crate::config::Config;
 use crate::llm::{ChatOptions, LlmClient, LlmError, Message, Role};
+use crate::output::{ExitCode, ToExitCode};
 use crate::tools::executor;
 
 /// Errors that can occur during agent execution
@@ -19,6 +20,15 @@ pub enum AgentError {
              Try increasing --max-turns or breaking the task into smaller pieces"
     )]
     MaxTurnsExceeded(usize),
+}
+
+impl ToExitCode for AgentError {
+    fn to_exit_code(&self) -> ExitCode {
+        match self {
+            Self::Llm(e) => e.to_exit_code(),
+            Self::MaxTurnsExceeded(_) => ExitCode::AgentLimitError,
+        }
+    }
 }
 
 /// Result of an agent run
@@ -336,5 +346,23 @@ mod tests {
             .unwrap();
         assert_eq!(result.content, "Both commands executed.");
         assert!(!result.interrupted);
+    }
+
+    #[test]
+    fn test_agent_error_to_exit_code_max_turns() {
+        let err = AgentError::MaxTurnsExceeded(10);
+        assert_eq!(err.to_exit_code(), ExitCode::AgentLimitError);
+    }
+
+    #[test]
+    fn test_agent_error_to_exit_code_llm_parse() {
+        let err = AgentError::Llm(LlmError::Parse("bad json".to_string()));
+        assert_eq!(err.to_exit_code(), ExitCode::ParseError);
+    }
+
+    #[test]
+    fn test_agent_error_to_exit_code_llm_api() {
+        let err = AgentError::Llm(LlmError::Api("unauthorized".to_string()));
+        assert_eq!(err.to_exit_code(), ExitCode::ApiError);
     }
 }
