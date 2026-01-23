@@ -351,6 +351,30 @@ fn read_stdin() -> Result<String> {
     Ok(buffer)
 }
 
+/// Check if stdin is piped (not a terminal)
+fn stdin_is_piped() -> bool {
+    use std::io::IsTerminal;
+    !std::io::stdin().is_terminal()
+}
+
+/// Try to read stdin if piped, returning None if interactive or empty
+fn try_read_piped_stdin() -> Option<String> {
+    if !stdin_is_piped() {
+        return None;
+    }
+    match read_stdin() {
+        Ok(content) if !content.trim().is_empty() => Some(content),
+        Ok(_) => {
+            tracing::debug!("stdin is piped but empty, ignoring");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to read piped stdin");
+            None
+        }
+    }
+}
+
 /// Read content from a file or stdin (if path is "-")
 async fn read_from_source(path: &PathBuf) -> Result<String> {
     if path.as_os_str() == "-" {
@@ -527,6 +551,9 @@ async fn cmd_explain(
     agent_mode: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
+    // Check for piped stdin - use as file content if present
+    let piped_content = try_read_piped_stdin();
+
     if agent_mode {
         // Agent mode: use full agentic behavior for deep exploration
         // Instruct agent to respond with structured JSON matching pipeline output
@@ -547,10 +574,25 @@ async fn cmd_explain(
         println!("{}", result.render(output_mode));
     } else {
         // Pipeline mode: gather context and make single LLM call
-        let files = vec![PathBuf::from(target)];
-        let context = gather_explain_context(&config.working_dir, &files)
-            .await
-            .context("failed to gather explain context")?;
+        let context = if let Some(content) = piped_content {
+            // Use piped stdin as file content
+            tracing::debug!(target = %target, "using piped stdin as file content");
+            GatheredContext {
+                files: vec![crate::context::FileContext {
+                    path: PathBuf::from(target),
+                    content,
+                }],
+                git_diff: None,
+                git_status: None,
+                additional_context: None,
+            }
+        } else {
+            // Read from file system
+            let files = vec![PathBuf::from(target)];
+            gather_explain_context(&config.working_dir, &files)
+                .await
+                .context("failed to gather explain context")?
+        };
 
         let response = run_pipeline(
             config,
@@ -587,6 +629,22 @@ async fn cmd_review(
         RulesConfig::load(&config.working_dir).context("failed to load review rules")?;
     let resolved_rules = rules_config.resolve(checks, &file_paths);
     let rules_section = resolved_rules.to_prompt_section();
+
+    // Check if any explicit input is provided
+    let has_explicit_input = from.is_some() || diff.is_some() || !files.is_empty();
+
+    // Check for piped stdin
+    let piped_content = if has_explicit_input {
+        // Warn if stdin is piped but explicit input takes precedence
+        if stdin_is_piped() {
+            tracing::warn!(
+                "stdin is piped but explicit input provided (--from, --diff, or files); stdin ignored"
+            );
+        }
+        None
+    } else {
+        try_read_piped_stdin()
+    };
 
     if agent_mode {
         // Agent mode: use full agentic behavior for thorough analysis
@@ -636,11 +694,22 @@ async fn cmd_review(
             None
         };
 
-        let diff_only = diff.is_none() && files.is_empty();
+        let diff_only = diff.is_none() && files.is_empty() && piped_content.is_none();
 
-        let mut context = gather_review_context(&config.working_dir, diff_only, &file_paths)
-            .await
-            .context("failed to gather review context")?;
+        let mut context = if let Some(content) = piped_content {
+            // Use piped stdin as diff content
+            tracing::debug!("using piped stdin as review context");
+            GatheredContext {
+                files: Vec::new(),
+                git_diff: Some(content),
+                git_status: None,
+                additional_context: None,
+            }
+        } else {
+            gather_review_context(&config.working_dir, diff_only, &file_paths)
+                .await
+                .context("failed to gather review context")?
+        };
 
         context.additional_context = additional_context;
 
@@ -679,6 +748,17 @@ async fn cmd_fix(
     from: Option<PathBuf>,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
+    // Check for piped stdin when no explicit --from is provided
+    let piped_content = if from.is_some() {
+        // Warn if stdin is piped but --from takes precedence
+        if stdin_is_piped() {
+            tracing::warn!("stdin is piped but --from provided; stdin ignored");
+        }
+        None
+    } else {
+        try_read_piped_stdin()
+    };
+
     if agent_mode {
         // Agent mode: use full agentic behavior with tool access
         let base_prompt = if lint {
@@ -710,20 +790,21 @@ async fn cmd_fix(
             }
         });
 
-        // Apply fixes if requested (agent mode supports --apply too)
         if apply && !result.fixes.is_empty() {
-            let _apply_results = apply_fixes(&config.working_dir, &result.fixes).await;
+            let _ = apply_fixes(&config.working_dir, &result.fixes).await;
         }
-
-        let exit_code = result.exit_code();
         println!("{}", result.render(output_mode));
-        Ok(exit_code)
+        Ok(result.exit_code())
     } else {
         // Pipeline mode: gather context and make single LLM call
 
-        // Gather issues from --from flag or run clippy for --lint
+        // Gather issues from: --from flag > piped stdin > --lint clippy
+        let has_piped_input = piped_content.is_some();
         let issues = if let Some(ref path) = from {
             Some(read_from_source(path).await?)
+        } else if let Some(content) = piped_content {
+            tracing::debug!(target = %target, "using piped stdin as issues input");
+            Some(content)
         } else if lint {
             // Run clippy to gather lint diagnostics
             Some(run_clippy_diagnostics(&config.working_dir, target).await?)
@@ -736,8 +817,8 @@ async fn cmd_fix(
             .await
             .context("failed to gather fix context")?;
 
-        let prompt = if lint {
-            format!("Fix the clippy/lint issues shown above in {target}")
+        let prompt = if lint || from.is_some() || has_piped_input {
+            format!("Fix the issues shown above in {target}")
         } else {
             format!("Fix issues in {target}")
         };
@@ -950,20 +1031,36 @@ async fn cmd_commit(
     execute: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
+    // Check for piped stdin first - use as diff if present
+    let piped_content = try_read_piped_stdin();
+
     // Commit is always pipeline mode - agent mode doesn't make sense for
     // a simple single-pass operation like generating a commit message
-    let context = gather_commit_context(&config.working_dir)
-        .await
-        .context("failed to gather commit context")?;
+    let context = if let Some(content) = piped_content {
+        // Use piped stdin as diff content
+        tracing::debug!("using piped stdin as commit diff");
+        GatheredContext {
+            files: Vec::new(),
+            git_diff: Some(content),
+            git_status: None,
+            additional_context: None,
+        }
+    } else {
+        let ctx = gather_commit_context(&config.working_dir)
+            .await
+            .context("failed to gather commit context")?;
 
-    // Check if there are staged changes
-    if context
-        .git_diff
-        .as_ref()
-        .is_some_and(|diff| diff.trim().is_empty())
-    {
-        return Err(CliError::Git(anyhow::anyhow!("no staged changes to commit")).into());
-    }
+        // Check if there are staged changes (only when not using piped input)
+        if ctx
+            .git_diff
+            .as_ref()
+            .is_some_and(|diff| diff.trim().is_empty())
+        {
+            return Err(CliError::Git(anyhow::anyhow!("no staged changes to commit")).into());
+        }
+
+        ctx
+    };
 
     let user_request = format!(
         "Generate a {} commit message{}.",

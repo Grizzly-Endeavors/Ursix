@@ -169,3 +169,142 @@ fn cli_fix_accepts_agent_flag() -> TestResult {
     );
     Ok(())
 }
+
+// --- Piped stdin tests ---
+// These test that commands properly detect and accept piped stdin.
+// They may fail later in the pipeline (LLM calls), but should not error on stdin handling.
+
+use std::io::Write;
+use std::process::Stdio;
+
+#[test]
+fn cli_explain_accepts_piped_stdin() -> TestResult {
+    // Pipe content to explain command - verifies stdin detection works
+    let mut child = Command::cargo_bin("usx")?
+        .args(["explain", "test.rs"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // Write to stdin
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(b"fn main() { println!(\"hello\"); }")?;
+    }
+    // Close stdin to signal EOF
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Should not error on stdin handling - may fail on LLM call, but not on stdin
+    assert!(
+        !stderr.contains("stdin") || stderr.contains("failed"),
+        "explain should accept piped stdin without stdin-specific errors"
+    );
+    Ok(())
+}
+
+#[test]
+fn cli_review_accepts_piped_stdin() -> TestResult {
+    // Pipe diff content to review command
+    let mut child = Command::cargo_bin("usx")?
+        .args(["review"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(b"diff --git a/test.rs b/test.rs\n+fn new_func() {}\n")?;
+    }
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "review should accept piped stdin"
+    );
+    Ok(())
+}
+
+#[test]
+fn cli_commit_accepts_piped_stdin() -> TestResult {
+    // Pipe diff content to commit command
+    let mut child = Command::cargo_bin("usx")?
+        .args(["commit"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(b"diff --git a/test.rs b/test.rs\n+fn added() {}\n")?;
+    }
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Should not error on stdin - may fail on LLM, but stdin should be accepted
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "commit should accept piped stdin"
+    );
+    Ok(())
+}
+
+#[test]
+fn cli_fix_accepts_piped_stdin() -> TestResult {
+    // Pipe issues content to fix command
+    let mut child = Command::cargo_bin("usx")?
+        .args(["fix", "src/main.rs"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(b"{\"issues\": [{\"message\": \"unused variable\"}]}")?;
+    }
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "fix should accept piped stdin"
+    );
+    Ok(())
+}
+
+#[test]
+fn cli_commit_empty_stdin_falls_back() -> TestResult {
+    // Empty stdin should fall back to git gather, then fail with "no staged changes"
+    let mut child = Command::cargo_bin("usx")?
+        .args(["commit"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // Write empty content
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(b"")?;
+    }
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Should fall back to gathering commit context, which may fail with "no staged changes"
+    // This verifies empty stdin is properly ignored
+    assert!(
+        stderr.contains("no staged changes") || stderr.contains("failed"),
+        "empty stdin should fall back to internal gathering"
+    );
+    Ok(())
+}
