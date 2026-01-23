@@ -16,7 +16,7 @@ use crate::llm::ollama::OllamaClient;
 use crate::llm::openai::OpenAiClient;
 use crate::output::{
     AskResult, CommandOutput, CommitResult, ConfigEntry, ConfigResult, ExitCode, ExitStatus,
-    ExplainResult, FixResult, ModelsResult, OutputMode, ReviewIssue, ReviewResult,
+    ExplainResult, Fix, FixResult, ModelsResult, OutputMode, ReviewIssue, ReviewResult,
 };
 use crate::pipeline::Pipeline;
 use crate::prompts::{self, pipeline_prompt_for_command};
@@ -455,34 +455,41 @@ fn parse_explain_response(response: &str) -> Result<ExplainResult> {
 fn parse_fix_response(response: &str) -> Result<FixResult> {
     #[derive(serde::Deserialize)]
     struct FixJson {
-        changes: Vec<FixChangeJson>,
-        remaining_issues: usize,
+        diagnosis: String,
+        fixes: Vec<FixItemJson>,
+        #[serde(default)]
+        unfixable_count: usize,
     }
 
     #[derive(serde::Deserialize)]
-    struct FixChangeJson {
-        file_path: String,
-        description: String,
+    struct FixItemJson {
+        file: String,
+        line: Option<usize>,
+        original: String,
+        replacement: String,
+        explanation: String,
     }
-
-    use crate::output::Change;
 
     let json_str = extract_json(response);
     let parsed: FixJson = serde_json::from_str(json_str)
         .with_context(|| format!("failed to parse fix JSON: {json_str}"))?;
 
-    let changes: Vec<Change> = parsed
-        .changes
+    let fixes: Vec<Fix> = parsed
+        .fixes
         .into_iter()
-        .map(|f| Change {
-            file_path: f.file_path,
-            description: f.description,
+        .map(|f| Fix {
+            file: f.file,
+            line: f.line,
+            original: f.original,
+            replacement: f.replacement,
+            explanation: f.explanation,
         })
         .collect();
 
     Ok(FixResult {
-        changes,
-        remaining_issues: parsed.remaining_issues,
+        diagnosis: parsed.diagnosis,
+        fixes,
+        unfixable_count: parsed.unfixable_count,
     })
 }
 
@@ -665,7 +672,7 @@ async fn cmd_fix(
     config: &Config,
     target: &str,
     lint: bool,
-    _apply: bool,
+    apply: bool,
     agent_mode: bool,
     from: Option<PathBuf>,
     output_mode: OutputMode,
@@ -683,8 +690,13 @@ async fn cmd_fix(
         Ok(ExitCode::Success)
     } else {
         // Pipeline mode: gather context and make single LLM call
+
+        // Gather issues from --from flag or run clippy for --lint
         let issues = if let Some(ref path) = from {
             Some(read_from_source(path).await?)
+        } else if lint {
+            // Run clippy to gather lint diagnostics
+            Some(run_clippy_diagnostics(&config.working_dir, target).await?)
         } else {
             None
         };
@@ -695,7 +707,7 @@ async fn cmd_fix(
             .context("failed to gather fix context")?;
 
         let prompt = if lint {
-            format!("Fix lint/clippy issues in {target}")
+            format!("Fix the clippy/lint issues shown above in {target}")
         } else {
             format!("Fix issues in {target}")
         };
@@ -709,15 +721,101 @@ async fn cmd_fix(
         )
         .await?;
 
-        let result = parse_fix_response(&response).unwrap_or_else(|_| FixResult {
-            changes: Vec::new(),
-            remaining_issues: 0,
+        let result = parse_fix_response(&response).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "failed to parse fix response, returning empty result");
+            FixResult {
+                diagnosis: "failed to parse LLM response".to_string(),
+                fixes: Vec::new(),
+                unfixable_count: 0,
+            }
         });
+
+        // Apply fixes if requested
+        if apply && !result.fixes.is_empty() {
+            apply_fixes(&config.working_dir, &result.fixes).await?;
+        }
 
         let exit_code = result.exit_code();
         println!("{}", result.render(output_mode));
         Ok(exit_code)
     }
+}
+
+/// Run clippy and capture diagnostics for context
+async fn run_clippy_diagnostics(working_dir: &std::path::Path, target: &str) -> Result<String> {
+    let output = TokioCommand::new("cargo")
+        .args([
+            "clippy",
+            "--message-format=short",
+            "--",
+            "-W",
+            "clippy::all",
+        ])
+        .current_dir(working_dir)
+        .output()
+        .await
+        .context("failed to run cargo clippy")?;
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Filter to only include diagnostics related to the target file
+    let target_path = std::path::Path::new(target);
+    let relevant_lines: Vec<&str> = stderr
+        .lines()
+        .filter(|line| {
+            // Include lines that reference the target file or are continuation lines
+            line.contains(target)
+                || target_path
+                    .file_name()
+                    .is_some_and(|name| line.contains(&name.to_string_lossy().to_string()))
+                || line.starts_with("  ")
+                || line.starts_with("   ")
+        })
+        .collect();
+
+    if relevant_lines.is_empty() {
+        Ok("No clippy issues found for this file.".to_string())
+    } else {
+        Ok(format!(
+            "Clippy diagnostics:\n{}",
+            relevant_lines.join("\n")
+        ))
+    }
+}
+
+/// Apply fixes to files by performing string replacements
+async fn apply_fixes(working_dir: &std::path::Path, fixes: &[Fix]) -> Result<()> {
+    use tokio::fs;
+
+    for fix in fixes {
+        let file_path = if std::path::Path::new(&fix.file).is_absolute() {
+            PathBuf::from(&fix.file)
+        } else {
+            working_dir.join(&fix.file)
+        };
+
+        // Read the file
+        let content = fs::read_to_string(&file_path)
+            .await
+            .with_context(|| format!("failed to read file for fix: {}", fix.file))?;
+
+        // Apply the replacement
+        if content.contains(&fix.original) {
+            let new_content = content.replacen(&fix.original, &fix.replacement, 1);
+            fs::write(&file_path, new_content)
+                .await
+                .with_context(|| format!("failed to write fix to: {}", fix.file))?;
+            tracing::info!(file = %fix.file, "applied fix");
+        } else {
+            tracing::warn!(
+                file = %fix.file,
+                original = %fix.original,
+                "could not find original code to replace"
+            );
+        }
+    }
+
+    Ok(())
 }
 
 async fn cmd_commit(
@@ -962,11 +1060,34 @@ That's the JSON."#;
 
     #[test]
     fn test_parse_fix_response_valid() {
-        let input = r#"{"changes": [{"file_path": "src/main.rs", "description": "Prefix with underscore"}], "remaining_issues": 0}"#;
+        let input = r#"{"diagnosis": "unused variable", "fixes": [{"file": "src/main.rs", "line": 10, "original": "let x = 1;", "replacement": "let _x = 1;", "explanation": "prefix unused variable with underscore"}], "unfixable_count": 0}"#;
         let result = parse_fix_response(input).unwrap();
-        assert_eq!(result.changes.len(), 1);
-        assert_eq!(result.changes[0].file_path, "src/main.rs");
-        assert_eq!(result.changes[0].description, "Prefix with underscore");
-        assert_eq!(result.remaining_issues, 0);
+        assert_eq!(result.diagnosis, "unused variable");
+        assert_eq!(result.fixes.len(), 1);
+        assert_eq!(result.fixes[0].file, "src/main.rs");
+        assert_eq!(result.fixes[0].line, Some(10));
+        assert_eq!(result.fixes[0].original, "let x = 1;");
+        assert_eq!(result.fixes[0].replacement, "let _x = 1;");
+        assert_eq!(
+            result.fixes[0].explanation,
+            "prefix unused variable with underscore"
+        );
+        assert_eq!(result.unfixable_count, 0);
+    }
+
+    #[test]
+    fn test_parse_fix_response_no_line() {
+        let input = r#"{"diagnosis": "issue found", "fixes": [{"file": "src/lib.rs", "line": null, "original": "foo()", "replacement": "bar()", "explanation": "renamed function"}], "unfixable_count": 1}"#;
+        let result = parse_fix_response(input).unwrap();
+        assert_eq!(result.fixes[0].line, None);
+        assert_eq!(result.unfixable_count, 1);
+    }
+
+    #[test]
+    fn test_parse_fix_response_empty_fixes() {
+        let input = r#"{"diagnosis": "no issues found", "fixes": [], "unfixable_count": 0}"#;
+        let result = parse_fix_response(input).unwrap();
+        assert!(result.fixes.is_empty());
+        assert_eq!(result.diagnosis, "no issues found");
     }
 }

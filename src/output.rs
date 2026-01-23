@@ -229,38 +229,59 @@ impl ExitStatus for ExplainResult {
 /// Result from the `fix` command
 #[derive(Debug, Serialize)]
 pub struct FixResult {
-    /// Changes made to fix issues
-    pub changes: Vec<Change>,
+    /// Brief description of the identified issue(s)
+    pub diagnosis: String,
+    /// Suggested fixes
+    pub fixes: Vec<Fix>,
     /// Number of issues that could not be fixed
-    pub remaining_issues: usize,
+    pub unfixable_count: usize,
 }
 
-/// A change made by the fix command
-#[derive(Debug, Serialize)]
-pub struct Change {
-    /// Path to the file that was changed
-    pub file_path: String,
-    /// Description of the change
-    pub description: String,
+/// A suggested fix from the fix command
+#[derive(Debug, Clone, Serialize)]
+pub struct Fix {
+    /// Path to the file to change
+    pub file: String,
+    /// Line number (if known)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+    /// Original code to replace
+    pub original: String,
+    /// Replacement code
+    pub replacement: String,
+    /// Explanation of why this fixes the issue
+    pub explanation: String,
 }
 
 impl CommandOutput for FixResult {
     fn render_human(&self) -> String {
         use std::fmt::Write;
         let mut output = String::new();
-        if self.changes.is_empty() {
-            output.push_str("No changes made.");
+
+        // Show diagnosis
+        if !self.diagnosis.is_empty() {
+            let _ = writeln!(output, "Diagnosis: {}\n", self.diagnosis);
+        }
+
+        if self.fixes.is_empty() {
+            output.push_str("No fixes suggested.");
         } else {
-            output.push_str("Changes:\n");
-            for change in &self.changes {
-                let _ = writeln!(output, "  {} - {}", change.file_path, change.description);
+            let _ = writeln!(output, "Suggested fixes ({}):", self.fixes.len());
+            for (i, fix) in self.fixes.iter().enumerate() {
+                let location = fix
+                    .line
+                    .map_or(fix.file.clone(), |l| format!("{}:{}", fix.file, l));
+                let _ = writeln!(output, "\n{}. {} - {}", i + 1, location, fix.explanation);
+                let _ = writeln!(output, "   - {}", fix.original);
+                let _ = writeln!(output, "   + {}", fix.replacement);
             }
         }
-        if self.remaining_issues > 0 {
+
+        if self.unfixable_count > 0 {
             let _ = write!(
                 output,
-                "\n{} issues could not be fixed.",
-                self.remaining_issues
+                "\n{} issues could not be fixed automatically.",
+                self.unfixable_count
             );
         }
         output
@@ -269,7 +290,7 @@ impl CommandOutput for FixResult {
 
 impl ExitStatus for FixResult {
     fn exit_code(&self) -> ExitCode {
-        if self.remaining_issues > 0 {
+        if self.unfixable_count > 0 {
             ExitCode::IssuesFound
         } else {
             ExitCode::Success
@@ -418,11 +439,15 @@ mod tests {
     #[test]
     fn test_fix_result_exit_status_success() {
         let result = FixResult {
-            changes: vec![Change {
-                file_path: "test.rs".to_string(),
-                description: "Fixed bug".to_string(),
+            diagnosis: "unused variable".to_string(),
+            fixes: vec![Fix {
+                file: "test.rs".to_string(),
+                line: Some(10),
+                original: "let x = 1;".to_string(),
+                replacement: "let _x = 1;".to_string(),
+                explanation: "prefix unused variable with underscore".to_string(),
             }],
-            remaining_issues: 0,
+            unfixable_count: 0,
         };
         assert_eq!(result.exit_code(), ExitCode::Success);
     }
@@ -430,49 +455,63 @@ mod tests {
     #[test]
     fn test_fix_result_exit_status_with_remaining() {
         let result = FixResult {
-            changes: vec![],
-            remaining_issues: 2,
+            diagnosis: "multiple issues".to_string(),
+            fixes: vec![],
+            unfixable_count: 2,
         };
         assert_eq!(result.exit_code(), ExitCode::IssuesFound);
     }
 
     #[test]
-    fn test_fix_result_human_output_with_changes() {
+    fn test_fix_result_human_output_with_fixes() {
         let result = FixResult {
-            changes: vec![
-                Change {
-                    file_path: "src/main.rs".to_string(),
-                    description: "Fixed null pointer".to_string(),
+            diagnosis: "found linting issues".to_string(),
+            fixes: vec![
+                Fix {
+                    file: "src/main.rs".to_string(),
+                    line: Some(42),
+                    original: "let x = 1;".to_string(),
+                    replacement: "let _x = 1;".to_string(),
+                    explanation: "prefix unused variable".to_string(),
                 },
-                Change {
-                    file_path: "src/lib.rs".to_string(),
-                    description: "Added error handling".to_string(),
+                Fix {
+                    file: "src/lib.rs".to_string(),
+                    line: None,
+                    original: "unwrap()".to_string(),
+                    replacement: "?".to_string(),
+                    explanation: "use ? operator instead of unwrap".to_string(),
                 },
             ],
-            remaining_issues: 0,
+            unfixable_count: 0,
         };
         let output = result.render_human();
-        assert!(output.contains("Changes:"));
-        assert!(output.contains("src/main.rs - Fixed null pointer"));
-        assert!(output.contains("src/lib.rs - Added error handling"));
+        assert!(output.contains("Diagnosis: found linting issues"));
+        assert!(output.contains("Suggested fixes (2):"));
+        assert!(output.contains("src/main.rs:42"));
+        assert!(output.contains("prefix unused variable"));
+        assert!(output.contains("- let x = 1;"));
+        assert!(output.contains("+ let _x = 1;"));
     }
 
     #[test]
-    fn test_fix_result_human_output_no_changes() {
+    fn test_fix_result_human_output_no_fixes() {
         let result = FixResult {
-            changes: vec![],
-            remaining_issues: 0,
+            diagnosis: "no issues found".to_string(),
+            fixes: vec![],
+            unfixable_count: 0,
         };
-        assert_eq!(result.render_human(), "No changes made.");
+        let output = result.render_human();
+        assert!(output.contains("No fixes suggested."));
     }
 
     #[test]
-    fn test_fix_result_human_output_with_remaining() {
+    fn test_fix_result_human_output_with_unfixable() {
         let result = FixResult {
-            changes: vec![],
-            remaining_issues: 3,
+            diagnosis: "complex issues".to_string(),
+            fixes: vec![],
+            unfixable_count: 3,
         };
         let output = result.render_human();
-        assert!(output.contains("3 issues could not be fixed."));
+        assert!(output.contains("3 issues could not be fixed automatically."));
     }
 }

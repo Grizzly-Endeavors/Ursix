@@ -199,18 +199,19 @@ Return your analysis as JSON in this exact format:
     {
       "file": "path/to/file.rs",
       "line": 42,
-      "original": "the original problematic code",
+      "original": "the exact original problematic code",
       "replacement": "the fixed code",
       "explanation": "why this change fixes the issue"
     }
   ],
-  "verified": false
+  "unfixable_count": 0
 }
 
 Notes:
 - The "fixes" array contains specific code changes to make
-- The "line" field is optional if the fix location is unclear
-- Set "verified" to false since pipeline mode cannot run tests
+- The "line" field is optional (use null) if the fix location is unclear
+- The "original" field must be the EXACT code from the source to enable automatic replacement
+- Set "unfixable_count" to the number of issues that cannot be fixed with simple replacements
 - Focus on minimal, targeted fixes that address the root cause
 
 Output ONLY the JSON, no other text."#;

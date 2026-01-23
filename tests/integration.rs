@@ -106,3 +106,87 @@ fn cli_json_output_is_valid() -> TestResult {
     serde_json::from_str::<serde_json::Value>(&stdout)?;
     Ok(())
 }
+
+#[test]
+fn cli_fix_shows_help() -> TestResult {
+    Command::cargo_bin("ur")?
+        .args(["fix", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Fix issues in code"))
+        .stdout(predicate::str::contains("--lint"))
+        .stdout(predicate::str::contains("--apply"))
+        .stdout(predicate::str::contains("--from"));
+    Ok(())
+}
+
+#[test]
+fn cli_fix_requires_target() -> TestResult {
+    Command::cargo_bin("ur")?
+        .arg("fix")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("required"));
+    Ok(())
+}
+
+#[test]
+fn cli_fix_accepts_lint_flag() -> TestResult {
+    // Verify --lint flag is accepted (will fail without LLM but shouldn't error on arg parsing)
+    let result = Command::cargo_bin("ur")?
+        .args(["fix", "--lint", "nonexistent.rs"])
+        .output()?;
+
+    // Should not fail due to unrecognized flag
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "fix command should accept --lint flag"
+    );
+    Ok(())
+}
+
+#[test]
+fn cli_fix_accepts_apply_flag() -> TestResult {
+    // Verify --apply flag is accepted
+    let result = Command::cargo_bin("ur")?
+        .args(["fix", "--apply", "nonexistent.rs"])
+        .output()?;
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "fix command should accept --apply flag"
+    );
+    Ok(())
+}
+
+#[test]
+fn cli_fix_accepts_from_flag() -> TestResult {
+    // Verify --from flag is accepted
+    let result = Command::cargo_bin("ur")?
+        .args(["fix", "--from", "issues.json", "src/main.rs"])
+        .output()?;
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "fix command should accept --from flag"
+    );
+    Ok(())
+}
+
+#[test]
+fn cli_fix_accepts_agent_flag() -> TestResult {
+    // Verify --agent flag is accepted
+    let result = Command::cargo_bin("ur")?
+        .args(["fix", "--agent", "nonexistent.rs"])
+        .output()?;
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "fix command should accept --agent flag"
+    );
+    Ok(())
+}
