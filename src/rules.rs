@@ -2,8 +2,8 @@
 //!
 //! Rules are natural language descriptions organized by category that tell the LLM
 //! what to check during code review. Rules can be loaded from:
-//! - Global config: `~/.config/ursus/rules.yml`
-//! - Project config: `.ursus/rules.yml` or `rules.yml`
+//! - Global config: `~/.config/ursix/rules.yml`
+//! - Project config: `.ursix/rules.yml` or `rules.yml`
 //!
 //! Project rules extend global rules (same category adds rules, doesn't replace).
 
@@ -63,8 +63,8 @@ impl RulesConfig {
     /// Load rules from global and project config files, merging them.
     ///
     /// Loading order:
-    /// 1. Global rules from `~/.config/ursus/rules.yml`
-    /// 2. Project rules from `.ursus/rules.yml` or `rules.yml`
+    /// 1. Global rules from `~/.config/ursix/rules.yml`
+    /// 2. Project rules from `.ursix/rules.yml` or `rules.yml`
     ///
     /// Project rules extend global rules (same category adds rules).
     /// If no rules are found, returns default built-in rules.
@@ -77,7 +77,7 @@ impl RulesConfig {
 
         // Load global rules
         if let Some(global_path) = dirs::config_dir() {
-            let global_rules_path = global_path.join("ursus").join("rules.yml");
+            let global_rules_path = global_path.join("ursix").join("rules.yml");
             if global_rules_path.exists() {
                 let global_config = Self::load_from_file(&global_rules_path)?;
                 config.merge(global_config);
@@ -85,9 +85,9 @@ impl RulesConfig {
             }
         }
 
-        // Load project rules (check .ursus/rules.yml first, then rules.yml)
+        // Load project rules (check .ursix/rules.yml first, then rules.yml)
         let project_paths = [
-            working_dir.join(".ursus").join("rules.yml"),
+            working_dir.join(".ursix").join("rules.yml"),
             working_dir.join("rules.yml"),
         ];
 

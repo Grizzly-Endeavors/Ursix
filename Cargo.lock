@@ -2066,7 +2066,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ursus"
+name = "ursix"
 version = "0.1.0"
 dependencies = [
  "anyhow",

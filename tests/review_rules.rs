@@ -19,11 +19,11 @@ fn create_rules_file(dir: &Path, content: &str) {
     fs::write(dir.join("rules.yml"), content).unwrap();
 }
 
-/// Helper to create a .ursus/rules.yml file in a temp directory
-fn create_ursus_rules_file(dir: &Path, content: &str) {
-    let ursus_dir = dir.join(".ursus");
-    fs::create_dir_all(&ursus_dir).unwrap();
-    fs::write(ursus_dir.join("rules.yml"), content).unwrap();
+/// Helper to create a .ursix/rules.yml file in a temp directory
+fn create_ursix_rules_file(dir: &Path, content: &str) {
+    let ursix_dir = dir.join(".ursix");
+    fs::create_dir_all(&ursix_dir).unwrap();
+    fs::write(ursix_dir.join("rules.yml"), content).unwrap();
 }
 
 #[test]
@@ -152,10 +152,10 @@ categories:
 }
 
 #[test]
-fn rules_file_created_in_ursus_dir() {
+fn rules_file_created_in_ursix_dir() {
     let temp_dir = TempDir::new().unwrap();
 
-    create_ursus_rules_file(
+    create_ursix_rules_file(
         temp_dir.path(),
         r#"
 categories:
@@ -165,7 +165,7 @@ categories:
 "#,
     );
 
-    assert!(temp_dir.path().join(".ursus").join("rules.yml").exists());
+    assert!(temp_dir.path().join(".ursix").join("rules.yml").exists());
 }
 
 #[test]

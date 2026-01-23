@@ -1,4 +1,4 @@
-# rust-code
+# Ursix
 
 Extensible CLI tool for LLM-powered development tasks, supporting both stateless pipeline and agentic modes.
 
@@ -35,17 +35,17 @@ src/
 ### Pipeline Mode (Default)
 Single LLM call with pre-gathered context. No tools, no message history.
 ```bash
-ur explain src/main.rs           # Gather file, single LLM call
-ur commit                        # Gather staged diff, generate message
-ur review --checks style,security
+usx explain src/main.rs           # Gather file, single LLM call
+usx commit                        # Gather staged diff, generate message
+usx review --checks style,security
 ```
 
 ### Agent Mode (--agent)
 Multi-turn execution with tool access for complex tasks.
 ```bash
-ur ask --agent "refactor the error handling in src/cli.rs"
-ur fix src/main.rs --agent       # Can run clippy, edit files
-ur review --agent                # Can explore related files
+usx ask --agent "refactor the error handling in src/cli.rs"
+usx fix src/main.rs --agent       # Can run clippy, edit files
+usx review --agent                # Can explore related files
 ```
 
 ## Key CLI Flags

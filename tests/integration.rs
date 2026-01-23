@@ -1,4 +1,4 @@
-//! Integration tests for Ursus.rs CLI
+//! Integration tests for Ursix CLI
 
 #![allow(clippy::unwrap_used)]
 #![allow(deprecated)] // cargo_bin deprecation - revisit when assert_cmd stabilizes new API
@@ -12,7 +12,7 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn cli_shows_version() -> TestResult {
-    Command::cargo_bin("ur")?
+    Command::cargo_bin("usx")?
         .arg("--version")
         .assert()
         .success()
@@ -22,18 +22,18 @@ fn cli_shows_version() -> TestResult {
 
 #[test]
 fn cli_shows_help() -> TestResult {
-    Command::cargo_bin("ur")?
+    Command::cargo_bin("usx")?
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Ursus.rs"));
+        .stdout(predicate::str::contains("Ursix"));
     Ok(())
 }
 
 #[test]
 fn cli_requires_subcommand() -> TestResult {
     // Without a subcommand, should show error
-    Command::cargo_bin("ur")?
+    Command::cargo_bin("usx")?
         .assert()
         .failure()
         .stderr(predicate::str::contains("Usage:"));
@@ -42,7 +42,7 @@ fn cli_requires_subcommand() -> TestResult {
 
 #[test]
 fn cli_ask_shows_help() -> TestResult {
-    Command::cargo_bin("ur")?
+    Command::cargo_bin("usx")?
         .args(["ask", "--help"])
         .assert()
         .success()
@@ -53,7 +53,7 @@ fn cli_ask_shows_help() -> TestResult {
 #[test]
 fn cli_ask_requires_prompt() -> TestResult {
     // Ask without a prompt should fail
-    Command::cargo_bin("ur")?
+    Command::cargo_bin("usx")?
         .arg("ask")
         .assert()
         .failure()
@@ -63,7 +63,7 @@ fn cli_ask_requires_prompt() -> TestResult {
 
 #[test]
 fn cli_config_list() -> TestResult {
-    Command::cargo_bin("ur")?
+    Command::cargo_bin("usx")?
         .args(["config", "--list"])
         .assert()
         .success()
@@ -74,7 +74,7 @@ fn cli_config_list() -> TestResult {
 #[test]
 fn cli_accepts_model_flag() -> TestResult {
     // Verify --model flag is accepted by checking config list works with it
-    Command::cargo_bin("ur")?
+    Command::cargo_bin("usx")?
         .args(["--model", "test-model", "config", "--list"])
         .assert()
         .success()
@@ -85,7 +85,7 @@ fn cli_accepts_model_flag() -> TestResult {
 #[test]
 fn cli_accepts_json_flag() -> TestResult {
     // Verify --json flag produces valid JSON output
-    Command::cargo_bin("ur")?
+    Command::cargo_bin("usx")?
         .args(["--json", "config", "--list"])
         .assert()
         .success()
@@ -97,7 +97,7 @@ fn cli_accepts_json_flag() -> TestResult {
 #[test]
 fn cli_json_output_is_valid() -> TestResult {
     // Verify config --list with --json produces parseable JSON
-    let output = Command::cargo_bin("ur")?
+    let output = Command::cargo_bin("usx")?
         .args(["--json", "config", "--list"])
         .output()?;
 
@@ -109,7 +109,7 @@ fn cli_json_output_is_valid() -> TestResult {
 
 #[test]
 fn cli_fix_shows_help() -> TestResult {
-    Command::cargo_bin("ur")?
+    Command::cargo_bin("usx")?
         .args(["fix", "--help"])
         .assert()
         .success()
@@ -122,7 +122,7 @@ fn cli_fix_shows_help() -> TestResult {
 
 #[test]
 fn cli_fix_requires_target() -> TestResult {
-    Command::cargo_bin("ur")?
+    Command::cargo_bin("usx")?
         .arg("fix")
         .assert()
         .failure()
@@ -133,7 +133,7 @@ fn cli_fix_requires_target() -> TestResult {
 #[test]
 fn cli_fix_accepts_lint_flag() -> TestResult {
     // Verify --lint flag is accepted (will fail without LLM but shouldn't error on arg parsing)
-    let result = Command::cargo_bin("ur")?
+    let result = Command::cargo_bin("usx")?
         .args(["fix", "--lint", "nonexistent.rs"])
         .output()?;
 
@@ -149,7 +149,7 @@ fn cli_fix_accepts_lint_flag() -> TestResult {
 #[test]
 fn cli_fix_accepts_apply_flag() -> TestResult {
     // Verify --apply flag is accepted
-    let result = Command::cargo_bin("ur")?
+    let result = Command::cargo_bin("usx")?
         .args(["fix", "--apply", "nonexistent.rs"])
         .output()?;
 
@@ -164,7 +164,7 @@ fn cli_fix_accepts_apply_flag() -> TestResult {
 #[test]
 fn cli_fix_accepts_from_flag() -> TestResult {
     // Verify --from flag is accepted
-    let result = Command::cargo_bin("ur")?
+    let result = Command::cargo_bin("usx")?
         .args(["fix", "--from", "issues.json", "src/main.rs"])
         .output()?;
 
@@ -179,7 +179,7 @@ fn cli_fix_accepts_from_flag() -> TestResult {
 #[test]
 fn cli_fix_accepts_agent_flag() -> TestResult {
     // Verify --agent flag is accepted
-    let result = Command::cargo_bin("ur")?
+    let result = Command::cargo_bin("usx")?
         .args(["fix", "--agent", "nonexistent.rs"])
         .output()?;
 

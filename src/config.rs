@@ -1,10 +1,10 @@
-//! Configuration management for Ursus.rs
+//! Configuration management for Ursix
 //!
 //! Configuration is loaded from multiple sources with the following priority:
 //! 1. CLI flags (highest priority)
-//! 2. Environment variables (URSUS_*)
-//! 3. Project config (.ursus.toml in current or parent directories)
-//! 4. Global config (~/.config/ursus/config.toml)
+//! 2. Environment variables (URSIX_*)
+//! 3. Project config (.ursix.toml in current or parent directories)
+//! 4. Global config (~/.config/ursix/config.toml)
 //! 5. Defaults (lowest priority)
 
 use std::fmt;
@@ -133,14 +133,14 @@ impl Config {
 
     /// Get the global config file path
     fn global_config_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("ursus/config.toml"))
+        dirs::config_dir().map(|p| p.join("ursix/config.toml"))
     }
 
     /// Find project config by walking up the directory tree
     fn find_project_config() -> Option<PathBuf> {
         let mut dir = std::env::current_dir().ok()?;
         loop {
-            let config_path = dir.join(".ursus.toml");
+            let config_path = dir.join(".ursix.toml");
             if config_path.exists() {
                 return Some(config_path);
             }
@@ -171,27 +171,27 @@ impl Config {
 
     /// Apply environment variable overrides
     fn apply_env(&mut self) {
-        if let Ok(provider) = std::env::var("URSUS_PROVIDER")
+        if let Ok(provider) = std::env::var("URSIX_PROVIDER")
             && let Ok(p) = provider.parse()
         {
             self.provider = p;
         }
-        if let Ok(model) = std::env::var("URSUS_MODEL") {
+        if let Ok(model) = std::env::var("URSIX_MODEL") {
             self.model = model;
         }
-        if let Ok(url) = std::env::var("URSUS_OLLAMA_URL") {
+        if let Ok(url) = std::env::var("URSIX_OLLAMA_URL") {
             self.ollama_url = url;
         }
-        if let Ok(url) = std::env::var("URSUS_OPENAI_URL") {
+        if let Ok(url) = std::env::var("URSIX_OPENAI_URL") {
             self.openai_url = url;
         }
-        // Check both URSUS_OPENAI_API_KEY and standard OPENAI_API_KEY
-        if let Ok(key) = std::env::var("URSUS_OPENAI_API_KEY") {
+        // Check both URSIX_OPENAI_API_KEY and standard OPENAI_API_KEY
+        if let Ok(key) = std::env::var("URSIX_OPENAI_API_KEY") {
             self.openai_api_key = Some(key);
         } else if let Ok(key) = std::env::var("OPENAI_API_KEY") {
             self.openai_api_key = Some(key);
         }
-        if let Ok(turns) = std::env::var("URSUS_MAX_TURNS")
+        if let Ok(turns) = std::env::var("URSIX_MAX_TURNS")
             && let Ok(turns) = turns.parse()
         {
             self.max_turns = turns;

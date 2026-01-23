@@ -1,4 +1,4 @@
-//! Command-specific system prompts for Ursus.rs
+//! Command-specific system prompts for Ursix
 //!
 //! Each command gets an optimized system prompt tailored to its specific task.
 //! Includes both agent prompts (with tool access) and pipeline prompts (single LLM call, JSON output).

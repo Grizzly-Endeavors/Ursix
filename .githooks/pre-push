@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-push hook for rust-code
+# Pre-push hook for ursix
 # Final safety check before pushing
 
 set -e

@@ -23,8 +23,8 @@ use crate::prompts::{self, build_review_prompt, pipeline_prompt_for_command};
 use crate::rules::RulesConfig;
 
 #[derive(Parser, Debug)]
-#[command(name = "ur")]
-#[command(about = "Ursus.rs - An extensible agentic CLI for LLM-powered development")]
+#[command(name = "usx")]
+#[command(about = "Ursix - An extensible agentic CLI for LLM-powered development")]
 #[command(version)]
 pub struct Cli {
     /// Output as JSON for scripting
@@ -48,7 +48,7 @@ pub struct Cli {
     pub openai_url: Option<String>,
 
     /// API key for OpenAI-compatible endpoints (overrides environment variable)
-    #[arg(long, global = true, env = "URSUS_OPENAI_API_KEY")]
+    #[arg(long, global = true, env = "URSIX_OPENAI_API_KEY")]
     pub openai_api_key: Option<String>,
 
     /// Maximum agent turns before stopping
@@ -971,7 +971,7 @@ fn cmd_config(
             println!("{}", result.render(output_mode));
         }
     } else {
-        println!("Usage: ur config <key> [value] or ur config --list");
+        println!("Usage: usx config <key> [value] or usx config --list");
     }
     Ok(ExitCode::Success)
 }

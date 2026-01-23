@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install git hooks for rust-code
+# Install git hooks for ursix
 # Run this once after cloning the repository
 
 set -e

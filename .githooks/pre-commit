@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-commit hook for rust-code
+# Pre-commit hook for ursix
 # Enforces code quality before commits are created
 
 set -e

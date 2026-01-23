@@ -1,6 +1,6 @@
 <div align="center">
 
-# Ursus
+# Ursix
 
 **LLM-powered development tools that fit your workflow**
 
@@ -18,25 +18,25 @@
 
 ---
 
-## What is Ursus?
+## What is Ursix?
 
-Ursus (`ur`) is a command-line tool that brings LLM capabilities directly into your development workflow. Instead of copy-pasting code into chat windows or context-switching between tools, Ursus provides purpose-built commands for common development tasks—code review, explanation, commit messages, and fixes—all from your terminal.
+Ursix (`usx`) is a command-line tool that brings LLM capabilities directly into your development workflow. Instead of copy-pasting code into chat windows or context-switching between tools, Ursix provides purpose-built commands for common development tasks—code review, explanation, commit messages, and fixes—all from your terminal.
 
 ```bash
 # Review your staged changes before committing
-ur review
+usx review
 
 # Generate a conventional commit message
-ur commit --execute
+usx commit --execute
 
 # Explain unfamiliar code
-ur explain src/auth/jwt.rs
+usx explain src/auth/jwt.rs
 
 # Fix clippy warnings automatically
-ur fix src/lib.rs --lint --apply
+usx fix src/lib.rs --lint --apply
 ```
 
-## Why Ursus?
+## Why Ursix?
 
 ### The Problem
 
@@ -49,20 +49,20 @@ AI coding assistants are powerful, but using them often means:
 
 ### The Solution
 
-Ursus brings LLM capabilities to where you already work—your terminal—with commands designed for specific development tasks:
+Ursix brings LLM capabilities to where you already work—your terminal—with commands designed for specific development tasks:
 
-| Pain Point | Ursus Solution |
+| Pain Point | Ursix Solution |
 |------------|----------------|
-| "I need to review these changes" | `ur review` reads your git diff automatically |
-| "What does this code do?" | `ur explain src/module.rs` with full file context |
-| "Write me a commit message" | `ur commit` analyzes staged changes and formats properly |
-| "Fix these lint errors" | `ur fix --lint --apply` diagnoses and patches files |
+| "I need to review these changes" | `usx review` reads your git diff automatically |
+| "What does this code do?" | `usx explain src/module.rs` with full file context |
+| "Write me a commit message" | `usx commit` analyzes staged changes and formats properly |
+| "Fix these lint errors" | `usx fix --lint --apply` diagnoses and patches files |
 | "Automate in CI" | `--json` output with exit codes for pipelines |
 | "Enforce team standards" | Configurable `rules.yml` makes reviews consistent |
 
 ### Key Design Principles
 
-- **Unix philosophy**: stdin/stdout, exit codes, pipes—Ursus composes with your existing tools
+- **Unix philosophy**: stdin/stdout, exit codes, pipes—Ursix composes with your existing tools
 - **Predictable by default**: single-pass pipeline mode for fast, deterministic results
 - **Powerful when needed**: opt-in `--agent` mode for complex multi-step tasks
 - **Works offline**: first-class support for local models via Ollama
@@ -83,16 +83,16 @@ Ursus brings LLM capabilities to where you already work—your terminal—with c
 **From source:**
 
 ```bash
-git clone https://github.com/your-org/ursus.git
-cd ursus
+git clone https://github.com/your-org/ursix.git
+cd ursix
 cargo install --path .
 ```
 
 **Verify installation:**
 
 ```bash
-ur --version
-ur models  # List available Ollama models
+usx --version
+usx models  # List available Ollama models
 ```
 
 ### First Steps
@@ -102,144 +102,144 @@ ur models  # List available Ollama models
 ollama serve
 
 # Ask a question
-ur ask "What is the idiomatic way to handle errors in Rust?"
+usx ask "What is the idiomatic way to handle errors in Rust?"
 
 # Explain a file in your project
-ur explain src/main.rs
+usx explain src/main.rs
 
 # Review your staged changes
 git add -p  # Stage some changes
-ur review
+usx review
 ```
 
 ## Commands
 
-### `ur ask` — General Queries
+### `usx ask` — General Queries
 
 Ask questions with optional file context.
 
 ```bash
 # Simple question
-ur ask "How do I parse JSON in Rust?"
+usx ask "How do I parse JSON in Rust?"
 
 # With file context
-ur ask --from src/config.rs "How can I improve error handling here?"
+usx ask --from src/config.rs "How can I improve error handling here?"
 
 # Pipe in context
-cat error.log | ur ask --stdin "What's causing this error?"
+cat error.log | usx ask --stdin "What's causing this error?"
 
 # Complex tasks with tool access
-ur ask --agent "Refactor the error handling in src/cli.rs"
+usx ask --agent "Refactor the error handling in src/cli.rs"
 ```
 
-### `ur explain` — Code Explanation
+### `usx explain` — Code Explanation
 
 Get clear explanations of code with full file context.
 
 ```bash
 # Explain a file
-ur explain src/auth/middleware.rs
+usx explain src/auth/middleware.rs
 
 # Deep exploration mode
-ur explain src/database/ --agent
+usx explain src/database/ --agent
 ```
 
-### `ur review` — Code Review
+### `usx review` — Code Review
 
 Review code changes with actionable feedback.
 
 ```bash
 # Review staged changes (default)
-ur review
+usx review
 
 # Review specific files
-ur review src/api.rs src/handlers.rs
+usx review src/api.rs src/handlers.rs
 
 # Review a specific diff
-ur review --diff HEAD~3
+usx review --diff HEAD~3
 
 # Focus on specific concerns
-ur review --checks security,performance
+usx review --checks security,performance
 
 # Thorough multi-file analysis
-ur review --agent
+usx review --agent
 ```
 
 **Exit codes:**
 - `0` — Review passed (no errors or warnings)
 - `1` — Review found issues
 
-### `ur fix` — Code Fixes
+### `usx fix` — Code Fixes
 
 Identify and fix issues in your code.
 
 ```bash
 # Fix issues in a file
-ur fix src/lib.rs
+usx fix src/lib.rs
 
 # Fix clippy/lint issues
-ur fix src/main.rs --lint
+usx fix src/main.rs --lint
 
 # Auto-apply fixes
-ur fix src/lib.rs --lint --apply
+usx fix src/lib.rs --lint --apply
 
 # Complex fixes with tool access
-ur fix src/auth.rs --agent
+usx fix src/auth.rs --agent
 ```
 
-### `ur commit` — Commit Messages
+### `usx commit` — Commit Messages
 
 Generate conventional commit messages from staged changes.
 
 ```bash
 # Generate commit message
-ur commit
+usx commit
 
 # Include detailed body
-ur commit --body
+usx commit --body
 
 # Generate and execute immediately
-ur commit --execute
+usx commit --execute
 
 # Different styles
-ur commit --style simple
+usx commit --style simple
 ```
 
-### `ur config` — Configuration
+### `usx config` — Configuration
 
-Manage Ursus configuration.
+Manage Ursix configuration.
 
 ```bash
 # List all settings
-ur config --list
+usx config --list
 
 # Get a specific value
-ur config model
+usx config model
 
 # Set a value (coming soon)
-ur config model qwen2.5-coder:7b
+usx config model qwen2.5-coder:7b
 ```
 
-### `ur models` — List Models
+### `usx models` — List Models
 
 List available models from your Ollama instance.
 
 ```bash
-ur models
+usx models
 ```
 
 ## Execution Modes
 
-Ursus supports two execution modes, letting you choose between speed and capability:
+Ursix supports two execution modes, letting you choose between speed and capability:
 
 ### Pipeline Mode (Default)
 
 Fast, single-pass LLM calls with pre-gathered context. No tool execution, predictable behavior.
 
 ```bash
-ur review              # Gathers diff, single LLM call
-ur commit              # Gathers staged changes, generates message
-ur explain src/lib.rs  # Reads file, explains in one pass
+usx review              # Gathers diff, single LLM call
+usx commit              # Gathers staged changes, generates message
+usx explain src/lib.rs  # Reads file, explains in one pass
 ```
 
 **Best for:** Quick tasks, CI/CD pipelines, deterministic output.
@@ -249,25 +249,25 @@ ur explain src/lib.rs  # Reads file, explains in one pass
 Multi-turn execution with full tool access. The LLM can read files, run commands, and iterate on solutions.
 
 ```bash
-ur ask --agent "Find and fix all TODO comments in src/"
-ur fix src/main.rs --agent  # Can run clippy, edit files, verify fixes
-ur review --agent           # Can explore related files for context
+usx ask --agent "Find and fix all TODO comments in src/"
+usx fix src/main.rs --agent  # Can run clippy, edit files, verify fixes
+usx review --agent           # Can explore related files for context
 ```
 
 **Best for:** Complex tasks requiring exploration, multi-file changes, iterative fixes.
 
 ## Configuration
 
-Ursus uses layered configuration (highest priority first):
+Ursix uses layered configuration (highest priority first):
 
 1. **CLI flags** — `--model qwen2.5-coder:7b`
-2. **Environment variables** — `URSUS_MODEL=qwen2.5-coder:7b`
-3. **Project config** — `.ursus.toml` in current or parent directories
-4. **Global config** — `~/.config/ursus/config.toml`
+2. **Environment variables** — `URSIX_MODEL=qwen2.5-coder:7b`
+3. **Project config** — `.ursix.toml` in current or parent directories
+4. **Global config** — `~/.config/ursix/config.toml`
 
 ### Configuration File
 
-Create `.ursus.toml` in your project root:
+Create `.ursix.toml` in your project root:
 
 ```toml
 # LLM Provider: "ollama" or "openai"
@@ -287,12 +287,12 @@ max_turns = 50
 ### Environment Variables
 
 ```bash
-export URSUS_PROVIDER=openai
-export URSUS_MODEL=gpt-4
-export URSUS_OPENAI_API_KEY=sk-...
-export URSUS_OPENAI_URL=https://api.openai.com/v1
-export URSUS_OLLAMA_URL=http://localhost:11434
-export URSUS_MAX_TURNS=50
+export URSIX_PROVIDER=openai
+export URSIX_MODEL=gpt-4
+export URSIX_OPENAI_API_KEY=sk-...
+export URSIX_OPENAI_URL=https://api.openai.com/v1
+export URSIX_OLLAMA_URL=http://localhost:11434
+export URSIX_MAX_TURNS=50
 ```
 
 ### CLI Reference
@@ -313,7 +313,7 @@ Global Flags:
 
 **Turn subjective nitpicks into enforceable standards.**
 
-Code review feedback is often inconsistent—what one reviewer catches, another misses. Senior developers carry implicit knowledge about "how we do things here" that isn't documented anywhere. Ursus solves this with a versioned, declarative rules system that makes team standards explicit and enforceable.
+Code review feedback is often inconsistent—what one reviewer catches, another misses. Senior developers carry implicit knowledge about "how we do things here" that isn't documented anywhere. Ursix solves this with a versioned, declarative rules system that makes team standards explicit and enforceable.
 
 ### Why Rules Matter
 
@@ -323,7 +323,7 @@ Without codified rules:
 - The same issues get flagged (or missed) inconsistently
 - "We should do X" discussions never become enforced policy
 
-With Ursus rules:
+With Ursix rules:
 - Standards are versioned alongside your code
 - Every review applies the same checks consistently
 - Onboarding is faster—rules document team expectations
@@ -331,7 +331,7 @@ With Ursus rules:
 
 ### Creating Rules
 
-Create `rules.yml` (or `.ursus/rules.yml`) in your project root:
+Create `rules.yml` (or `.ursix/rules.yml`) in your project root:
 
 ```yaml
 categories:
@@ -376,30 +376,30 @@ categories:
 
 ```bash
 # Apply all rules
-ur review
+usx review
 
 # Apply only security rules
-ur review --checks security
+usx review --checks security
 
 # Apply multiple categories
-ur review --checks security,performance
+usx review --checks security,performance
 
 # Rules auto-filter by file type
-ur review src/api.rs  # Only applies rules matching src/api.rs
+usx review src/api.rs  # Only applies rules matching src/api.rs
 ```
 
 ### Rule Hierarchy
 
 Rules load from multiple locations and merge:
 
-1. **Global rules**: `~/.config/ursus/rules.yml` (your personal defaults)
-2. **Project rules**: `rules.yml` or `.ursus/rules.yml` (team standards)
+1. **Global rules**: `~/.config/ursix/rules.yml` (your personal defaults)
+2. **Project rules**: `rules.yml` or `.ursix/rules.yml` (team standards)
 
 Project rules extend global rules—they don't replace them.
 
 ### Built-in Defaults
 
-If no `rules.yml` exists, Ursus applies sensible defaults:
+If no `rules.yml` exists, Ursix applies sensible defaults:
 
 | Category | Rules |
 |----------|-------|
@@ -432,15 +432,15 @@ This enables filtering and tracking by rule in CI:
 
 ```bash
 # Count issues by rule
-ur review --json | jq '[.issues[].rule] | group_by(.) | map({rule: .[0], count: length})'
+usx review --json | jq '[.issues[].rule] | group_by(.) | map({rule: .[0], count: length})'
 
 # Fail only on security rules
-ur review --checks security --json | jq -e '.passed'
+usx review --checks security --json | jq -e '.passed'
 ```
 
 ## Scripting & CI/CD
 
-Ursus is designed for automation. Every command supports structured output, meaningful exit codes, and Unix-style composition.
+Ursix is designed for automation. Every command supports structured output, meaningful exit codes, and Unix-style composition.
 
 ### JSON Output
 
@@ -448,13 +448,13 @@ All commands support `--json` for machine-readable output:
 
 ```bash
 # Structured review results
-ur review --json | jq '.issues[] | select(.severity == "error")'
+usx review --json | jq '.issues[] | select(.severity == "error")'
 
 # Parse commit message components
-ur commit --json | jq -r '.title'
+usx commit --json | jq -r '.title'
 
 # Extract explanation for documentation
-ur explain src/api.rs --json | jq -r '.explanation'
+usx explain src/api.rs --json | jq -r '.explanation'
 ```
 
 ### Exit Codes
@@ -469,10 +469,10 @@ Commands return meaningful exit codes for scripting:
 
 ```bash
 # Conditional execution
-ur review && echo "Review passed" || echo "Issues found"
+usx review && echo "Review passed" || echo "Issues found"
 
 # In CI pipelines
-ur review --json > review.json
+usx review --json > review.json
 if [ $? -ne 0 ]; then
   cat review.json | jq '.issues[]'
   exit 1
@@ -485,16 +485,16 @@ Commands read from stdin and write to stdout:
 
 ```bash
 # Pipe file content for analysis
-cat src/complex.rs | ur ask --stdin "What are the potential bugs here?"
+cat src/complex.rs | usx ask --stdin "What are the potential bugs here?"
 
 # Chain review and fix
-ur review --json | ur fix --from - src/main.rs --apply
+usx review --json | usx fix --from - src/main.rs --apply
 
 # Process multiple files
-find src -name "*.rs" -exec ur explain {} --json \; | jq -s '.'
+find src -name "*.rs" -exec usx explain {} --json \; | jq -s '.'
 
 # Use with other tools
-git diff HEAD~1 | ur ask --stdin "Summarize these changes"
+git diff HEAD~1 | usx ask --stdin "Summarize these changes"
 ```
 
 ### GitHub Actions
@@ -511,12 +511,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Ursus
+      - name: Install Ursix
         run: cargo install --path .
 
       - name: Review Changes
         run: |
-          ur review --diff origin/${{ github.base_ref }}...HEAD --json > review.json
+          usx review --diff origin/${{ github.base_ref }}...HEAD --json > review.json
 
           # Always output the summary
           jq -r '.summary' review.json
@@ -543,7 +543,7 @@ jobs:
 code-review:
   stage: test
   script:
-    - ur review --diff $CI_MERGE_REQUEST_DIFF_BASE_SHA...$CI_COMMIT_SHA --json > review.json
+    - usx review --diff $CI_MERGE_REQUEST_DIFF_BASE_SHA...$CI_COMMIT_SHA --json > review.json
     - |
       if [ $(jq '.passed' review.json) = "false" ]; then
         jq '.issues[]' review.json
@@ -561,7 +561,7 @@ code-review:
 ```bash
 #!/bin/bash
 # .git/hooks/prepare-commit-msg
-ur commit > "$1"
+usx commit > "$1"
 ```
 
 **pre-commit** — Review staged changes:
@@ -569,7 +569,7 @@ ur commit > "$1"
 ```bash
 #!/bin/bash
 # .git/hooks/pre-commit
-ur review --checks security --json > /tmp/review.json
+usx review --checks security --json > /tmp/review.json
 if [ $(jq '.passed' /tmp/review.json) = "false" ]; then
   echo "Security issues found:"
   jq -r '.issues[] | "  \(.file):\(.line) - \(.message)"' /tmp/review.json
@@ -581,21 +581,21 @@ fi
 
 ```bash
 # Review only changed files
-git diff --name-only HEAD~1 | xargs ur review
+git diff --name-only HEAD~1 | xargs usx review
 
 # Batch explain all modules
 for f in src/*.rs; do
   echo "=== $f ==="
-  ur explain "$f" --json | jq -r '.explanation'
+  usx explain "$f" --json | jq -r '.explanation'
 done
 
 # Generate changelog from commits
 git log --oneline HEAD~10..HEAD | while read sha msg; do
-  git show $sha --stat | ur ask --stdin "Summarize this commit"
+  git show $sha --stat | usx ask --stdin "Summarize this commit"
 done
 
 # Find files needing documentation
-ur review --checks style --json | jq -r '.issues[] | select(.rule == "doc-comments") | .file' | sort -u
+usx review --checks style --json | jq -r '.issues[] | select(.rule == "doc-comments") | .file' | sort -u
 ```
 
 ### Shell Integration
@@ -604,21 +604,21 @@ Add to `.bashrc` or `.zshrc`:
 
 ```bash
 # Aliases
-alias review='ur review'
-alias explain='ur explain'
-alias commit='ur commit --execute'
+alias review='usx review'
+alias explain='usx explain'
+alias commit='usx commit --execute'
 
 # Function: review and fix in one go
 fix-review() {
-  ur review --json > /tmp/review.json
+  usx review --json > /tmp/review.json
   if [ $(jq '.passed' /tmp/review.json) = "false" ]; then
-    ur fix --from /tmp/review.json "$@" --apply
+    usx fix --from /tmp/review.json "$@" --apply
   fi
 }
 
 # Function: explain with less paging
 explain() {
-  ur explain "$@" | less
+  usx explain "$@" | less
 }
 ```
 
@@ -665,8 +665,8 @@ Contributions are welcome. Please read the guidelines below before submitting.
 ### Development Setup
 
 ```bash
-git clone https://github.com/your-org/ursus.git
-cd ursus
+git clone https://github.com/your-org/ursix.git
+cd ursix
 ./.githooks/install.sh  # Install pre-commit hooks
 cargo build
 cargo test
@@ -723,7 +723,7 @@ pub trait LlmClient: Send + Sync {
 
 ## Acknowledgments
 
-Ursus is built with:
+Ursix is built with:
 
 - [Clap](https://github.com/clap-rs/clap) — Command-line argument parsing
 - [Tokio](https://tokio.rs/) — Async runtime
@@ -734,8 +734,8 @@ Ursus is built with:
 
 <div align="center">
 
-**[Report a Bug](https://github.com/your-org/ursus/issues)** •
-**[Request a Feature](https://github.com/your-org/ursus/issues)** •
-**[Discussions](https://github.com/your-org/ursus/discussions)**
+**[Report a Bug](https://github.com/your-org/ursix/issues)** •
+**[Request a Feature](https://github.com/your-org/ursix/issues)** •
+**[Discussions](https://github.com/your-org/ursix/discussions)**
 
 </div>

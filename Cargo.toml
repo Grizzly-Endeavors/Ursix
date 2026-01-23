@@ -1,12 +1,12 @@
 [package]
-name = "ursus"
+name = "ursix"
 version = "0.1.0"
 edition = "2024"
-description = "Ursus.rs - An extensible agentic CLI for LLM-powered development"
+description = "Ursix - An extensible agentic CLI for LLM-powered development"
 license = "MIT"
 
 [[bin]]
-name = "ur"
+name = "usx"
 path = "src/main.rs"
 
 [dependencies]
