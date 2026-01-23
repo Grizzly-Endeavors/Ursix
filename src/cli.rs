@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tokio::process::Command as TokioCommand;
 
-use crate::agent::Agent;
+use crate::agent::{Agent, AgentResult};
 use crate::config::{Config, Provider};
 use crate::context::{
     GatheredContext, gather_commit_context, gather_explain_context, gather_fix_context,
@@ -15,11 +15,14 @@ use crate::llm::LlmClient;
 use crate::llm::ollama::OllamaClient;
 use crate::llm::openai::OpenAiClient;
 use crate::output::{
-    AskResult, CommandOutput, CommitResult, ConfigEntry, ConfigResult, ExitCode, ExitStatus,
-    ExplainResult, Fix, FixResult, ModelsResult, OutputMode, ReviewIssue, ReviewResult,
+    AppliedFix, ApplyResults, ApplyStatus, AskResult, CommandOutput, CommitResult, ConfigEntry,
+    ConfigResult, ExitCode, ExitStatus, ExplainResult, Fix, FixResult, OutputMode, ReviewIssue,
+    ReviewResult,
 };
 use crate::pipeline::Pipeline;
-use crate::prompts::{self, build_review_prompt, pipeline_prompt_for_command};
+use crate::prompts::{
+    EXPLAIN_PROMPT, FIX_PROMPT, REVIEW_PROMPT, build_review_prompt, pipeline_prompt_for_command,
+};
 use crate::rules::RulesConfig;
 
 #[derive(Parser, Debug)]
@@ -55,35 +58,12 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub max_turns: Option<usize>,
 
-    /// Enable verbose output
-    #[arg(short, long, global = true)]
-    pub verbose: bool,
-
     #[command(subcommand)]
     pub command: Command,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// General-purpose LLM query with tool access
-    Ask {
-        /// The prompt to send to the LLM
-        #[arg(required = true)]
-        prompt: Vec<String>,
-
-        /// Use agentic mode with tool access (default: pipeline mode)
-        #[arg(long)]
-        agent: bool,
-
-        /// Read context from a file (use - for stdin)
-        #[arg(long, value_name = "FILE")]
-        from: Option<PathBuf>,
-
-        /// Read context from stdin
-        #[arg(long)]
-        stdin: bool,
-    },
-
     /// Explain code, files, or concepts
     Explain {
         /// File path or concept to explain
@@ -148,10 +128,6 @@ pub enum Command {
         #[arg(long, default_value = "conventional")]
         style: String,
 
-        /// Use agentic mode with tool access (default: pipeline mode)
-        #[arg(long)]
-        agent: bool,
-
         /// Auto-execute git commit with the generated message
         #[arg(long)]
         execute: bool,
@@ -166,9 +142,6 @@ pub enum Command {
         #[arg(long)]
         list: bool,
     },
-
-    /// List available Ollama models
-    Models,
 }
 
 /// Run the CLI application
@@ -212,12 +185,6 @@ pub async fn run() -> Result<ExitCode> {
     }
 
     match cli.command {
-        Command::Ask {
-            prompt,
-            agent,
-            from,
-            stdin,
-        } => cmd_ask(&config, prompt, agent, from, stdin, output_mode).await,
         Command::Explain { target, agent } => {
             cmd_explain(&config, &target, agent, output_mode).await
         }
@@ -238,11 +205,9 @@ pub async fn run() -> Result<ExitCode> {
         Command::Commit {
             body,
             style,
-            agent,
             execute,
-        } => cmd_commit(&config, body, &style, agent, execute, output_mode).await,
+        } => cmd_commit(&config, body, &style, execute, output_mode).await,
         Command::Config { key, list } => cmd_config(&config, key, list, output_mode),
-        Command::Models => cmd_models(&config, output_mode).await,
     }
 }
 
@@ -271,7 +236,7 @@ fn create_openai_client(config: &Config) -> Result<OpenAiClient> {
 }
 
 /// Run the agent with the appropriate provider
-async fn run_agent(config: &Config, system_prompt: &str, user_prompt: &str) -> Result<String> {
+async fn run_agent(config: &Config, system_prompt: &str, user_prompt: &str) -> Result<AgentResult> {
     match config.provider {
         Provider::Ollama => {
             let client = OllamaClient::new(&config.ollama_url, &config.model);
@@ -290,7 +255,7 @@ async fn run_agent_with_client<C: LlmClient>(
     client: C,
     system_prompt: &str,
     user_prompt: &str,
-) -> Result<String> {
+) -> Result<AgentResult> {
     let agent = Agent::new(config.clone(), client);
     let result = agent.run(system_prompt, user_prompt).await?;
 
@@ -301,7 +266,7 @@ async fn run_agent_with_client<C: LlmClient>(
         );
     }
 
-    Ok(result.content)
+    Ok(result)
 }
 
 /// Run the pipeline with the appropriate provider
@@ -432,6 +397,8 @@ fn parse_review_response(response: &str) -> Result<ReviewResult> {
         summary: parsed.summary,
         issues,
         passed: review_passed,
+        parse_warning: None,
+        raw_response: None,
     })
 }
 
@@ -448,6 +415,7 @@ fn parse_explain_response(response: &str) -> Result<ExplainResult> {
 
     Ok(ExplainResult {
         explanation: parsed.explanation,
+        parse_warning: None,
     })
 }
 
@@ -490,11 +458,15 @@ fn parse_fix_response(response: &str) -> Result<FixResult> {
         diagnosis: parsed.diagnosis,
         fixes,
         unfixable_count: parsed.unfixable_count,
+        parse_warning: None,
+        raw_response: None,
     })
 }
 
 /// Execute git commit with the given message
-async fn execute_git_commit(working_dir: &std::path::Path, message: &str) -> Result<()> {
+///
+/// Returns the git commit output on success for the caller to display.
+async fn execute_git_commit(working_dir: &std::path::Path, message: &str) -> Result<String> {
     let output = TokioCommand::new("git")
         .args(["commit", "-m", message])
         .current_dir(working_dir)
@@ -504,63 +476,11 @@ async fn execute_git_commit(working_dir: &std::path::Path, message: &str) -> Res
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        if !stdout.is_empty() {
-            println!("{stdout}");
-        }
-        Ok(())
+        Ok(stdout.to_string())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("git commit failed: {}", stderr.trim())
     }
-}
-
-async fn cmd_ask(
-    config: &Config,
-    prompt: Vec<String>,
-    agent_mode: bool,
-    from: Option<PathBuf>,
-    stdin: bool,
-    output_mode: OutputMode,
-) -> Result<ExitCode> {
-    let prompt_text = prompt.join(" ");
-
-    if agent_mode {
-        // Agent mode: use full agentic behavior with tools
-        let response = run_agent(config, prompts::ASK_PROMPT, &prompt_text).await?;
-        let result = AskResult { response, turns: 1 };
-        println!("{}", result.render(output_mode));
-    } else {
-        // Pipeline mode: single LLM call with optional context
-        let additional_context = if stdin {
-            Some(read_stdin()?)
-        } else if let Some(ref path) = from {
-            Some(read_from_source(path).await?)
-        } else {
-            None
-        };
-
-        let context = GatheredContext {
-            files: Vec::new(),
-            git_diff: None,
-            git_status: None,
-            additional_context,
-        };
-
-        // "ask" command returns plain text, not JSON
-        let response = run_pipeline(
-            config,
-            pipeline_prompt_for_command("ask"),
-            &context,
-            &prompt_text,
-            false,
-        )
-        .await?;
-
-        let result = AskResult { response, turns: 1 };
-        println!("{}", result.render(output_mode));
-    }
-
-    Ok(ExitCode::Success)
 }
 
 async fn cmd_explain(
@@ -571,9 +491,21 @@ async fn cmd_explain(
 ) -> Result<ExitCode> {
     if agent_mode {
         // Agent mode: use full agentic behavior for deep exploration
-        let prompt = format!("Explain the code in: {target}");
-        let response = run_agent(config, prompts::EXPLAIN_PROMPT, &prompt).await?;
-        let result = AskResult { response, turns: 1 };
+        // Instruct agent to respond with structured JSON matching pipeline output
+        let prompt = format!(
+            "Explain the code in: {target}\n\n\
+             When you have completed your analysis, provide your final response as JSON:\n\
+             {{\"explanation\": \"your detailed explanation here\"}}"
+        );
+        let agent_result = run_agent(config, EXPLAIN_PROMPT, &prompt).await?;
+
+        // Parse agent output with same function as pipeline mode
+        let result =
+            parse_explain_response(&agent_result.content).unwrap_or_else(|e| ExplainResult {
+                explanation: agent_result.content.clone(),
+                parse_warning: Some(format!("could not parse structured response: {e}")),
+            });
+
         println!("{}", result.render(output_mode));
     } else {
         // Pipeline mode: gather context and make single LLM call
@@ -591,8 +523,9 @@ async fn cmd_explain(
         )
         .await?;
 
-        let result = parse_explain_response(&response).unwrap_or(ExplainResult {
+        let result = parse_explain_response(&response).unwrap_or_else(|e| ExplainResult {
             explanation: response,
+            parse_warning: Some(format!("could not parse structured response: {e}")),
         });
 
         println!("{}", result.render(output_mode));
@@ -629,15 +562,34 @@ async fn cmd_review(
 
         // Append rules to the system prompt for agent mode
         let system_prompt = if rules_section.is_empty() {
-            prompts::REVIEW_PROMPT.to_string()
+            REVIEW_PROMPT.to_string()
         } else {
-            format!("{}\n{rules_section}", prompts::REVIEW_PROMPT)
+            format!("{REVIEW_PROMPT}\n{rules_section}")
         };
 
-        let response = run_agent(config, &system_prompt, &base_prompt).await?;
-        let result = AskResult { response, turns: 1 };
+        // Instruct agent to respond with structured JSON matching pipeline output
+        let prompt_with_json = format!(
+            "{base_prompt}\n\n\
+             When you have completed your review, provide your final response as JSON:\n\
+             {{\"summary\": \"brief summary\", \"issues\": [\
+             {{\"severity\": \"error|warning|info\", \"file\": \"path\", \"line\": 42, \"message\": \"description\"}}]}}"
+        );
+
+        let agent_result = run_agent(config, &system_prompt, &prompt_with_json).await?;
+
+        // Parse agent output with same function as pipeline mode
+        let result =
+            parse_review_response(&agent_result.content).unwrap_or_else(|e| ReviewResult {
+                summary: String::new(),
+                issues: Vec::new(),
+                passed: false,
+                parse_warning: Some(format!("could not parse structured response: {e}")),
+                raw_response: Some(agent_result.content.clone()),
+            });
+
+        let exit_code = result.exit_code();
         println!("{}", result.render(output_mode));
-        Ok(ExitCode::Success)
+        Ok(exit_code)
     } else {
         // Pipeline mode: gather context and make single LLM call
         let additional_context = if let Some(ref path) = from {
@@ -666,10 +618,12 @@ async fn cmd_review(
         )
         .await?;
 
-        let result = parse_review_response(&response).unwrap_or_else(|_| ReviewResult {
-            summary: response.clone(),
+        let result = parse_review_response(&response).unwrap_or_else(|e| ReviewResult {
+            summary: String::new(),
             issues: Vec::new(),
-            passed: true,
+            passed: false,
+            parse_warning: Some(format!("could not parse structured response: {e}")),
+            raw_response: Some(response.clone()),
         });
 
         let exit_code = result.exit_code();
@@ -689,15 +643,43 @@ async fn cmd_fix(
 ) -> Result<ExitCode> {
     if agent_mode {
         // Agent mode: use full agentic behavior with tool access
-        let prompt = if lint {
+        let base_prompt = if lint {
             format!("Fix lint/clippy issues in: {target}. Run clippy first to identify issues.")
         } else {
             format!("Fix issues in: {target}")
         };
-        let response = run_agent(config, prompts::FIX_PROMPT, &prompt).await?;
-        let result = AskResult { response, turns: 1 };
+
+        // Instruct agent to respond with structured JSON matching pipeline output
+        let prompt_with_json = format!(
+            "{base_prompt}\n\n\
+             When you have completed your fixes, provide your final response as JSON:\n\
+             {{\"diagnosis\": \"description of issues found\", \"fixes\": [\
+             {{\"file\": \"path\", \"line\": 42, \"original\": \"old code\", \"replacement\": \"new code\", \"explanation\": \"why\"}}], \
+             \"unfixable_count\": 0}}"
+        );
+
+        let agent_result = run_agent(config, FIX_PROMPT, &prompt_with_json).await?;
+
+        // Parse agent output with same function as pipeline mode
+        let result = parse_fix_response(&agent_result.content).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "failed to parse agent fix response, returning raw content");
+            FixResult {
+                diagnosis: String::new(),
+                fixes: Vec::new(),
+                unfixable_count: 0,
+                parse_warning: Some(format!("could not parse structured response: {e}")),
+                raw_response: Some(agent_result.content.clone()),
+            }
+        });
+
+        // Apply fixes if requested (agent mode supports --apply too)
+        if apply && !result.fixes.is_empty() {
+            let _apply_results = apply_fixes(&config.working_dir, &result.fixes).await;
+        }
+
+        let exit_code = result.exit_code();
         println!("{}", result.render(output_mode));
-        Ok(ExitCode::Success)
+        Ok(exit_code)
     } else {
         // Pipeline mode: gather context and make single LLM call
 
@@ -734,20 +716,68 @@ async fn cmd_fix(
         let result = parse_fix_response(&response).unwrap_or_else(|e| {
             tracing::warn!(error = %e, "failed to parse fix response, returning empty result");
             FixResult {
-                diagnosis: "failed to parse LLM response".to_string(),
+                diagnosis: String::new(),
                 fixes: Vec::new(),
                 unfixable_count: 0,
+                parse_warning: Some(format!("could not parse structured response: {e}")),
+                raw_response: Some(response.clone()),
             }
         });
 
-        // Apply fixes if requested
-        if apply && !result.fixes.is_empty() {
-            apply_fixes(&config.working_dir, &result.fixes).await?;
+        // Apply fixes if requested and track results
+        let apply_results = if apply && !result.fixes.is_empty() {
+            Some(apply_fixes(&config.working_dir, &result.fixes).await)
+        } else {
+            None
+        };
+
+        // Determine exit code: fail if there are unfixable issues OR apply failures
+        let exit_code = if result.unfixable_count > 0 {
+            ExitCode::IssuesFound
+        } else if let Some(ref results) = apply_results {
+            if results.all_succeeded() {
+                ExitCode::Success
+            } else {
+                ExitCode::IssuesFound
+            }
+        } else {
+            result.exit_code()
+        };
+
+        // Print the fix result
+        println!("{}", result.render(output_mode));
+
+        // Print apply results summary if fixes were applied
+        if let Some(results) = apply_results {
+            print_apply_results(&results, output_mode);
         }
 
-        let exit_code = result.exit_code();
-        println!("{}", result.render(output_mode));
         Ok(exit_code)
+    }
+}
+
+/// Print apply results summary to stdout
+fn print_apply_results(results: &ApplyResults, output_mode: OutputMode) {
+    if output_mode == OutputMode::Human {
+        println!();
+        println!(
+            "Applied {} of {} fixes ({} failed)",
+            results.success_count,
+            results.applied_fixes.len(),
+            results.failure_count
+        );
+        for applied in &results.applied_fixes {
+            if applied.status == ApplyStatus::Failed
+                && let Some(ref err) = applied.error
+            {
+                println!("  - {}: {}", applied.fix.file, err);
+            }
+        }
+    } else {
+        // For JSON mode, print the apply results as JSON
+        if let Ok(json) = serde_json::to_string_pretty(results) {
+            println!("{json}");
+        }
     }
 }
 
@@ -794,8 +824,14 @@ async fn run_clippy_diagnostics(working_dir: &std::path::Path, target: &str) -> 
 }
 
 /// Apply fixes to files by performing string replacements
-async fn apply_fixes(working_dir: &std::path::Path, fixes: &[Fix]) -> Result<()> {
+///
+/// Returns detailed results for each fix attempt, tracking which succeeded and which failed.
+async fn apply_fixes(working_dir: &std::path::Path, fixes: &[Fix]) -> ApplyResults {
     use tokio::fs;
+
+    let mut applied_fixes = Vec::with_capacity(fixes.len());
+    let mut success_count = 0;
+    let mut failure_count = 0;
 
     for fix in fixes {
         let file_path = if std::path::Path::new(&fix.file).is_absolute() {
@@ -805,98 +841,125 @@ async fn apply_fixes(working_dir: &std::path::Path, fixes: &[Fix]) -> Result<()>
         };
 
         // Read the file
-        let content = fs::read_to_string(&file_path)
-            .await
-            .with_context(|| format!("failed to read file for fix: {}", fix.file))?;
+        let content = match fs::read_to_string(&file_path).await {
+            Ok(content) => content,
+            Err(e) => {
+                let error_msg = format!("failed to read file: {e}");
+                tracing::warn!(file = %fix.file, error = %e, "failed to read file for fix");
+                applied_fixes.push(AppliedFix {
+                    fix: fix.clone(),
+                    status: ApplyStatus::Failed,
+                    error: Some(error_msg),
+                });
+                failure_count += 1;
+                continue;
+            }
+        };
 
-        // Apply the replacement
-        if content.contains(&fix.original) {
-            let new_content = content.replacen(&fix.original, &fix.replacement, 1);
-            fs::write(&file_path, new_content)
-                .await
-                .with_context(|| format!("failed to write fix to: {}", fix.file))?;
-            tracing::info!(file = %fix.file, "applied fix");
-        } else {
+        // Check if the original code exists in the file
+        if !content.contains(&fix.original) {
+            let error_msg = "original code not found in file".to_string();
             tracing::warn!(
                 file = %fix.file,
                 original = %fix.original,
                 "could not find original code to replace"
             );
+            applied_fixes.push(AppliedFix {
+                fix: fix.clone(),
+                status: ApplyStatus::Failed,
+                error: Some(error_msg),
+            });
+            failure_count += 1;
+            continue;
+        }
+
+        // Apply the replacement
+        let new_content = content.replacen(&fix.original, &fix.replacement, 1);
+        match fs::write(&file_path, new_content).await {
+            Ok(()) => {
+                tracing::info!(file = %fix.file, "applied fix");
+                applied_fixes.push(AppliedFix {
+                    fix: fix.clone(),
+                    status: ApplyStatus::Applied,
+                    error: None,
+                });
+                success_count += 1;
+            }
+            Err(e) => {
+                let error_msg = format!("failed to write file: {e}");
+                tracing::warn!(file = %fix.file, error = %e, "failed to write fix to file");
+                applied_fixes.push(AppliedFix {
+                    fix: fix.clone(),
+                    status: ApplyStatus::Failed,
+                    error: Some(error_msg),
+                });
+                failure_count += 1;
+            }
         }
     }
 
-    Ok(())
+    ApplyResults {
+        applied_fixes,
+        success_count,
+        failure_count,
+    }
 }
 
 async fn cmd_commit(
     config: &Config,
     body: bool,
     style: &str,
-    agent_mode: bool,
     execute: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
-    if agent_mode {
-        // Agent mode: use full agentic behavior with tools
-        let prompt = format!(
-            "Generate a {} commit message for the staged changes{}.",
-            style,
-            if body {
-                " with a detailed body explaining the changes"
-            } else {
-                ""
-            }
-        );
-        let response = run_agent(config, prompts::COMMIT_PROMPT, &prompt).await?;
-        let result = AskResult { response, turns: 1 };
-        println!("{}", result.render(output_mode));
-        Ok(ExitCode::Success)
-    } else {
-        // Pipeline mode: gather context and make single LLM call
-        let context = gather_commit_context(&config.working_dir)
-            .await
-            .context("failed to gather commit context")?;
-
-        // Check if there are staged changes
-        if context
-            .git_diff
-            .as_ref()
-            .is_some_and(|diff| diff.trim().is_empty())
-        {
-            anyhow::bail!("no staged changes to commit");
-        }
-
-        let user_request = format!(
-            "Generate a {} commit message{}.",
-            style,
-            if body {
-                " with a detailed body explaining the changes"
-            } else {
-                ""
-            }
-        );
-
-        let response = run_pipeline(
-            config,
-            pipeline_prompt_for_command("commit"),
-            &context,
-            &user_request,
-            true, // enforce JSON output at API level
-        )
+    // Commit is always pipeline mode - agent mode doesn't make sense for
+    // a simple single-pass operation like generating a commit message
+    let context = gather_commit_context(&config.working_dir)
         .await
-        .context("failed to generate commit message")?;
+        .context("failed to gather commit context")?;
 
-        let result = parse_commit_response(&response)
-            .context("failed to parse commit message from LLM response")?;
-
-        println!("{}", result.render(output_mode));
-
-        if execute {
-            execute_git_commit(&config.working_dir, &result.message).await?;
-        }
-
-        Ok(ExitCode::Success)
+    // Check if there are staged changes
+    if context
+        .git_diff
+        .as_ref()
+        .is_some_and(|diff| diff.trim().is_empty())
+    {
+        anyhow::bail!("no staged changes to commit");
     }
+
+    let user_request = format!(
+        "Generate a {} commit message{}.",
+        style,
+        if body {
+            " with a detailed body explaining the changes"
+        } else {
+            ""
+        }
+    );
+
+    let response = run_pipeline(
+        config,
+        pipeline_prompt_for_command("commit"),
+        &context,
+        &user_request,
+        true, // enforce JSON output at API level
+    )
+    .await
+    .context("failed to generate commit message")?;
+
+    let result = parse_commit_response(&response)
+        .context("failed to parse commit message from LLM response")?;
+
+    println!("{}", result.render(output_mode));
+
+    if execute {
+        let git_output = execute_git_commit(&config.working_dir, &result.message).await?;
+        if !git_output.is_empty() {
+            println!("{git_output}");
+        }
+    }
+
+    Ok(ExitCode::Success)
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -955,39 +1018,21 @@ fn cmd_config(
             "openai_api_key" => api_key_display,
             "max_turns" => config.max_turns.to_string(),
             "working_dir" => config.working_dir.display().to_string(),
-            _ => format!("Unknown config key: {k}"),
+            _ => format!("unknown config key: {k}"),
         };
         let result = ConfigResult {
             entries: vec![ConfigEntry { key: k, value: val }],
         };
         println!("{}", result.render(output_mode));
     } else {
-        println!("Usage: usx config <key> or usx config --list");
-        println!("To change settings, edit .ursix.toml directly.");
-    }
-    Ok(ExitCode::Success)
-}
-
-async fn cmd_models(config: &Config, output_mode: OutputMode) -> Result<ExitCode> {
-    match config.provider {
-        Provider::Ollama => {
-            let client = OllamaClient::new(&config.ollama_url, &config.model);
-            match client.list_models().await {
-                Ok(models) => {
-                    let result = ModelsResult { models };
-                    println!("{}", result.render(output_mode));
-                }
-                Err(e) => {
-                    eprintln!("Failed to list models: {e}");
-                }
-            }
-        }
-        Provider::OpenAi => {
-            println!(
-                "Model listing is not available for OpenAI provider.\n\
-                 See https://platform.openai.com/docs/models for available models."
-            );
-        }
+        // Show usage help through the render system
+        let help_text = "Usage: usx config <key> or usx config --list\n\
+                         To change settings, edit .ursix.toml directly.";
+        let result = AskResult {
+            response: help_text.to_string(),
+            turns: 0,
+        };
+        println!("{}", result.render(output_mode));
     }
     Ok(ExitCode::Success)
 }

@@ -41,27 +41,6 @@ fn cli_requires_subcommand() -> TestResult {
 }
 
 #[test]
-fn cli_ask_shows_help() -> TestResult {
-    Command::cargo_bin("usx")?
-        .args(["ask", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("General-purpose LLM query"));
-    Ok(())
-}
-
-#[test]
-fn cli_ask_requires_prompt() -> TestResult {
-    // Ask without a prompt should fail
-    Command::cargo_bin("usx")?
-        .arg("ask")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("required"));
-    Ok(())
-}
-
-#[test]
 fn cli_config_list() -> TestResult {
     Command::cargo_bin("usx")?
         .args(["config", "--list"])

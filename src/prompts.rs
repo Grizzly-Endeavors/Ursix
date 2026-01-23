@@ -3,19 +3,6 @@
 //! Each command gets an optimized system prompt tailored to its specific task.
 //! Includes both agent prompts (with tool access) and pipeline prompts (single LLM call, JSON output).
 
-/// Default system prompt for general-purpose queries (ask command)
-pub const ASK_PROMPT: &str = r"You are a helpful coding assistant with access to tools for interacting with the local filesystem and running commands.
-
-Available tools:
-- bash: Execute shell commands
-- read: Read file contents
-- write: Create or overwrite files
-- edit: Make precise edits to existing files
-- glob: Find files matching patterns
-- grep: Search file contents with regex
-
-When given a task, think step by step. Use tools to gather information and make changes. Always verify your work.";
-
 /// System prompt for the explain command
 pub const EXPLAIN_PROMPT: &str = r"You are a code explanation expert. Your task is to explain code clearly and concisely.
 
@@ -162,7 +149,7 @@ Output ONLY the JSON, no other text."#;
 /// Pipeline prompt for the explain command (no tools, JSON output)
 pub const EXPLAIN_PIPELINE_PROMPT: &str = r#"You are a code explanation expert. Your task is to explain the provided code clearly and concisely.
 
-When explaining code, provide:
+When explaining code, cover:
 1. A high-level overview of what the code does
 2. Key functions, types, and patterns
 3. Important relationships and dependencies
@@ -170,16 +157,12 @@ When explaining code, provide:
 
 Return your explanation as JSON in this exact format:
 {
-  "summary": "Brief one-sentence summary of what this code does",
-  "explanation": "Detailed explanation in markdown format",
-  "key_concepts": ["concept1", "concept2"],
-  "complexity": "low|medium|high"
+  "explanation": "Your detailed explanation in markdown format"
 }
 
 Notes:
-- Use markdown formatting in the "explanation" field for code snippets
-- The "key_concepts" array should list 2-5 important concepts/patterns used
-- The "complexity" rating is subjective but helps readers gauge the code
+- Use markdown formatting for code snippets and structure
+- Be thorough but concise
 
 Output ONLY the JSON, no other text."#;
 
@@ -320,7 +303,6 @@ mod tests {
 
     #[test]
     fn test_prompts_are_not_empty() {
-        assert!(!ASK_PROMPT.is_empty());
         assert!(!EXPLAIN_PROMPT.is_empty());
         assert!(!REVIEW_PROMPT.is_empty());
         assert!(!FIX_PROMPT.is_empty());
@@ -362,7 +344,6 @@ mod tests {
         assert_ne!(COMMIT_PROMPT, COMMIT_PIPELINE_PROMPT);
         assert_ne!(EXPLAIN_PROMPT, EXPLAIN_PIPELINE_PROMPT);
         assert_ne!(FIX_PROMPT, FIX_PIPELINE_PROMPT);
-        assert_ne!(ASK_PROMPT, ASK_PIPELINE_PROMPT);
     }
 
     #[test]

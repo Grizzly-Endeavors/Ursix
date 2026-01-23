@@ -14,7 +14,10 @@ pub enum AgentError {
     #[error("LLM error: {0}")]
     Llm(#[from] LlmError),
 
-    #[error("max turns exceeded: {0}")]
+    #[error(
+        "agent exceeded maximum of {0} turns without completing. \
+             Try increasing --max-turns or breaking the task into smaller pieces"
+    )]
     MaxTurnsExceeded(usize),
 }
 

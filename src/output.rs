@@ -55,15 +55,23 @@ pub trait CommandOutput: Serialize {
     fn render_human(&self) -> String;
 
     /// Render as JSON
-    fn render_json(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string())
+    ///
+    /// # Errors
+    /// Returns an error if serialization fails.
+    fn render_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
     }
 
     /// Render in the specified output mode
+    ///
+    /// For JSON mode, serialization errors are reported in the output string
+    /// rather than silently returning an empty object.
     fn render(&self, mode: OutputMode) -> String {
         match mode {
             OutputMode::Human => self.render_human(),
-            OutputMode::Json => self.render_json(),
+            OutputMode::Json => self
+                .render_json()
+                .unwrap_or_else(|e| format!("{{\"error\": \"serialization failed: {e}\"}}")),
         }
     }
 }
@@ -121,25 +129,6 @@ impl ExitStatus for ConfigResult {
     }
 }
 
-/// Result from the `models` command
-#[derive(Debug, Serialize)]
-pub struct ModelsResult {
-    /// Available models
-    pub models: Vec<String>,
-}
-
-impl CommandOutput for ModelsResult {
-    fn render_human(&self) -> String {
-        self.models.join("\n")
-    }
-}
-
-impl ExitStatus for ModelsResult {
-    fn exit_code(&self) -> ExitCode {
-        ExitCode::Success
-    }
-}
-
 /// Result from the `commit` command
 #[derive(Debug, Serialize)]
 pub struct CommitResult {
@@ -174,6 +163,12 @@ pub struct ReviewResult {
     pub issues: Vec<ReviewIssue>,
     /// Whether the review passed (no issues or only warnings)
     pub passed: bool,
+    /// Warning message if the LLM response could not be parsed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parse_warning: Option<String>,
+    /// Raw LLM response (included when parsing fails)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_response: Option<String>,
 }
 
 /// An issue identified during code review
@@ -196,7 +191,52 @@ pub struct ReviewIssue {
 
 impl CommandOutput for ReviewResult {
     fn render_human(&self) -> String {
-        self.summary.clone()
+        use std::fmt::Write;
+        let mut output = String::new();
+
+        // Show parse warning if present
+        if let Some(ref warning) = self.parse_warning {
+            let _ = writeln!(output, "Warning: {warning}\n");
+        }
+
+        // Show summary
+        if !self.summary.is_empty() {
+            let _ = writeln!(output, "{}\n", self.summary);
+        }
+
+        // Show issues
+        if self.issues.is_empty() && self.parse_warning.is_none() {
+            output.push_str("No issues found.");
+        } else if !self.issues.is_empty() {
+            let _ = writeln!(output, "Issues ({}):", self.issues.len());
+            for issue in &self.issues {
+                // Build location string (file:line format)
+                let location = match (&issue.file, issue.line) {
+                    (Some(file), Some(line)) => format!("{file}:{line}"),
+                    (Some(file), None) => file.clone(),
+                    (None, Some(line)) => format!("line {line}"),
+                    (None, None) => String::new(),
+                };
+
+                // Format: [severity] location: message
+                if location.is_empty() {
+                    let _ = writeln!(output, "  [{}] {}", issue.severity, issue.message);
+                } else {
+                    let _ = writeln!(
+                        output,
+                        "  [{}] {}: {}",
+                        issue.severity, location, issue.message
+                    );
+                }
+            }
+        }
+
+        // Show raw response if parsing failed
+        if let Some(ref raw) = self.raw_response {
+            let _ = writeln!(output, "\nRaw LLM response:\n{raw}");
+        }
+
+        output
     }
 }
 
@@ -215,11 +255,23 @@ impl ExitStatus for ReviewResult {
 pub struct ExplainResult {
     /// The explanation of the code or concept
     pub explanation: String,
+    /// Warning message if the LLM response could not be parsed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parse_warning: Option<String>,
 }
 
 impl CommandOutput for ExplainResult {
     fn render_human(&self) -> String {
-        self.explanation.clone()
+        use std::fmt::Write;
+        let mut output = String::new();
+
+        // Show parse warning if present
+        if let Some(ref warning) = self.parse_warning {
+            let _ = writeln!(output, "Warning: {warning}\n");
+        }
+
+        output.push_str(&self.explanation);
+        output
     }
 }
 
@@ -238,6 +290,12 @@ pub struct FixResult {
     pub fixes: Vec<Fix>,
     /// Number of issues that could not be fixed
     pub unfixable_count: usize,
+    /// Warning message if the LLM response could not be parsed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parse_warning: Option<String>,
+    /// Raw LLM response (included when parsing fails)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_response: Option<String>,
 }
 
 /// A suggested fix from the fix command
@@ -256,19 +314,66 @@ pub struct Fix {
     pub explanation: String,
 }
 
+/// Status of an individual fix application
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyStatus {
+    /// Fix was successfully applied
+    Applied,
+    /// Fix failed to apply
+    Failed,
+}
+
+/// Result of applying a single fix
+#[derive(Debug, Clone, Serialize)]
+pub struct AppliedFix {
+    /// The original fix that was attempted
+    #[serde(flatten)]
+    pub fix: Fix,
+    /// Whether the fix was applied successfully
+    pub status: ApplyStatus,
+    /// Error message if the fix failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Summary of fix application results
+#[derive(Debug, Clone, Serialize)]
+pub struct ApplyResults {
+    /// Results for each fix attempt
+    pub applied_fixes: Vec<AppliedFix>,
+    /// Number of fixes successfully applied
+    pub success_count: usize,
+    /// Number of fixes that failed to apply
+    pub failure_count: usize,
+}
+
+impl ApplyResults {
+    /// Returns true if all fixes were applied successfully
+    #[must_use]
+    pub fn all_succeeded(&self) -> bool {
+        self.failure_count == 0
+    }
+}
+
 impl CommandOutput for FixResult {
     fn render_human(&self) -> String {
         use std::fmt::Write;
         let mut output = String::new();
+
+        // Show parse warning if present
+        if let Some(ref warning) = self.parse_warning {
+            let _ = writeln!(output, "Warning: {warning}\n");
+        }
 
         // Show diagnosis
         if !self.diagnosis.is_empty() {
             let _ = writeln!(output, "Diagnosis: {}\n", self.diagnosis);
         }
 
-        if self.fixes.is_empty() {
+        if self.fixes.is_empty() && self.parse_warning.is_none() {
             output.push_str("No fixes suggested.");
-        } else {
+        } else if !self.fixes.is_empty() {
             let _ = writeln!(output, "Suggested fixes ({}):", self.fixes.len());
             for (i, fix) in self.fixes.iter().enumerate() {
                 let location = fix
@@ -287,6 +392,12 @@ impl CommandOutput for FixResult {
                 self.unfixable_count
             );
         }
+
+        // Show raw response if parsing failed
+        if let Some(ref raw) = self.raw_response {
+            let _ = writeln!(output, "\nRaw LLM response:\n{raw}");
+        }
+
         output
     }
 }
@@ -302,6 +413,7 @@ impl ExitStatus for FixResult {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -320,9 +432,19 @@ mod tests {
             response: "Hello".to_string(),
             turns: 2,
         };
-        let json = result.render_json();
+        let json = result.render_json().unwrap();
         assert!(json.contains("\"response\": \"Hello\""));
         assert!(json.contains("\"turns\": 2"));
+    }
+
+    #[test]
+    fn test_render_json_returns_result() {
+        let result = AskResult {
+            response: "test".to_string(),
+            turns: 1,
+        };
+        // render_json should return Ok for valid serializable types
+        assert!(result.render_json().is_ok());
     }
 
     #[test]
@@ -342,15 +464,6 @@ mod tests {
         let output = result.render_human();
         assert!(output.contains("model = llama3.2"));
         assert!(output.contains("max_turns = 50"));
-    }
-
-    #[test]
-    fn test_models_result_human_output() {
-        let result = ModelsResult {
-            models: vec!["llama3.2".to_string(), "qwen2.5-coder".to_string()],
-        };
-        let output = result.render_human();
-        assert_eq!(output, "llama3.2\nqwen2.5-coder");
     }
 
     #[test]
@@ -383,12 +496,6 @@ mod tests {
     }
 
     #[test]
-    fn test_models_result_exit_status() {
-        let result = ModelsResult { models: vec![] };
-        assert_eq!(result.exit_code(), ExitCode::Success);
-    }
-
-    #[test]
     fn test_commit_result_exit_status() {
         let result = CommitResult {
             message: "test".to_string(),
@@ -404,6 +511,8 @@ mod tests {
             summary: "All good".to_string(),
             issues: vec![],
             passed: true,
+            parse_warning: None,
+            raw_response: None,
         };
         assert_eq!(result.exit_code(), ExitCode::Success);
     }
@@ -420,14 +529,153 @@ mod tests {
                 rule: None,
             }],
             passed: false,
+            parse_warning: None,
+            raw_response: None,
         };
         assert_eq!(result.exit_code(), ExitCode::IssuesFound);
+    }
+
+    #[test]
+    fn test_review_result_render_human_no_issues() {
+        let result = ReviewResult {
+            summary: "Code looks great".to_string(),
+            issues: vec![],
+            passed: true,
+            parse_warning: None,
+            raw_response: None,
+        };
+        let output = result.render_human();
+        assert!(output.contains("Code looks great"));
+        assert!(output.contains("No issues found."));
+    }
+
+    #[test]
+    fn test_review_result_render_human_with_file_and_line() {
+        let result = ReviewResult {
+            summary: "Found some issues".to_string(),
+            issues: vec![ReviewIssue {
+                severity: "error".to_string(),
+                file: Some("src/main.rs".to_string()),
+                line: Some(42),
+                message: "unused variable".to_string(),
+                rule: None,
+            }],
+            passed: false,
+            parse_warning: None,
+            raw_response: None,
+        };
+        let output = result.render_human();
+        assert!(output.contains("Issues (1):"));
+        assert!(output.contains("[error] src/main.rs:42: unused variable"));
+    }
+
+    #[test]
+    fn test_review_result_render_human_file_only() {
+        let result = ReviewResult {
+            summary: String::new(),
+            issues: vec![ReviewIssue {
+                severity: "warning".to_string(),
+                file: Some("lib.rs".to_string()),
+                line: None,
+                message: "missing docs".to_string(),
+                rule: None,
+            }],
+            passed: false,
+            parse_warning: None,
+            raw_response: None,
+        };
+        let output = result.render_human();
+        assert!(output.contains("[warning] lib.rs: missing docs"));
+    }
+
+    #[test]
+    fn test_review_result_render_human_line_only() {
+        let result = ReviewResult {
+            summary: String::new(),
+            issues: vec![ReviewIssue {
+                severity: "info".to_string(),
+                file: None,
+                line: Some(100),
+                message: "consider refactoring".to_string(),
+                rule: None,
+            }],
+            passed: true,
+            parse_warning: None,
+            raw_response: None,
+        };
+        let output = result.render_human();
+        assert!(output.contains("[info] line 100: consider refactoring"));
+    }
+
+    #[test]
+    fn test_review_result_render_human_no_location() {
+        let result = ReviewResult {
+            summary: String::new(),
+            issues: vec![ReviewIssue {
+                severity: "error".to_string(),
+                file: None,
+                line: None,
+                message: "global issue".to_string(),
+                rule: None,
+            }],
+            passed: false,
+            parse_warning: None,
+            raw_response: None,
+        };
+        let output = result.render_human();
+        assert!(output.contains("[error] global issue"));
+    }
+
+    #[test]
+    fn test_review_result_render_human_multiple_issues() {
+        let result = ReviewResult {
+            summary: "Multiple problems found".to_string(),
+            issues: vec![
+                ReviewIssue {
+                    severity: "error".to_string(),
+                    file: Some("a.rs".to_string()),
+                    line: Some(1),
+                    message: "first issue".to_string(),
+                    rule: None,
+                },
+                ReviewIssue {
+                    severity: "warning".to_string(),
+                    file: Some("b.rs".to_string()),
+                    line: Some(2),
+                    message: "second issue".to_string(),
+                    rule: None,
+                },
+            ],
+            passed: false,
+            parse_warning: None,
+            raw_response: None,
+        };
+        let output = result.render_human();
+        assert!(output.contains("Issues (2):"));
+        assert!(output.contains("[error] a.rs:1: first issue"));
+        assert!(output.contains("[warning] b.rs:2: second issue"));
+    }
+
+    #[test]
+    fn test_review_result_render_human_with_parse_warning() {
+        let result = ReviewResult {
+            summary: "Fallback summary".to_string(),
+            issues: vec![],
+            passed: true,
+            parse_warning: Some("could not parse structured response".to_string()),
+            raw_response: Some("raw llm output here".to_string()),
+        };
+        let output = result.render_human();
+        assert!(output.contains("Warning: could not parse structured response"));
+        assert!(output.contains("Raw LLM response:"));
+        assert!(output.contains("raw llm output here"));
     }
 
     #[test]
     fn test_explain_result_exit_status() {
         let result = ExplainResult {
             explanation: "This is how it works".to_string(),
+            parse_warning: None,
         };
         assert_eq!(result.exit_code(), ExitCode::Success);
     }
@@ -436,6 +684,7 @@ mod tests {
     fn test_explain_result_human_output() {
         let result = ExplainResult {
             explanation: "This is the explanation".to_string(),
+            parse_warning: None,
         };
         assert_eq!(result.render_human(), "This is the explanation");
     }
@@ -452,6 +701,8 @@ mod tests {
                 explanation: "prefix unused variable with underscore".to_string(),
             }],
             unfixable_count: 0,
+            parse_warning: None,
+            raw_response: None,
         };
         assert_eq!(result.exit_code(), ExitCode::Success);
     }
@@ -462,6 +713,8 @@ mod tests {
             diagnosis: "multiple issues".to_string(),
             fixes: vec![],
             unfixable_count: 2,
+            parse_warning: None,
+            raw_response: None,
         };
         assert_eq!(result.exit_code(), ExitCode::IssuesFound);
     }
@@ -487,6 +740,8 @@ mod tests {
                 },
             ],
             unfixable_count: 0,
+            parse_warning: None,
+            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("Diagnosis: found linting issues"));
@@ -503,6 +758,8 @@ mod tests {
             diagnosis: "no issues found".to_string(),
             fixes: vec![],
             unfixable_count: 0,
+            parse_warning: None,
+            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("No fixes suggested."));
@@ -514,6 +771,8 @@ mod tests {
             diagnosis: "complex issues".to_string(),
             fixes: vec![],
             unfixable_count: 3,
+            parse_warning: None,
+            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("3 issues could not be fixed automatically."));
