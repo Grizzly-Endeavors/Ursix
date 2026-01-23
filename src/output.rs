@@ -189,6 +189,9 @@ pub struct ReviewIssue {
     pub line: Option<usize>,
     /// Issue description
     pub message: String,
+    /// Rule name that triggered this issue (if applicable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
 }
 
 impl CommandOutput for ReviewResult {
@@ -414,6 +417,7 @@ mod tests {
                 file: Some("test.rs".to_string()),
                 line: Some(10),
                 message: "bug".to_string(),
+                rule: None,
             }],
             passed: false,
         };

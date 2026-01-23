@@ -19,7 +19,8 @@ use crate::output::{
     ExplainResult, Fix, FixResult, ModelsResult, OutputMode, ReviewIssue, ReviewResult,
 };
 use crate::pipeline::Pipeline;
-use crate::prompts::{self, pipeline_prompt_for_command};
+use crate::prompts::{self, build_review_prompt, pipeline_prompt_for_command};
+use crate::rules::RulesConfig;
 
 #[derive(Parser, Debug)]
 #[command(name = "ur")]
@@ -406,6 +407,7 @@ fn parse_review_response(response: &str) -> Result<ReviewResult> {
         file: Option<String>,
         line: Option<usize>,
         message: String,
+        rule: Option<String>,
     }
 
     let json_str = extract_json(response);
@@ -420,6 +422,7 @@ fn parse_review_response(response: &str) -> Result<ReviewResult> {
             file: i.file,
             line: i.line,
             message: i.message,
+            rule: i.rule,
         })
         .collect();
 
@@ -611,16 +614,31 @@ async fn cmd_review(
     checks: &[String],
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
+    // Load and resolve review rules
+    let file_paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
+    let rules_config =
+        RulesConfig::load(&config.working_dir).context("failed to load review rules")?;
+    let resolved_rules = rules_config.resolve(checks, &file_paths);
+    let rules_section = resolved_rules.to_prompt_section();
+
     if agent_mode {
         // Agent mode: use full agentic behavior for thorough analysis
-        let prompt = if let Some(ref d) = diff {
+        let base_prompt = if let Some(ref d) = diff {
             format!("Review the changes in git diff {d}")
         } else if !files.is_empty() {
             format!("Review the code in: {}", files.join(", "))
         } else {
             "Review the staged changes (use git diff --cached)".to_string()
         };
-        let response = run_agent(config, prompts::REVIEW_PROMPT, &prompt).await?;
+
+        // Append rules to the system prompt for agent mode
+        let system_prompt = if rules_section.is_empty() {
+            prompts::REVIEW_PROMPT.to_string()
+        } else {
+            format!("{}\n{rules_section}", prompts::REVIEW_PROMPT)
+        };
+
+        let response = run_agent(config, &system_prompt, &base_prompt).await?;
         let result = AskResult { response, turns: 1 };
         println!("{}", result.render(output_mode));
         Ok(ExitCode::Success)
@@ -633,7 +651,6 @@ async fn cmd_review(
         };
 
         let diff_only = diff.is_none() && files.is_empty();
-        let file_paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
 
         let mut context = gather_review_context(&config.working_dir, diff_only, &file_paths)
             .await
@@ -641,17 +658,14 @@ async fn cmd_review(
 
         context.additional_context = additional_context;
 
-        let checks_str = if checks.is_empty() {
-            String::new()
-        } else {
-            format!(" Focus on: {}.", checks.join(", "))
-        };
+        // Build prompt with injected rules
+        let system_prompt = build_review_prompt(&rules_section);
 
         let response = run_pipeline(
             config,
-            pipeline_prompt_for_command("review"),
+            &system_prompt,
             &context,
-            &format!("Review these changes.{checks_str}"),
+            "Review these changes.",
             true, // enforce JSON output at API level
         )
         .await?;

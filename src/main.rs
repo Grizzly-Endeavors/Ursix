@@ -6,6 +6,7 @@ mod llm;
 mod output;
 mod pipeline;
 mod prompts;
+mod rules;
 mod tools;
 
 use tracing_subscriber::EnvFilter;

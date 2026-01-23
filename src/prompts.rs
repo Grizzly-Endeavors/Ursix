@@ -243,6 +243,56 @@ pub fn pipeline_prompt_for_command(command: &str) -> &'static str {
     }
 }
 
+/// Build the review pipeline prompt with dynamic rules section.
+///
+/// This injects the rules section between the analysis instructions and
+/// the output format instructions.
+#[must_use]
+pub fn build_review_prompt(rules_section: &str) -> String {
+    let base = r"You are a thorough code reviewer. Your task is to review the provided code changes and provide constructive feedback.
+
+When reviewing code, analyze:
+- Correctness and potential bugs
+- Security vulnerabilities
+- Performance concerns
+- Code style and best practices
+- Test coverage gaps
+";
+
+    let rules_part = if rules_section.is_empty() {
+        String::new()
+    } else {
+        format!("{rules_section}\n")
+    };
+
+    let suffix = r#"Be constructive and explain why something is an issue, not just that it is.
+Categorize issues by severity: "error" for critical bugs, "warning" for potential problems, "info" for suggestions.
+
+Return your review as JSON in this exact format:
+{
+  "summary": "Brief summary of the review findings",
+  "issues": [
+    {
+      "severity": "error|warning|info",
+      "file": "path/to/file.rs",
+      "line": 42,
+      "message": "Description of the issue",
+      "rule": "rule-name"
+    }
+  ]
+}
+
+Notes:
+- The "issues" array can be empty if no issues were found
+- The "file" and "line" fields are optional if the issue is general
+- The "rule" field is optional - include it when the issue relates to a specific rule from above
+- Use "error" sparingly, only for critical bugs or security issues
+
+Output ONLY the JSON, no other text."#;
+
+    format!("{base}{rules_part}{suffix}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,5 +363,29 @@ mod tests {
         assert_ne!(EXPLAIN_PROMPT, EXPLAIN_PIPELINE_PROMPT);
         assert_ne!(FIX_PROMPT, FIX_PIPELINE_PROMPT);
         assert_ne!(ASK_PROMPT, ASK_PIPELINE_PROMPT);
+    }
+
+    #[test]
+    fn test_build_review_prompt_empty_rules() {
+        let prompt = build_review_prompt("");
+        assert!(prompt.contains("code reviewer"));
+        assert!(prompt.contains("JSON"));
+        assert!(!prompt.contains("## Review Rules"));
+    }
+
+    #[test]
+    fn test_build_review_prompt_with_rules() {
+        let rules = "## Review Rules\n\n- **no-unwrap** [error]: Avoid unwrap";
+        let prompt = build_review_prompt(rules);
+        assert!(prompt.contains("code reviewer"));
+        assert!(prompt.contains("## Review Rules"));
+        assert!(prompt.contains("no-unwrap"));
+        assert!(prompt.contains("JSON"));
+    }
+
+    #[test]
+    fn test_build_review_prompt_includes_rule_field() {
+        let prompt = build_review_prompt("");
+        assert!(prompt.contains("\"rule\":"));
     }
 }
