@@ -1,9 +1,12 @@
 mod agent;
 mod cli;
+mod commands;
 mod config;
 mod context;
+mod input;
 mod llm;
 mod output;
+mod parsers;
 mod pipeline;
 mod prompts;
 mod rules;

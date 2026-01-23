@@ -1,6 +1,7 @@
 pub mod bash;
 pub mod executor;
 pub mod file;
+pub mod path;
 pub mod search;
 
 use serde::{Deserialize, Serialize};
