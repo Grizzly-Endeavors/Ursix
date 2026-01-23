@@ -1,15 +1,25 @@
+use std::io::{self, Read};
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use tokio::process::Command as TokioCommand;
 
 use crate::agent::Agent;
 use crate::config::{Config, Provider};
+use crate::context::{
+    GatheredContext, gather_commit_context, gather_explain_context, gather_fix_context,
+    gather_review_context,
+};
 use crate::llm::LlmClient;
 use crate::llm::ollama::OllamaClient;
 use crate::llm::openai::OpenAiClient;
 use crate::output::{
-    AskResult, CommandOutput, ConfigEntry, ConfigResult, ModelsResult, OutputMode,
+    AskResult, CommandOutput, CommitResult, ConfigEntry, ConfigResult, ExitCode, ExitStatus,
+    ExplainResult, FixResult, ModelsResult, OutputMode, ReviewIssue, ReviewResult,
 };
-use crate::prompts;
+use crate::pipeline::Pipeline;
+use crate::prompts::{self, pipeline_prompt_for_command};
 
 #[derive(Parser, Debug)]
 #[command(name = "ur")]
@@ -59,6 +69,18 @@ pub enum Command {
         /// The prompt to send to the LLM
         #[arg(required = true)]
         prompt: Vec<String>,
+
+        /// Use agentic mode with tool access (default: pipeline mode)
+        #[arg(long)]
+        agent: bool,
+
+        /// Read context from a file (use - for stdin)
+        #[arg(long, value_name = "FILE")]
+        from: Option<PathBuf>,
+
+        /// Read context from stdin
+        #[arg(long)]
+        stdin: bool,
     },
 
     /// Explain code, files, or concepts
@@ -69,6 +91,10 @@ pub enum Command {
         /// Include surrounding context lines
         #[arg(short, long)]
         context: Option<usize>,
+
+        /// Use agentic mode for deep exploration (default: pipeline mode)
+        #[arg(long)]
+        agent: bool,
     },
 
     /// Review code changes
@@ -79,6 +105,18 @@ pub enum Command {
 
         /// Review specific files
         files: Vec<String>,
+
+        /// Use agentic mode for thorough multi-file analysis (default: pipeline mode)
+        #[arg(long)]
+        agent: bool,
+
+        /// Read input from a file (use - for stdin)
+        #[arg(long, value_name = "FILE")]
+        from: Option<PathBuf>,
+
+        /// Checks to perform (e.g., style, security, performance)
+        #[arg(long, value_delimiter = ',')]
+        checks: Vec<String>,
     },
 
     /// Fix issues in code
@@ -93,6 +131,14 @@ pub enum Command {
         /// Apply fixes automatically (without confirmation)
         #[arg(long)]
         apply: bool,
+
+        /// Use agentic mode with full tool access (default: pipeline mode)
+        #[arg(long)]
+        agent: bool,
+
+        /// Read issues from a file (use - for stdin, e.g., from review --json output)
+        #[arg(long, value_name = "FILE")]
+        from: Option<PathBuf>,
     },
 
     /// Generate commit message from staged changes
@@ -104,6 +150,14 @@ pub enum Command {
         /// Commit style (conventional, simple)
         #[arg(long, default_value = "conventional")]
         style: String,
+
+        /// Use agentic mode with tool access (default: pipeline mode)
+        #[arg(long)]
+        agent: bool,
+
+        /// Auto-execute git commit with the generated message
+        #[arg(long)]
+        execute: bool,
     },
 
     /// Manage configuration
@@ -127,7 +181,7 @@ pub enum Command {
 ///
 /// # Errors
 /// Returns error if command execution fails or if working directory cannot be determined
-pub async fn run() -> Result<()> {
+pub async fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
 
     let working_dir = std::env::current_dir().context("failed to get current directory")?;
@@ -164,17 +218,37 @@ pub async fn run() -> Result<()> {
     }
 
     match cli.command {
-        Command::Ask { prompt } => cmd_ask(&config, prompt, output_mode).await,
-        Command::Explain { target, context } => {
-            cmd_explain(&config, &target, context, output_mode).await
-        }
-        Command::Review { diff, files } => cmd_review(&config, diff, files, output_mode).await,
+        Command::Ask {
+            prompt,
+            agent,
+            from,
+            stdin,
+        } => cmd_ask(&config, prompt, agent, from, stdin, output_mode).await,
+        Command::Explain {
+            target,
+            context,
+            agent,
+        } => cmd_explain(&config, &target, context, agent, output_mode).await,
+        Command::Review {
+            diff,
+            files,
+            agent,
+            from,
+            checks,
+        } => cmd_review(&config, diff, files, agent, from, &checks, output_mode).await,
         Command::Fix {
             target,
             lint,
             apply,
-        } => cmd_fix(&config, &target, lint, apply, output_mode).await,
-        Command::Commit { body, style } => cmd_commit(&config, body, &style, output_mode).await,
+            agent,
+            from,
+        } => cmd_fix(&config, &target, lint, apply, agent, from, output_mode).await,
+        Command::Commit {
+            body,
+            style,
+            agent,
+            execute,
+        } => cmd_commit(&config, body, &style, agent, execute, output_mode).await,
         Command::Config { key, value, list } => cmd_config(&config, key, value, list, output_mode),
         Command::Models => cmd_models(&config, output_mode).await,
     }
@@ -227,52 +301,359 @@ async fn run_agent_with_client<C: LlmClient>(
 ) -> Result<String> {
     let agent = Agent::new(config.clone(), client);
     agent
-        .run_with_prompt(system_prompt, user_prompt)
+        .run(system_prompt, user_prompt)
         .await
         .map_err(Into::into)
 }
 
-async fn cmd_ask(config: &Config, prompt: Vec<String>, output_mode: OutputMode) -> Result<()> {
-    let prompt = prompt.join(" ");
-    let response = run_agent(config, prompts::ASK_PROMPT, &prompt).await?;
+/// Run the pipeline with the appropriate provider
+async fn run_pipeline(
+    config: &Config,
+    system_prompt: &str,
+    context: &GatheredContext,
+    user_request: &str,
+) -> Result<String> {
+    match config.provider {
+        Provider::Ollama => {
+            let client = OllamaClient::new(&config.ollama_url, &config.model);
+            run_pipeline_with_client(config, client, system_prompt, context, user_request).await
+        }
+        Provider::OpenAi => {
+            let client = create_openai_client(config)?;
+            run_pipeline_with_client(config, client, system_prompt, context, user_request).await
+        }
+    }
+}
 
-    let result = AskResult { response, turns: 1 };
-    println!("{}", result.render(output_mode));
-    Ok(())
+/// Run the pipeline with a specific LLM client
+async fn run_pipeline_with_client<C: LlmClient>(
+    _config: &Config,
+    client: C,
+    system_prompt: &str,
+    context: &GatheredContext,
+    user_request: &str,
+) -> Result<String> {
+    let pipeline = Pipeline::new(client);
+    pipeline
+        .execute(system_prompt, context, user_request)
+        .await
+        .map_err(Into::into)
+}
+
+/// Read content from stdin
+fn read_stdin() -> Result<String> {
+    let mut buffer = String::new();
+    io::stdin()
+        .read_to_string(&mut buffer)
+        .context("failed to read from stdin")?;
+    Ok(buffer)
+}
+
+/// Read content from a file or stdin (if path is "-")
+async fn read_from_source(path: &PathBuf) -> Result<String> {
+    if path.as_os_str() == "-" {
+        read_stdin()
+    } else {
+        tokio::fs::read_to_string(path)
+            .await
+            .with_context(|| format!("failed to read from {}", path.display()))
+    }
+}
+
+/// Extract JSON from a response that may contain additional text
+fn extract_json(response: &str) -> &str {
+    if let Some(start) = response.find('{')
+        && let Some(end) = response.rfind('}')
+        && end > start
+    {
+        return &response[start..=end];
+    }
+    response
+}
+
+/// Parse the LLM JSON response into a [`CommitResult`]
+fn parse_commit_response(response: &str) -> Result<CommitResult> {
+    #[derive(serde::Deserialize)]
+    struct CommitJson {
+        message: String,
+        title: String,
+        body: Option<String>,
+    }
+
+    let json_str = extract_json(response);
+    let parsed: CommitJson = serde_json::from_str(json_str)
+        .with_context(|| format!("failed to parse commit message JSON: {json_str}"))?;
+
+    Ok(CommitResult {
+        message: parsed.message,
+        title: parsed.title,
+        body: parsed.body,
+    })
+}
+
+/// Parse the LLM JSON response into a [`ReviewResult`]
+fn parse_review_response(response: &str) -> Result<ReviewResult> {
+    #[derive(serde::Deserialize)]
+    struct ReviewJson {
+        summary: String,
+        issues: Vec<ReviewIssueJson>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ReviewIssueJson {
+        severity: String,
+        file: Option<String>,
+        line: Option<usize>,
+        message: String,
+    }
+
+    let json_str = extract_json(response);
+    let parsed: ReviewJson = serde_json::from_str(json_str)
+        .with_context(|| format!("failed to parse review JSON: {json_str}"))?;
+
+    let issues: Vec<ReviewIssue> = parsed
+        .issues
+        .into_iter()
+        .map(|i| ReviewIssue {
+            severity: i.severity,
+            file: i.file,
+            line: i.line,
+            message: i.message,
+        })
+        .collect();
+
+    let review_passed = issues.is_empty()
+        || !issues
+            .iter()
+            .any(|i| i.severity == "error" || i.severity == "warning");
+
+    Ok(ReviewResult {
+        summary: parsed.summary,
+        issues,
+        passed: review_passed,
+    })
+}
+
+/// Parse the LLM JSON response into an [`ExplainResult`]
+fn parse_explain_response(response: &str) -> Result<ExplainResult> {
+    #[derive(serde::Deserialize)]
+    struct ExplainJson {
+        explanation: String,
+    }
+
+    let json_str = extract_json(response);
+    let parsed: ExplainJson = serde_json::from_str(json_str)
+        .with_context(|| format!("failed to parse explain JSON: {json_str}"))?;
+
+    Ok(ExplainResult {
+        explanation: parsed.explanation,
+    })
+}
+
+/// Parse the LLM JSON response into a [`FixResult`]
+fn parse_fix_response(response: &str) -> Result<FixResult> {
+    #[derive(serde::Deserialize)]
+    struct FixJson {
+        changes: Vec<FixChangeJson>,
+        remaining_issues: usize,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct FixChangeJson {
+        file_path: String,
+        description: String,
+    }
+
+    use crate::output::Change;
+
+    let json_str = extract_json(response);
+    let parsed: FixJson = serde_json::from_str(json_str)
+        .with_context(|| format!("failed to parse fix JSON: {json_str}"))?;
+
+    let changes: Vec<Change> = parsed
+        .changes
+        .into_iter()
+        .map(|f| Change {
+            file_path: f.file_path,
+            description: f.description,
+        })
+        .collect();
+
+    Ok(FixResult {
+        changes,
+        remaining_issues: parsed.remaining_issues,
+    })
+}
+
+/// Execute git commit with the given message
+async fn execute_git_commit(working_dir: &std::path::Path, message: &str) -> Result<()> {
+    let output = TokioCommand::new("git")
+        .args(["commit", "-m", message])
+        .current_dir(working_dir)
+        .output()
+        .await
+        .context("failed to execute git commit")?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !stdout.is_empty() {
+            println!("{stdout}");
+        }
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git commit failed: {}", stderr.trim())
+    }
+}
+
+async fn cmd_ask(
+    config: &Config,
+    prompt: Vec<String>,
+    agent_mode: bool,
+    from: Option<PathBuf>,
+    stdin: bool,
+    output_mode: OutputMode,
+) -> Result<ExitCode> {
+    let prompt_text = prompt.join(" ");
+
+    if agent_mode {
+        // Agent mode: use full agentic behavior with tools
+        let response = run_agent(config, prompts::ASK_PROMPT, &prompt_text).await?;
+        let result = AskResult { response, turns: 1 };
+        println!("{}", result.render(output_mode));
+    } else {
+        // Pipeline mode: single LLM call with optional context
+        let additional_context = if stdin {
+            Some(read_stdin()?)
+        } else if let Some(ref path) = from {
+            Some(read_from_source(path).await?)
+        } else {
+            None
+        };
+
+        let context = GatheredContext {
+            files: Vec::new(),
+            git_diff: None,
+            git_status: None,
+            additional_context,
+        };
+
+        let response = run_pipeline(
+            config,
+            pipeline_prompt_for_command("ask"),
+            &context,
+            &prompt_text,
+        )
+        .await?;
+
+        let result = AskResult { response, turns: 1 };
+        println!("{}", result.render(output_mode));
+    }
+
+    Ok(ExitCode::Success)
 }
 
 async fn cmd_explain(
     config: &Config,
     target: &str,
-    _context: Option<usize>,
+    _context_lines: Option<usize>,
+    agent_mode: bool,
     output_mode: OutputMode,
-) -> Result<()> {
-    let prompt = format!("Explain the code in: {target}");
-    let response = run_agent(config, prompts::EXPLAIN_PROMPT, &prompt).await?;
+) -> Result<ExitCode> {
+    if agent_mode {
+        // Agent mode: use full agentic behavior for deep exploration
+        let prompt = format!("Explain the code in: {target}");
+        let response = run_agent(config, prompts::EXPLAIN_PROMPT, &prompt).await?;
+        let result = AskResult { response, turns: 1 };
+        println!("{}", result.render(output_mode));
+    } else {
+        // Pipeline mode: gather context and make single LLM call
+        let files = vec![PathBuf::from(target)];
+        let context = gather_explain_context(&config.working_dir, &files)
+            .await
+            .context("failed to gather explain context")?;
 
-    let result = AskResult { response, turns: 1 };
-    println!("{}", result.render(output_mode));
-    Ok(())
+        let response = run_pipeline(
+            config,
+            pipeline_prompt_for_command("explain"),
+            &context,
+            &format!("Explain this code from {target}"),
+        )
+        .await?;
+
+        let result = parse_explain_response(&response).unwrap_or(ExplainResult {
+            explanation: response,
+        });
+
+        println!("{}", result.render(output_mode));
+    }
+
+    Ok(ExitCode::Success)
 }
 
 async fn cmd_review(
     config: &Config,
     diff: Option<String>,
     files: Vec<String>,
+    agent_mode: bool,
+    from: Option<PathBuf>,
+    checks: &[String],
     output_mode: OutputMode,
-) -> Result<()> {
-    let prompt = if let Some(ref d) = diff {
-        format!("Review the changes in git diff {d}")
-    } else if !files.is_empty() {
-        format!("Review the code in: {}", files.join(", "))
+) -> Result<ExitCode> {
+    if agent_mode {
+        // Agent mode: use full agentic behavior for thorough analysis
+        let prompt = if let Some(ref d) = diff {
+            format!("Review the changes in git diff {d}")
+        } else if !files.is_empty() {
+            format!("Review the code in: {}", files.join(", "))
+        } else {
+            "Review the staged changes (use git diff --cached)".to_string()
+        };
+        let response = run_agent(config, prompts::REVIEW_PROMPT, &prompt).await?;
+        let result = AskResult { response, turns: 1 };
+        println!("{}", result.render(output_mode));
+        Ok(ExitCode::Success)
     } else {
-        "Review the staged changes (use git diff --cached)".to_string()
-    };
-    let response = run_agent(config, prompts::REVIEW_PROMPT, &prompt).await?;
+        // Pipeline mode: gather context and make single LLM call
+        let additional_context = if let Some(ref path) = from {
+            Some(read_from_source(path).await?)
+        } else {
+            None
+        };
 
-    let result = AskResult { response, turns: 1 };
-    println!("{}", result.render(output_mode));
-    Ok(())
+        let diff_only = diff.is_none() && files.is_empty();
+        let file_paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
+
+        let mut context = gather_review_context(&config.working_dir, diff_only, &file_paths)
+            .await
+            .context("failed to gather review context")?;
+
+        context.additional_context = additional_context;
+
+        let checks_str = if checks.is_empty() {
+            String::new()
+        } else {
+            format!(" Focus on: {}.", checks.join(", "))
+        };
+
+        let response = run_pipeline(
+            config,
+            pipeline_prompt_for_command("review"),
+            &context,
+            &format!("Review these changes.{checks_str}"),
+        )
+        .await?;
+
+        let result = parse_review_response(&response).unwrap_or_else(|_| ReviewResult {
+            summary: response.clone(),
+            issues: Vec::new(),
+            passed: true,
+        });
+
+        let exit_code = result.exit_code();
+        println!("{}", result.render(output_mode));
+        Ok(exit_code)
+    }
 }
 
 async fn cmd_fix(
@@ -280,50 +661,137 @@ async fn cmd_fix(
     target: &str,
     lint: bool,
     _apply: bool,
+    agent_mode: bool,
+    from: Option<PathBuf>,
     output_mode: OutputMode,
-) -> Result<()> {
-    let prompt = if lint {
-        format!("Fix lint/clippy issues in: {target}. Run clippy first to identify issues.")
+) -> Result<ExitCode> {
+    if agent_mode {
+        // Agent mode: use full agentic behavior with tool access
+        let prompt = if lint {
+            format!("Fix lint/clippy issues in: {target}. Run clippy first to identify issues.")
+        } else {
+            format!("Fix issues in: {target}")
+        };
+        let response = run_agent(config, prompts::FIX_PROMPT, &prompt).await?;
+        let result = AskResult { response, turns: 1 };
+        println!("{}", result.render(output_mode));
+        Ok(ExitCode::Success)
     } else {
-        format!("Fix issues in: {target}")
-    };
-    let response = run_agent(config, prompts::FIX_PROMPT, &prompt).await?;
+        // Pipeline mode: gather context and make single LLM call
+        let issues = if let Some(ref path) = from {
+            Some(read_from_source(path).await?)
+        } else {
+            None
+        };
 
-    let result = AskResult { response, turns: 1 };
-    println!("{}", result.render(output_mode));
-    Ok(())
+        let files = vec![PathBuf::from(target)];
+        let context = gather_fix_context(&config.working_dir, &files, issues.as_deref())
+            .await
+            .context("failed to gather fix context")?;
+
+        let prompt = if lint {
+            format!("Fix lint/clippy issues in {target}")
+        } else {
+            format!("Fix issues in {target}")
+        };
+
+        let response = run_pipeline(
+            config,
+            pipeline_prompt_for_command("fix"),
+            &context,
+            &prompt,
+        )
+        .await?;
+
+        let result = parse_fix_response(&response).unwrap_or_else(|_| FixResult {
+            changes: Vec::new(),
+            remaining_issues: 0,
+        });
+
+        let exit_code = result.exit_code();
+        println!("{}", result.render(output_mode));
+        Ok(exit_code)
+    }
 }
 
 async fn cmd_commit(
     config: &Config,
     body: bool,
     style: &str,
+    agent_mode: bool,
+    execute: bool,
     output_mode: OutputMode,
-) -> Result<()> {
-    let prompt = format!(
-        "Generate a {} commit message for the staged changes{}.",
-        style,
-        if body {
-            " with a detailed body explaining the changes"
-        } else {
-            ""
-        }
-    );
-    let response = run_agent(config, prompts::COMMIT_PROMPT, &prompt).await?;
+) -> Result<ExitCode> {
+    if agent_mode {
+        // Agent mode: use full agentic behavior with tools
+        let prompt = format!(
+            "Generate a {} commit message for the staged changes{}.",
+            style,
+            if body {
+                " with a detailed body explaining the changes"
+            } else {
+                ""
+            }
+        );
+        let response = run_agent(config, prompts::COMMIT_PROMPT, &prompt).await?;
+        let result = AskResult { response, turns: 1 };
+        println!("{}", result.render(output_mode));
+        Ok(ExitCode::Success)
+    } else {
+        // Pipeline mode: gather context and make single LLM call
+        let context = gather_commit_context(&config.working_dir)
+            .await
+            .context("failed to gather commit context")?;
 
-    let result = AskResult { response, turns: 1 };
-    println!("{}", result.render(output_mode));
-    Ok(())
+        // Check if there are staged changes
+        if context
+            .git_diff
+            .as_ref()
+            .is_some_and(|diff| diff.trim().is_empty())
+        {
+            anyhow::bail!("no staged changes to commit");
+        }
+
+        let user_request = format!(
+            "Generate a {} commit message{}.",
+            style,
+            if body {
+                " with a detailed body explaining the changes"
+            } else {
+                ""
+            }
+        );
+
+        let response = run_pipeline(
+            config,
+            pipeline_prompt_for_command("commit"),
+            &context,
+            &user_request,
+        )
+        .await
+        .context("failed to generate commit message")?;
+
+        let result = parse_commit_response(&response)
+            .context("failed to parse commit message from LLM response")?;
+
+        println!("{}", result.render(output_mode));
+
+        if execute {
+            execute_git_commit(&config.working_dir, &result.message).await?;
+        }
+
+        Ok(ExitCode::Success)
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)] // Will return errors when config set is implemented
+#[allow(clippy::unnecessary_wraps)]
 fn cmd_config(
     config: &Config,
     key: Option<String>,
     value: Option<String>,
     list: bool,
     output_mode: OutputMode,
-) -> Result<()> {
+) -> Result<ExitCode> {
     let api_key_display = if config.openai_api_key.is_some() {
         "[set]".to_string()
     } else {
@@ -386,10 +854,10 @@ fn cmd_config(
     } else {
         println!("Usage: ur config <key> [value] or ur config --list");
     }
-    Ok(())
+    Ok(ExitCode::Success)
 }
 
-async fn cmd_models(config: &Config, output_mode: OutputMode) -> Result<()> {
+async fn cmd_models(config: &Config, output_mode: OutputMode) -> Result<ExitCode> {
     match config.provider {
         Provider::Ollama => {
             let client = OllamaClient::new(&config.ollama_url, &config.model);
@@ -404,13 +872,94 @@ async fn cmd_models(config: &Config, output_mode: OutputMode) -> Result<()> {
             }
         }
         Provider::OpenAi => {
-            // OpenAI's /v1/models endpoint requires authentication and returns
-            // a different format. For now, inform the user to check OpenAI docs.
             println!(
                 "Model listing is not available for OpenAI provider.\n\
                  See https://platform.openai.com/docs/models for available models."
             );
         }
     }
-    Ok(())
+    Ok(ExitCode::Success)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_json_simple() {
+        let input = r#"{"message": "test", "title": "test", "body": null}"#;
+        assert_eq!(extract_json(input), input);
+    }
+
+    #[test]
+    fn test_extract_json_with_surrounding_text() {
+        let input = r#"Here is the commit message:
+{"message": "test", "title": "test", "body": null}
+That's the JSON."#;
+        let expected = r#"{"message": "test", "title": "test", "body": null}"#;
+        assert_eq!(extract_json(input), expected);
+    }
+
+    #[test]
+    fn test_extract_json_no_json() {
+        let input = "No JSON here";
+        assert_eq!(extract_json(input), input);
+    }
+
+    #[test]
+    fn test_parse_commit_response_valid() {
+        let input = r#"{"message": "feat: add new feature\n\nThis adds a cool feature.", "title": "feat: add new feature", "body": "This adds a cool feature."}"#;
+        let result = parse_commit_response(input).unwrap();
+        assert_eq!(result.title, "feat: add new feature");
+        assert_eq!(result.body, Some("This adds a cool feature.".to_string()));
+    }
+
+    #[test]
+    fn test_parse_commit_response_no_body() {
+        let input = r#"{"message": "fix: typo", "title": "fix: typo", "body": null}"#;
+        let result = parse_commit_response(input).unwrap();
+        assert_eq!(result.title, "fix: typo");
+        assert_eq!(result.body, None);
+    }
+
+    #[test]
+    fn test_parse_commit_response_invalid() {
+        let input = "not json at all";
+        assert!(parse_commit_response(input).is_err());
+    }
+
+    #[test]
+    fn test_parse_review_response_valid() {
+        let input = r#"{"summary": "Code looks good", "issues": [{"severity": "warning", "file": "src/main.rs", "line": 10, "message": "Unused variable"}]}"#;
+        let result = parse_review_response(input).unwrap();
+        assert_eq!(result.summary, "Code looks good");
+        assert_eq!(result.issues.len(), 1);
+        assert!(!result.passed); // Has a warning
+    }
+
+    #[test]
+    fn test_parse_review_response_no_issues() {
+        let input = r#"{"summary": "Code looks perfect", "issues": []}"#;
+        let result = parse_review_response(input).unwrap();
+        assert!(result.passed);
+        assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn test_parse_explain_response_valid() {
+        let input = r#"{"explanation": "This function does..."}"#;
+        let result = parse_explain_response(input).unwrap();
+        assert_eq!(result.explanation, "This function does...");
+    }
+
+    #[test]
+    fn test_parse_fix_response_valid() {
+        let input = r#"{"changes": [{"file_path": "src/main.rs", "description": "Prefix with underscore"}], "remaining_issues": 0}"#;
+        let result = parse_fix_response(input).unwrap();
+        assert_eq!(result.changes.len(), 1);
+        assert_eq!(result.changes[0].file_path, "src/main.rs");
+        assert_eq!(result.changes[0].description, "Prefix with underscore");
+        assert_eq!(result.remaining_issues, 0);
+    }
 }

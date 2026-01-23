@@ -5,6 +5,41 @@
 
 use serde::Serialize;
 
+/// Exit codes for CLI commands
+///
+/// Follows Unix conventions:
+/// - 0 for success
+/// - 1 for issues/warnings found (e.g., review found problems)
+/// - 2 for errors (command failed to execute properly)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ExitCode {
+    /// Command completed successfully with no issues
+    Success = 0,
+    /// Command completed but found issues (e.g., review found problems)
+    IssuesFound = 1,
+    /// Command failed due to an error
+    Error = 2,
+}
+
+impl From<ExitCode> for u8 {
+    fn from(code: ExitCode) -> Self {
+        code as u8
+    }
+}
+
+impl From<ExitCode> for i32 {
+    fn from(code: ExitCode) -> Self {
+        i32::from(code as u8)
+    }
+}
+
+/// Trait for types that can report an exit status
+pub trait ExitStatus {
+    /// Returns the exit code for this result
+    fn exit_code(&self) -> ExitCode;
+}
+
 /// Output mode for command results
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
@@ -33,39 +68,6 @@ pub trait CommandOutput: Serialize {
     }
 }
 
-/// Generic wrapper for command results
-#[derive(Debug, Serialize)]
-pub struct CommandResult<T: Serialize> {
-    /// Whether the command succeeded
-    pub success: bool,
-    /// The result data (if successful)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<T>,
-    /// Error message (if failed)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-impl<T: Serialize> CommandResult<T> {
-    /// Create a successful result
-    pub fn ok(data: T) -> Self {
-        Self {
-            success: true,
-            data: Some(data),
-            error: None,
-        }
-    }
-
-    /// Create a failed result
-    pub fn err(error: impl Into<String>) -> Self {
-        Self {
-            success: false,
-            data: None,
-            error: Some(error.into()),
-        }
-    }
-}
-
 /// Result from the `ask` command
 #[derive(Debug, Serialize)]
 pub struct AskResult {
@@ -78,6 +80,12 @@ pub struct AskResult {
 impl CommandOutput for AskResult {
     fn render_human(&self) -> String {
         self.response.clone()
+    }
+}
+
+impl ExitStatus for AskResult {
+    fn exit_code(&self) -> ExitCode {
+        ExitCode::Success
     }
 }
 
@@ -107,6 +115,12 @@ impl CommandOutput for ConfigResult {
     }
 }
 
+impl ExitStatus for ConfigResult {
+    fn exit_code(&self) -> ExitCode {
+        ExitCode::Success
+    }
+}
+
 /// Result from the `models` command
 #[derive(Debug, Serialize)]
 pub struct ModelsResult {
@@ -117,6 +131,12 @@ pub struct ModelsResult {
 impl CommandOutput for ModelsResult {
     fn render_human(&self) -> String {
         self.models.join("\n")
+    }
+}
+
+impl ExitStatus for ModelsResult {
+    fn exit_code(&self) -> ExitCode {
+        ExitCode::Success
     }
 }
 
@@ -138,6 +158,12 @@ impl CommandOutput for CommitResult {
     }
 }
 
+impl ExitStatus for CommitResult {
+    fn exit_code(&self) -> ExitCode {
+        ExitCode::Success
+    }
+}
+
 /// Result from the `review` command
 #[derive(Debug, Serialize)]
 pub struct ReviewResult {
@@ -146,6 +172,8 @@ pub struct ReviewResult {
     /// Identified issues
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub issues: Vec<ReviewIssue>,
+    /// Whether the review passed (no issues or only warnings)
+    pub passed: bool,
 }
 
 /// An issue identified during code review
@@ -166,6 +194,86 @@ pub struct ReviewIssue {
 impl CommandOutput for ReviewResult {
     fn render_human(&self) -> String {
         self.summary.clone()
+    }
+}
+
+impl ExitStatus for ReviewResult {
+    fn exit_code(&self) -> ExitCode {
+        if self.passed {
+            ExitCode::Success
+        } else {
+            ExitCode::IssuesFound
+        }
+    }
+}
+
+/// Result from the `explain` command
+#[derive(Debug, Serialize)]
+pub struct ExplainResult {
+    /// The explanation of the code or concept
+    pub explanation: String,
+}
+
+impl CommandOutput for ExplainResult {
+    fn render_human(&self) -> String {
+        self.explanation.clone()
+    }
+}
+
+impl ExitStatus for ExplainResult {
+    fn exit_code(&self) -> ExitCode {
+        ExitCode::Success
+    }
+}
+
+/// Result from the `fix` command
+#[derive(Debug, Serialize)]
+pub struct FixResult {
+    /// Changes made to fix issues
+    pub changes: Vec<Change>,
+    /// Number of issues that could not be fixed
+    pub remaining_issues: usize,
+}
+
+/// A change made by the fix command
+#[derive(Debug, Serialize)]
+pub struct Change {
+    /// Path to the file that was changed
+    pub file_path: String,
+    /// Description of the change
+    pub description: String,
+}
+
+impl CommandOutput for FixResult {
+    fn render_human(&self) -> String {
+        use std::fmt::Write;
+        let mut output = String::new();
+        if self.changes.is_empty() {
+            output.push_str("No changes made.");
+        } else {
+            output.push_str("Changes:\n");
+            for change in &self.changes {
+                let _ = writeln!(output, "  {} - {}", change.file_path, change.description);
+            }
+        }
+        if self.remaining_issues > 0 {
+            let _ = write!(
+                output,
+                "\n{} issues could not be fixed.",
+                self.remaining_issues
+            );
+        }
+        output
+    }
+}
+
+impl ExitStatus for FixResult {
+    fn exit_code(&self) -> ExitCode {
+        if self.remaining_issues > 0 {
+            ExitCode::IssuesFound
+        } else {
+            ExitCode::Success
+        }
     }
 }
 
@@ -222,18 +330,149 @@ mod tests {
     }
 
     #[test]
-    fn test_command_result_ok() {
-        let result = CommandResult::ok("success".to_string());
-        assert!(result.success);
-        assert_eq!(result.data, Some("success".to_string()));
-        assert!(result.error.is_none());
+    fn test_exit_code_values() {
+        assert_eq!(u8::from(ExitCode::Success), 0);
+        assert_eq!(u8::from(ExitCode::IssuesFound), 1);
+        assert_eq!(u8::from(ExitCode::Error), 2);
     }
 
     #[test]
-    fn test_command_result_err() {
-        let result: CommandResult<String> = CommandResult::err("failed");
-        assert!(!result.success);
-        assert!(result.data.is_none());
-        assert_eq!(result.error, Some("failed".to_string()));
+    fn test_exit_code_to_i32() {
+        assert_eq!(i32::from(ExitCode::Success), 0);
+        assert_eq!(i32::from(ExitCode::IssuesFound), 1);
+        assert_eq!(i32::from(ExitCode::Error), 2);
+    }
+
+    #[test]
+    fn test_ask_result_exit_status() {
+        let result = AskResult {
+            response: "test".to_string(),
+            turns: 1,
+        };
+        assert_eq!(result.exit_code(), ExitCode::Success);
+    }
+
+    #[test]
+    fn test_config_result_exit_status() {
+        let result = ConfigResult { entries: vec![] };
+        assert_eq!(result.exit_code(), ExitCode::Success);
+    }
+
+    #[test]
+    fn test_models_result_exit_status() {
+        let result = ModelsResult { models: vec![] };
+        assert_eq!(result.exit_code(), ExitCode::Success);
+    }
+
+    #[test]
+    fn test_commit_result_exit_status() {
+        let result = CommitResult {
+            message: "test".to_string(),
+            title: "test".to_string(),
+            body: None,
+        };
+        assert_eq!(result.exit_code(), ExitCode::Success);
+    }
+
+    #[test]
+    fn test_review_result_exit_status_passed() {
+        let result = ReviewResult {
+            summary: "All good".to_string(),
+            issues: vec![],
+            passed: true,
+        };
+        assert_eq!(result.exit_code(), ExitCode::Success);
+    }
+
+    #[test]
+    fn test_review_result_exit_status_failed() {
+        let result = ReviewResult {
+            summary: "Issues found".to_string(),
+            issues: vec![ReviewIssue {
+                severity: "error".to_string(),
+                file: Some("test.rs".to_string()),
+                line: Some(10),
+                message: "bug".to_string(),
+            }],
+            passed: false,
+        };
+        assert_eq!(result.exit_code(), ExitCode::IssuesFound);
+    }
+
+    #[test]
+    fn test_explain_result_exit_status() {
+        let result = ExplainResult {
+            explanation: "This is how it works".to_string(),
+        };
+        assert_eq!(result.exit_code(), ExitCode::Success);
+    }
+
+    #[test]
+    fn test_explain_result_human_output() {
+        let result = ExplainResult {
+            explanation: "This is the explanation".to_string(),
+        };
+        assert_eq!(result.render_human(), "This is the explanation");
+    }
+
+    #[test]
+    fn test_fix_result_exit_status_success() {
+        let result = FixResult {
+            changes: vec![Change {
+                file_path: "test.rs".to_string(),
+                description: "Fixed bug".to_string(),
+            }],
+            remaining_issues: 0,
+        };
+        assert_eq!(result.exit_code(), ExitCode::Success);
+    }
+
+    #[test]
+    fn test_fix_result_exit_status_with_remaining() {
+        let result = FixResult {
+            changes: vec![],
+            remaining_issues: 2,
+        };
+        assert_eq!(result.exit_code(), ExitCode::IssuesFound);
+    }
+
+    #[test]
+    fn test_fix_result_human_output_with_changes() {
+        let result = FixResult {
+            changes: vec![
+                Change {
+                    file_path: "src/main.rs".to_string(),
+                    description: "Fixed null pointer".to_string(),
+                },
+                Change {
+                    file_path: "src/lib.rs".to_string(),
+                    description: "Added error handling".to_string(),
+                },
+            ],
+            remaining_issues: 0,
+        };
+        let output = result.render_human();
+        assert!(output.contains("Changes:"));
+        assert!(output.contains("src/main.rs - Fixed null pointer"));
+        assert!(output.contains("src/lib.rs - Added error handling"));
+    }
+
+    #[test]
+    fn test_fix_result_human_output_no_changes() {
+        let result = FixResult {
+            changes: vec![],
+            remaining_issues: 0,
+        };
+        assert_eq!(result.render_human(), "No changes made.");
+    }
+
+    #[test]
+    fn test_fix_result_human_output_with_remaining() {
+        let result = FixResult {
+            changes: vec![],
+            remaining_issues: 3,
+        };
+        let output = result.render_human();
+        assert!(output.contains("3 issues could not be fixed."));
     }
 }

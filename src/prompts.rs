@@ -1,6 +1,7 @@
 //! Command-specific system prompts for Ursus.rs
 //!
 //! Each command gets an optimized system prompt tailored to its specific task.
+//! Includes both agent prompts (with tool access) and pipeline prompts (single LLM call, JSON output).
 
 /// Default system prompt for general-purpose queries (ask command)
 pub const ASK_PROMPT: &str = r"You are a helpful coding assistant with access to tools for interacting with the local filesystem and running commands.
@@ -97,15 +98,147 @@ feat(auth): add password reset functionality
 
 Respond with ONLY the commit message, no additional commentary.";
 
-/// Get the appropriate system prompt for a command
-pub fn prompt_for_command(command: &str) -> &'static str {
+// =============================================================================
+// Pipeline Mode Prompts
+// =============================================================================
+// These prompts are for single LLM calls without tool access.
+// The LLM must return structured JSON that can be parsed into result types.
+
+/// Pipeline prompt for the review command (no tools, JSON output)
+pub const REVIEW_PIPELINE_PROMPT: &str = r#"You are a thorough code reviewer. Your task is to review the provided code changes and provide constructive feedback.
+
+When reviewing code, analyze:
+- Correctness and potential bugs
+- Security vulnerabilities
+- Performance concerns
+- Code style and best practices
+- Test coverage gaps
+
+Be constructive and explain why something is an issue, not just that it is.
+Categorize issues by severity: "error" for critical bugs, "warning" for potential problems, "info" for suggestions.
+
+Return your review as JSON in this exact format:
+{
+  "summary": "Brief summary of the review findings",
+  "issues": [
+    {
+      "severity": "error|warning|info",
+      "file": "path/to/file.rs",
+      "line": 42,
+      "message": "Description of the issue"
+    }
+  ]
+}
+
+Notes:
+- The "issues" array can be empty if no issues were found
+- The "file" and "line" fields are optional if the issue is general
+- Use "error" sparingly, only for critical bugs or security issues
+
+Output ONLY the JSON, no other text."#;
+
+/// Pipeline prompt for the commit command (no tools, JSON output)
+pub const COMMIT_PIPELINE_PROMPT: &str = r#"You are a commit message generator. Your task is to analyze the provided code changes and generate an appropriate commit message.
+
+Generate a commit message following conventional commits format:
+- Type: feat, fix, docs, style, refactor, test, chore
+- Scope: optional, in parentheses
+- Subject: imperative mood, lowercase, no period, under 50 chars
+- Body: optional, explain why not what
+
+Return your commit message as JSON in this exact format:
+{
+  "message": "The full commit message including title and body",
+  "title": "feat(scope): subject line under 50 chars",
+  "body": "Optional body explaining why the change was made"
+}
+
+Notes:
+- The "body" field is optional and can be null if not needed
+- The "message" field should contain the complete commit message (title + body with blank line separator)
+
+Output ONLY the JSON, no other text."#;
+
+/// Pipeline prompt for the explain command (no tools, JSON output)
+pub const EXPLAIN_PIPELINE_PROMPT: &str = r#"You are a code explanation expert. Your task is to explain the provided code clearly and concisely.
+
+When explaining code, provide:
+1. A high-level overview of what the code does
+2. Key functions, types, and patterns
+3. Important relationships and dependencies
+4. Any notable design decisions or potential issues
+
+Return your explanation as JSON in this exact format:
+{
+  "summary": "Brief one-sentence summary of what this code does",
+  "explanation": "Detailed explanation in markdown format",
+  "key_concepts": ["concept1", "concept2"],
+  "complexity": "low|medium|high"
+}
+
+Notes:
+- Use markdown formatting in the "explanation" field for code snippets
+- The "key_concepts" array should list 2-5 important concepts/patterns used
+- The "complexity" rating is subjective but helps readers gauge the code
+
+Output ONLY the JSON, no other text."#;
+
+/// Pipeline prompt for the fix command (no tools, JSON output)
+pub const FIX_PIPELINE_PROMPT: &str = r#"You are a code repair specialist. Your task is to identify issues in the provided code and suggest fixes.
+
+Analyze the code for:
+- Bugs and logic errors
+- Security vulnerabilities
+- Performance issues
+- Style and best practice violations
+
+Return your analysis as JSON in this exact format:
+{
+  "diagnosis": "Brief description of the identified issue(s)",
+  "fixes": [
+    {
+      "file": "path/to/file.rs",
+      "line": 42,
+      "original": "the original problematic code",
+      "replacement": "the fixed code",
+      "explanation": "why this change fixes the issue"
+    }
+  ],
+  "verified": false
+}
+
+Notes:
+- The "fixes" array contains specific code changes to make
+- The "line" field is optional if the fix location is unclear
+- Set "verified" to false since pipeline mode cannot run tests
+- Focus on minimal, targeted fixes that address the root cause
+
+Output ONLY the JSON, no other text."#;
+
+/// Pipeline prompt for the ask command (no tools, simple response)
+///
+/// The ask command in pipeline mode returns a simple text response,
+/// not structured JSON, since it handles general queries.
+pub const ASK_PIPELINE_PROMPT: &str = r"You are a helpful coding assistant.
+
+Answer the user's question directly and concisely. Focus on providing accurate, actionable information.
+
+Since you cannot access the filesystem or run commands in this mode, base your response only on the information provided in the query and your training knowledge.
+
+If the question requires file access or command execution that you cannot perform, explain what information would be needed and suggest how the user could gather it.";
+
+/// Get the appropriate pipeline prompt for a command (single LLM call, no tools)
+///
+/// Pipeline prompts instruct the LLM to return structured JSON output
+/// that can be parsed into the corresponding result types.
+pub fn pipeline_prompt_for_command(command: &str) -> &'static str {
     match command {
-        "explain" => EXPLAIN_PROMPT,
-        "review" => REVIEW_PROMPT,
-        "fix" => FIX_PROMPT,
-        "commit" => COMMIT_PROMPT,
-        // "ask" and all other commands use the default prompt
-        _ => ASK_PROMPT,
+        "explain" => EXPLAIN_PIPELINE_PROMPT,
+        "review" => REVIEW_PIPELINE_PROMPT,
+        "fix" => FIX_PIPELINE_PROMPT,
+        "commit" => COMMIT_PIPELINE_PROMPT,
+        // "ask" and all other commands use the simple pipeline prompt
+        _ => ASK_PIPELINE_PROMPT,
     }
 }
 
@@ -114,15 +247,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_prompt_for_command() {
-        // Specific commands get their own prompts
-        assert_eq!(prompt_for_command("explain"), EXPLAIN_PROMPT);
-        assert_eq!(prompt_for_command("review"), REVIEW_PROMPT);
-        assert_eq!(prompt_for_command("fix"), FIX_PROMPT);
-        assert_eq!(prompt_for_command("commit"), COMMIT_PROMPT);
-        // "ask" and unknown commands default to ASK_PROMPT
-        assert_eq!(prompt_for_command("ask"), ASK_PROMPT);
-        assert_eq!(prompt_for_command("unknown"), ASK_PROMPT);
+    fn test_pipeline_prompt_for_command() {
+        // Specific commands get their own pipeline prompts
+        assert_eq!(
+            pipeline_prompt_for_command("explain"),
+            EXPLAIN_PIPELINE_PROMPT
+        );
+        assert_eq!(
+            pipeline_prompt_for_command("review"),
+            REVIEW_PIPELINE_PROMPT
+        );
+        assert_eq!(pipeline_prompt_for_command("fix"), FIX_PIPELINE_PROMPT);
+        assert_eq!(
+            pipeline_prompt_for_command("commit"),
+            COMMIT_PIPELINE_PROMPT
+        );
+        // "ask" and unknown commands default to ASK_PIPELINE_PROMPT
+        assert_eq!(pipeline_prompt_for_command("ask"), ASK_PIPELINE_PROMPT);
+        assert_eq!(pipeline_prompt_for_command("unknown"), ASK_PIPELINE_PROMPT);
     }
 
     #[test]
@@ -132,5 +274,43 @@ mod tests {
         assert!(!REVIEW_PROMPT.is_empty());
         assert!(!FIX_PROMPT.is_empty());
         assert!(!COMMIT_PROMPT.is_empty());
+    }
+
+    #[test]
+    fn test_pipeline_prompts_are_not_empty() {
+        assert!(!ASK_PIPELINE_PROMPT.is_empty());
+        assert!(!EXPLAIN_PIPELINE_PROMPT.is_empty());
+        assert!(!REVIEW_PIPELINE_PROMPT.is_empty());
+        assert!(!FIX_PIPELINE_PROMPT.is_empty());
+        assert!(!COMMIT_PIPELINE_PROMPT.is_empty());
+    }
+
+    #[test]
+    fn test_pipeline_prompts_contain_json_instructions() {
+        // All pipeline prompts except ASK should mention JSON output
+        assert!(REVIEW_PIPELINE_PROMPT.contains("JSON"));
+        assert!(COMMIT_PIPELINE_PROMPT.contains("JSON"));
+        assert!(EXPLAIN_PIPELINE_PROMPT.contains("JSON"));
+        assert!(FIX_PIPELINE_PROMPT.contains("JSON"));
+    }
+
+    #[test]
+    fn test_pipeline_prompts_do_not_mention_tools() {
+        // Pipeline prompts should not reference tools
+        assert!(!REVIEW_PIPELINE_PROMPT.contains("Available tools"));
+        assert!(!COMMIT_PIPELINE_PROMPT.contains("Available tools"));
+        assert!(!EXPLAIN_PIPELINE_PROMPT.contains("Available tools"));
+        assert!(!FIX_PIPELINE_PROMPT.contains("Available tools"));
+        assert!(!ASK_PIPELINE_PROMPT.contains("Available tools"));
+    }
+
+    #[test]
+    fn test_agent_prompts_differ_from_pipeline_prompts() {
+        // Agent and pipeline prompts should be different
+        assert_ne!(REVIEW_PROMPT, REVIEW_PIPELINE_PROMPT);
+        assert_ne!(COMMIT_PROMPT, COMMIT_PIPELINE_PROMPT);
+        assert_ne!(EXPLAIN_PROMPT, EXPLAIN_PIPELINE_PROMPT);
+        assert_ne!(FIX_PROMPT, FIX_PIPELINE_PROMPT);
+        assert_ne!(ASK_PROMPT, ASK_PIPELINE_PROMPT);
     }
 }

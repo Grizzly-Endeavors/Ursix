@@ -102,20 +102,6 @@ pub struct Config {
 }
 
 impl Config {
-    /// Create a new config with the specified model and Ollama URL
-    #[must_use]
-    pub fn new(model: String, ollama_url: String) -> Self {
-        Self {
-            provider: Provider::default(),
-            model,
-            ollama_url,
-            openai_url: String::from(DEFAULT_OPENAI_URL),
-            openai_api_key: None,
-            working_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-            max_turns: DEFAULT_MAX_TURNS,
-        }
-    }
-
     /// Load configuration from all sources (files, env vars)
     ///
     /// Does not apply CLI overrides - those should be applied after calling this.
@@ -262,22 +248,6 @@ impl ConfigFile {
             std::fs::read_to_string(path).context(format!("failed to read {}", path.display()))?;
         toml::from_str(&content).context(format!("failed to parse {}", path.display()))
     }
-
-    /// Save config to a TOML file
-    ///
-    /// # Errors
-    /// Returns error if file cannot be written
-    pub fn save(&self, path: &Path) -> Result<()> {
-        let content = toml::to_string_pretty(self).context("failed to serialize config")?;
-
-        // Create parent directories if needed
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .context(format!("failed to create {}", parent.display()))?;
-        }
-
-        std::fs::write(path, content).context(format!("failed to write {}", path.display()))
-    }
 }
 
 #[cfg(test)]
@@ -320,32 +290,6 @@ mod tests {
 
         let deserialized: Provider = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, Provider::OpenAi);
-    }
-
-    #[test]
-    fn test_config_file_roundtrip() {
-        let temp = TempDir::new().unwrap();
-        let path = temp.path().join("config.toml");
-
-        let file = ConfigFile {
-            provider: Some(Provider::OpenAi),
-            model: Some("test-model".to_string()),
-            ollama_url: Some("http://test:1234".to_string()),
-            openai_url: Some("http://openai-test:5678/v1".to_string()),
-            max_turns: Some(100),
-        };
-
-        file.save(&path).unwrap();
-        let loaded = ConfigFile::load(&path).unwrap();
-
-        assert_eq!(loaded.provider, Some(Provider::OpenAi));
-        assert_eq!(loaded.model, Some("test-model".to_string()));
-        assert_eq!(loaded.ollama_url, Some("http://test:1234".to_string()));
-        assert_eq!(
-            loaded.openai_url,
-            Some("http://openai-test:5678/v1".to_string())
-        );
-        assert_eq!(loaded.max_turns, Some(100));
     }
 
     #[test]

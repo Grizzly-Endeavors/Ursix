@@ -1,24 +1,63 @@
 # rust-code
 
-Extensible agentic CLI tool for testing open source LLM capabilities.
+Extensible CLI tool for LLM-powered development tasks, supporting both stateless pipeline and agentic modes.
 
 ## Architecture
+
+The CLI follows a hybrid pipeline/agent model:
+- **Default (Pipeline)**: Stateless single-pass LLM calls without tools - fast and predictable
+- **Opt-in (Agent)**: Multi-turn agentic mode with tool access via `--agent` flag
 
 ```
 src/
 ├── main.rs          # Entry point, tokio runtime
-├── cli.rs           # clap argument parsing
-├── config.rs        # Runtime configuration
-├── agent.rs         # Agent loop (generic over LlmClient)
+├── cli.rs           # clap argument parsing, command dispatch
+├── config.rs        # Runtime configuration (layered: files, env, CLI)
+├── input.rs         # Input source handling (--from, stdin, inline args)
+├── context.rs       # Pre-LLM context gathering (files, git state)
+├── pipeline.rs      # Stateless single-pass executor (default mode)
+├── agent.rs         # Agentic loop with tool execution (--agent mode)
+├── output.rs        # Structured output formatting (human/JSON)
+├── prompts.rs       # System prompts for each command
 ├── llm/
 │   ├── mod.rs       # LlmClient trait, Message/ToolCall/ToolDefinition types
-│   └── ollama.rs    # Ollama API implementation
+│   ├── ollama.rs    # Ollama API implementation
+│   └── openai.rs    # OpenAI-compatible API implementation
 └── tools/
     ├── mod.rs       # Tool trait, ToolResult, ToolError
     ├── bash.rs      # Shell execution with timeout
     ├── file.rs      # read, write, edit operations
     └── search.rs    # glob, grep operations
 ```
+
+## Execution Modes
+
+### Pipeline Mode (Default)
+Single LLM call with pre-gathered context. No tools, no message history.
+```bash
+ur explain src/main.rs           # Gather file, single LLM call
+ur commit                        # Gather staged diff, generate message
+ur review --checks style,security
+```
+
+### Agent Mode (--agent)
+Multi-turn execution with tool access for complex tasks.
+```bash
+ur ask --agent "refactor the error handling in src/cli.rs"
+ur fix src/main.rs --agent       # Can run clippy, edit files
+ur review --agent                # Can explore related files
+```
+
+## Key CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--agent` | Enable agentic mode with tool access (multi-turn) |
+| `--from FILE` | Read context from file (use `-` for stdin) |
+| `--stdin` | Read context from stdin (ask command) |
+| `--execute` | Auto-execute git commit (commit command) |
+| `--checks LIST` | Comma-separated checks to focus on (review command) |
+| `--json` | Output as JSON for scripting |
 # Commit Requirements, Linting, and Formatting. 
 
 ## Git Hooks
