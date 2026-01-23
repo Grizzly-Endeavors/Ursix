@@ -89,10 +89,6 @@ pub enum Command {
         /// File path or concept to explain
         target: String,
 
-        /// Include surrounding context lines
-        #[arg(short, long)]
-        context: Option<usize>,
-
         /// Use agentic mode for deep exploration (default: pipeline mode)
         #[arg(long)]
         agent: bool,
@@ -222,11 +218,9 @@ pub async fn run() -> Result<ExitCode> {
             from,
             stdin,
         } => cmd_ask(&config, prompt, agent, from, stdin, output_mode).await,
-        Command::Explain {
-            target,
-            context,
-            agent,
-        } => cmd_explain(&config, &target, context, agent, output_mode).await,
+        Command::Explain { target, agent } => {
+            cmd_explain(&config, &target, agent, output_mode).await
+        }
         Command::Review {
             diff,
             files,
@@ -298,10 +292,16 @@ async fn run_agent_with_client<C: LlmClient>(
     user_prompt: &str,
 ) -> Result<String> {
     let agent = Agent::new(config.clone(), client);
-    agent
-        .run(system_prompt, user_prompt)
-        .await
-        .map_err(Into::into)
+    let result = agent.run(system_prompt, user_prompt).await?;
+
+    if result.interrupted {
+        tracing::info!(
+            turns = result.turns_completed,
+            "agent was interrupted by signal"
+        );
+    }
+
+    Ok(result.content)
 }
 
 /// Run the pipeline with the appropriate provider
@@ -566,7 +566,6 @@ async fn cmd_ask(
 async fn cmd_explain(
     config: &Config,
     target: &str,
-    _context_lines: Option<usize>,
     agent_mode: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
