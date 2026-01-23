@@ -123,11 +123,16 @@ Pipeline prompt asks for `summary`, `explanation`, `key_concepts`, `complexity`.
 
 **Action**: Either use the full schema or simplify the prompt to match what we parse.
 
-### Max turns exceeded throws away partial work
+### Max turns error message needs improvement
 
-When agent hits max turns, it returns an error and discards all progress (agent.rs:174). The agent has `last_content` from the loop but throws it away.
+When agent hits max turns, it returns an error (agent.rs:174). This is correct behavior - returning partial results could leave the project in an inconsistent state (half-applied refactors, partial fixes).
 
-**Action**: Return partial results with a warning instead of an error. Users should get whatever progress was made.
+However, the error message should be more helpful:
+- Suggest increasing `--max-turns` if the task is legitimately large
+- Suggest breaking the task into smaller pieces
+- Suggest using pipeline mode if agentic capabilities aren't needed
+
+**Action**: Improve the error message, not the behavior. Clean failure > inconsistent state.
 
 ---
 
