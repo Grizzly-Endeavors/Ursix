@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::{LlmClient, LlmError, LlmResponse, Message, Role, ToolCall, ToolDefinition};
+use super::{
+    ChatOptions, LlmClient, LlmError, LlmResponse, Message, Role, ToolCall, ToolDefinition,
+};
 
 /// Check if a URL is using insecure HTTP for a remote (non-localhost) server
 fn is_insecure_remote_url(url: &str) -> bool {
@@ -65,6 +67,7 @@ impl LlmClient for OllamaClient {
         &self,
         messages: &[Message],
         tools: &[ToolDefinition],
+        options: &ChatOptions,
     ) -> Result<LlmResponse, LlmError> {
         let url = format!("{}/api/chat", self.base_url);
 
@@ -91,6 +94,11 @@ impl LlmClient for OllamaClient {
                 Some(ollama_tools)
             },
             stream: false,
+            format: if options.json_mode {
+                Some("json")
+            } else {
+                None
+            },
         };
 
         let response = self.client.post(&url).json(&request).send().await?;
@@ -136,6 +144,9 @@ struct OllamaChatRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<OllamaTool>>,
     stream: bool,
+    /// When set to "json", enforces valid JSON output from the model
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<&'a str>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -231,7 +242,8 @@ struct OllamaModel {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path};
+    use crate::llm::ChatOptions;
+    use wiremock::matchers::{body_partial_json, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -280,7 +292,10 @@ mod tests {
             tool_call_id: None,
         }];
 
-        let response = client.chat(&messages, &[]).await.unwrap();
+        let response = client
+            .chat(&messages, &[], &ChatOptions::default())
+            .await
+            .unwrap();
         assert_eq!(response.content, "Hello! How can I help you today?");
         assert!(response.tool_calls.is_empty());
         assert!(response.is_complete);
@@ -299,7 +314,7 @@ mod tests {
             .await;
 
         let client = OllamaClient::new(mock_server.uri(), "nonexistent");
-        let result = client.chat(&[], &[]).await;
+        let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -336,7 +351,10 @@ mod tests {
             tool_call_id: None,
         }];
 
-        let response = client.chat(&messages, &[]).await.unwrap();
+        let response = client
+            .chat(&messages, &[], &ChatOptions::default())
+            .await
+            .unwrap();
         assert_eq!(response.tool_calls.len(), 1);
         assert_eq!(response.tool_calls[0].name, "bash");
         assert_eq!(response.tool_calls[0].id, "call_0");
@@ -356,7 +374,7 @@ mod tests {
             .await;
 
         let client = OllamaClient::new(mock_server.uri(), "test-model");
-        let result = client.chat(&[], &[]).await;
+        let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), LlmError::Api(_)));
@@ -373,9 +391,40 @@ mod tests {
             .await;
 
         let client = OllamaClient::new(mock_server.uri(), "test-model");
-        let result = client.chat(&[], &[]).await;
+        let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         // Should fail to parse
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_json_mode() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/chat"))
+            .and(body_partial_json(serde_json::json!({ "format": "json" })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"key\": \"value\"}"
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let client = OllamaClient::new(mock_server.uri(), "test-model");
+        let messages = vec![Message {
+            role: Role::User,
+            content: "Return JSON".to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        let response = client
+            .chat(&messages, &[], &ChatOptions::json())
+            .await
+            .unwrap();
+        assert_eq!(response.content, "{\"key\": \"value\"}");
     }
 }

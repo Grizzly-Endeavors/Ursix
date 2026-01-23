@@ -312,30 +312,31 @@ async fn run_pipeline(
     system_prompt: &str,
     context: &GatheredContext,
     user_request: &str,
+    json_mode: bool,
 ) -> Result<String> {
     match config.provider {
         Provider::Ollama => {
             let client = OllamaClient::new(&config.ollama_url, &config.model);
-            run_pipeline_with_client(config, client, system_prompt, context, user_request).await
+            run_pipeline_with_client(client, system_prompt, context, user_request, json_mode).await
         }
         Provider::OpenAi => {
             let client = create_openai_client(config)?;
-            run_pipeline_with_client(config, client, system_prompt, context, user_request).await
+            run_pipeline_with_client(client, system_prompt, context, user_request, json_mode).await
         }
     }
 }
 
 /// Run the pipeline with a specific LLM client
 async fn run_pipeline_with_client<C: LlmClient>(
-    _config: &Config,
     client: C,
     system_prompt: &str,
     context: &GatheredContext,
     user_request: &str,
+    json_mode: bool,
 ) -> Result<String> {
     let pipeline = Pipeline::new(client);
     pipeline
-        .execute(system_prompt, context, user_request)
+        .execute(system_prompt, context, user_request, json_mode)
         .await
         .map_err(Into::into)
 }
@@ -538,11 +539,13 @@ async fn cmd_ask(
             additional_context,
         };
 
+        // "ask" command returns plain text, not JSON
         let response = run_pipeline(
             config,
             pipeline_prompt_for_command("ask"),
             &context,
             &prompt_text,
+            false,
         )
         .await?;
 
@@ -578,6 +581,7 @@ async fn cmd_explain(
             pipeline_prompt_for_command("explain"),
             &context,
             &format!("Explain this code from {target}"),
+            true, // enforce JSON output at API level
         )
         .await?;
 
@@ -641,6 +645,7 @@ async fn cmd_review(
             pipeline_prompt_for_command("review"),
             &context,
             &format!("Review these changes.{checks_str}"),
+            true, // enforce JSON output at API level
         )
         .await?;
 
@@ -700,6 +705,7 @@ async fn cmd_fix(
             pipeline_prompt_for_command("fix"),
             &context,
             &prompt,
+            true, // enforce JSON output at API level
         )
         .await?;
 
@@ -767,6 +773,7 @@ async fn cmd_commit(
             pipeline_prompt_for_command("commit"),
             &context,
             &user_request,
+            true, // enforce JSON output at API level
         )
         .await
         .context("failed to generate commit message")?;

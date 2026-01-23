@@ -4,7 +4,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 use crate::config::Config;
-use crate::llm::{LlmClient, LlmError, Message, Role};
+use crate::llm::{ChatOptions, LlmClient, LlmError, Message, Role};
 use crate::tools::executor;
 
 /// Errors that can occur during agent execution
@@ -57,10 +57,12 @@ impl<L: LlmClient> Agent<L> {
             "starting agent loop"
         );
 
+        let options = ChatOptions::default();
+
         for turn in 0..self.config.max_turns {
             info!(turn, "processing turn");
 
-            let response = self.client.chat(&messages, &tools).await?;
+            let response = self.client.chat(&messages, &tools, &options).await?;
 
             debug!(
                 content_len = response.content.len(),
@@ -160,6 +162,7 @@ mod tests {
             &self,
             _messages: &[Message],
             _tools: &[ToolDefinition],
+            _options: &ChatOptions,
         ) -> Result<LlmResponse, LlmError> {
             let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
             Ok(self

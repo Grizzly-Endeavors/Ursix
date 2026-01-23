@@ -77,6 +77,24 @@ impl LlmResponse {
     }
 }
 
+/// Options for LLM chat requests
+#[derive(Debug, Clone, Default)]
+pub struct ChatOptions {
+    /// Enable JSON mode for structured output
+    ///
+    /// When enabled, the API enforces that the model outputs valid JSON.
+    /// The prompt must still instruct the model about the expected JSON structure.
+    pub json_mode: bool,
+}
+
+impl ChatOptions {
+    /// Create options with JSON mode enabled
+    #[must_use]
+    pub fn json() -> Self {
+        Self { json_mode: true }
+    }
+}
+
 /// Trait for LLM client implementations
 #[async_trait]
 pub trait LlmClient: Send + Sync {
@@ -85,6 +103,7 @@ pub trait LlmClient: Send + Sync {
         &self,
         messages: &[Message],
         tools: &[ToolDefinition],
+        options: &ChatOptions,
     ) -> Result<LlmResponse, LlmError>;
 
     /// Get the model identifier

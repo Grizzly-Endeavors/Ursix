@@ -7,7 +7,7 @@
 use thiserror::Error;
 
 use crate::context::GatheredContext;
-use crate::llm::{LlmClient, LlmError, Message, Role};
+use crate::llm::{ChatOptions, LlmClient, LlmError, Message, Role};
 
 /// Error type for pipeline execution
 #[derive(Debug, Error)]
@@ -86,6 +86,7 @@ impl<L: LlmClient> Pipeline<L> {
     /// * `system_prompt` - The system prompt defining the LLM's behavior
     /// * `context` - Gathered context to include in the prompt
     /// * `user_request` - The user's request
+    /// * `json_mode` - If true, enforce JSON output at the API level
     ///
     /// # Errors
     /// Returns error if the LLM call fails
@@ -94,6 +95,7 @@ impl<L: LlmClient> Pipeline<L> {
         system_prompt: &str,
         context: &GatheredContext,
         user_request: &str,
+        json_mode: bool,
     ) -> Result<String, PipelineError> {
         let formatted_context = format_context(context);
 
@@ -118,14 +120,21 @@ impl<L: LlmClient> Pipeline<L> {
             },
         ];
 
+        let options = if json_mode {
+            ChatOptions::json()
+        } else {
+            ChatOptions::default()
+        };
+
         tracing::info!(
             model = %self.client.model_name(),
             files = context.files.len(),
             has_diff = context.git_diff.is_some(),
+            json_mode,
             "executing pipeline"
         );
 
-        let response = self.client.chat(&messages, &[]).await?;
+        let response = self.client.chat(&messages, &[], &options).await?;
 
         tracing::debug!(
             content_len = response.content.len(),
@@ -171,6 +180,7 @@ mod tests {
             &self,
             _messages: &[Message],
             _tools: &[ToolDefinition],
+            _options: &ChatOptions,
         ) -> Result<LlmResponse, LlmError> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             Ok(LlmResponse::new(self.response.clone(), vec![]))
@@ -188,7 +198,7 @@ mod tests {
 
         let context = GatheredContext::default();
         let result = pipeline
-            .execute("You are helpful.", &context, "Say hello")
+            .execute("You are helpful.", &context, "Say hello", false)
             .await
             .unwrap();
 
@@ -217,7 +227,12 @@ mod tests {
         };
 
         let result = pipeline
-            .execute("You are a code analyzer.", &context, "Explain this code")
+            .execute(
+                "You are a code analyzer.",
+                &context,
+                "Explain this code",
+                false,
+            )
             .await
             .unwrap();
 
@@ -237,7 +252,12 @@ mod tests {
         };
 
         let result = pipeline
-            .execute("You are a code reviewer.", &context, "Review this change")
+            .execute(
+                "You are a code reviewer.",
+                &context,
+                "Review this change",
+                false,
+            )
             .await
             .unwrap();
 
@@ -250,10 +270,27 @@ mod tests {
         let pipeline = Pipeline::new(client);
 
         let context = GatheredContext::default();
-        pipeline.execute("System", &context, "User").await.unwrap();
+        pipeline
+            .execute("System", &context, "User", false)
+            .await
+            .unwrap();
 
         // Verify only one LLM call was made (stateless, single-pass)
         assert_eq!(pipeline.client.call_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_json_mode() {
+        let client = MockClient::new("{\"status\": \"ok\"}");
+        let pipeline = Pipeline::new(client);
+
+        let context = GatheredContext::default();
+        let result = pipeline
+            .execute("Return JSON", &context, "Give me status", true)
+            .await
+            .unwrap();
+
+        assert_eq!(result, "{\"status\": \"ok\"}");
     }
 
     #[test]

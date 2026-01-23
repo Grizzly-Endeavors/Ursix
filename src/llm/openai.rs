@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::{LlmClient, LlmError, LlmResponse, Message, Role, ToolCall, ToolDefinition};
+use super::{
+    ChatOptions, LlmClient, LlmError, LlmResponse, Message, Role, ToolCall, ToolDefinition,
+};
 
 /// Check if a URL is using insecure HTTP for a remote (non-localhost) server
 fn is_insecure_remote_url(url: &str) -> bool {
@@ -75,6 +77,7 @@ impl LlmClient for OpenAiClient {
         &self,
         messages: &[Message],
         tools: &[ToolDefinition],
+        options: &ChatOptions,
     ) -> Result<LlmResponse, LlmError> {
         let url = format!("{}/chat/completions", self.base_url);
 
@@ -92,6 +95,14 @@ impl LlmClient for OpenAiClient {
             })
             .collect();
 
+        let response_format = if options.json_mode {
+            Some(ResponseFormat {
+                r#type: "json_object".to_string(),
+            })
+        } else {
+            None
+        };
+
         let request = ChatCompletionRequest {
             model: &self.model,
             messages: openai_messages,
@@ -101,6 +112,7 @@ impl LlmClient for OpenAiClient {
                 Some(openai_tools)
             },
             tool_choice: if tools.is_empty() { None } else { Some("auto") },
+            response_format,
         };
 
         let mut req_builder = self.client.post(&url).json(&request);
@@ -158,6 +170,13 @@ impl LlmClient for OpenAiClient {
 
 // OpenAI API request/response types
 
+/// Response format specification for JSON mode
+#[derive(Serialize)]
+struct ResponseFormat {
+    /// The format type - `json_object` for JSON mode
+    r#type: String,
+}
+
 #[derive(Serialize)]
 struct ChatCompletionRequest<'a> {
     model: &'a str,
@@ -166,6 +185,9 @@ struct ChatCompletionRequest<'a> {
     tools: Option<Vec<OpenAiTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<&'a str>,
+    /// When set, enforces structured output format from the model
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<ResponseFormat>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -270,7 +292,8 @@ struct OpenAiError {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{header, method, path};
+    use crate::llm::ChatOptions;
+    use wiremock::matchers::{body_partial_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -361,7 +384,10 @@ mod tests {
             tool_call_id: None,
         }];
 
-        let response = client.chat(&messages, &[]).await.unwrap();
+        let response = client
+            .chat(&messages, &[], &ChatOptions::default())
+            .await
+            .unwrap();
         assert_eq!(response.content, "Hello! How can I help you today?");
         assert!(response.tool_calls.is_empty());
         assert!(response.is_complete);
@@ -393,7 +419,10 @@ mod tests {
             tool_call_id: None,
         }];
 
-        let response = client.chat(&messages, &[]).await.unwrap();
+        let response = client
+            .chat(&messages, &[], &ChatOptions::default())
+            .await
+            .unwrap();
         assert_eq!(response.content, "Authenticated response");
     }
 
@@ -430,7 +459,10 @@ mod tests {
             tool_call_id: None,
         }];
 
-        let response = client.chat(&messages, &[]).await.unwrap();
+        let response = client
+            .chat(&messages, &[], &ChatOptions::default())
+            .await
+            .unwrap();
         assert!(response.content.is_empty()); // null becomes empty string
         assert_eq!(response.tool_calls.len(), 1);
         assert_eq!(response.tool_calls[0].id, "call_abc123");
@@ -458,7 +490,7 @@ mod tests {
             .await;
 
         let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
-        let result = client.chat(&[], &[]).await;
+        let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -483,7 +515,7 @@ mod tests {
             .await;
 
         let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
-        let result = client.chat(&[], &[]).await;
+        let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -507,7 +539,7 @@ mod tests {
             .await;
 
         let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
-        let result = client.chat(&[], &[]).await;
+        let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), LlmError::Api(_)));
@@ -526,7 +558,7 @@ mod tests {
             .await;
 
         let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
-        let result = client.chat(&[], &[]).await;
+        let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -561,10 +593,48 @@ mod tests {
             .await;
 
         let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
-        let response = client.chat(&[], &[]).await.unwrap();
+        let response = client
+            .chat(&[], &[], &ChatOptions::default())
+            .await
+            .unwrap();
 
         // Should still succeed with empty arguments object
         assert_eq!(response.tool_calls.len(), 1);
         assert_eq!(response.tool_calls[0].arguments, serde_json::json!({}));
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_json_mode() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .and(body_partial_json(
+                serde_json::json!({ "response_format": { "type": "json_object" } }),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "{\"status\": \"ok\"}"
+                    }
+                }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
+        let messages = vec![Message {
+            role: Role::User,
+            content: "Return JSON with status".to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        let response = client
+            .chat(&messages, &[], &ChatOptions::json())
+            .await
+            .unwrap();
+        assert_eq!(response.content, "{\"status\": \"ok\"}");
     }
 }
