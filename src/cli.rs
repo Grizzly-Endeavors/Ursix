@@ -10,7 +10,9 @@ use clap::{Parser, Subcommand};
 use thiserror::Error;
 
 use crate::agent::{Agent, AgentError, AgentResult};
-use crate::commands::{cmd_commit, cmd_config, cmd_explain, cmd_fix, cmd_review};
+use crate::commands::{
+    FixMode, FixOptions, ReviewOptions, cmd_commit, cmd_config, cmd_explain, cmd_fix, cmd_review,
+};
 use crate::config::{Config, Provider};
 use crate::context::GatheredContext;
 use crate::llm::LlmClient;
@@ -52,6 +54,14 @@ pub struct Cli {
     /// Maximum agent turns before stopping
     #[arg(long, global = true)]
     pub max_turns: Option<usize>,
+
+    /// Enable chunked processing for large inputs (parallel file-by-file processing)
+    #[arg(long, global = true)]
+    pub chunk: bool,
+
+    /// Maximum concurrent chunk executions (default: 4)
+    #[arg(long, global = true, default_value = "4")]
+    pub max_concurrency: usize,
 
     #[command(subcommand)]
     pub command: Command,
@@ -216,7 +226,7 @@ pub async fn run() -> Result<ExitCode> {
 
     match cli.command {
         Command::Explain { target, agent } => {
-            cmd_explain(&config, &target, agent, output_mode).await
+            cmd_explain(&config, &target, agent, output_mode, cli.chunk).await
         }
         Command::Review {
             diff,
@@ -224,19 +234,39 @@ pub async fn run() -> Result<ExitCode> {
             agent,
             from,
             checks,
-        } => cmd_review(&config, diff, files, agent, from, &checks, output_mode).await,
+        } => {
+            let options = ReviewOptions {
+                agent,
+                chunk: cli.chunk,
+                max_concurrency: cli.max_concurrency,
+            };
+            cmd_review(&config, diff, files, options, from, &checks, output_mode).await
+        }
         Command::Fix {
             target,
             lint,
             apply,
             agent,
             from,
-        } => cmd_fix(&config, &target, lint, apply, agent, from, output_mode).await,
+        } => {
+            let options = FixOptions {
+                lint,
+                apply,
+                mode: if agent {
+                    FixMode::Agent
+                } else {
+                    FixMode::Pipeline
+                },
+                chunk: cli.chunk,
+                max_concurrency: cli.max_concurrency,
+            };
+            cmd_fix(&config, &target, options, from, output_mode).await
+        }
         Command::Commit {
             body,
             style,
             execute,
-        } => cmd_commit(&config, body, &style, execute, output_mode).await,
+        } => cmd_commit(&config, body, &style, execute, output_mode, cli.chunk).await,
         Command::Config { key, list } => cmd_config(&config, key, list, output_mode),
     }
 }

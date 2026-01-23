@@ -13,5 +13,5 @@ mod review;
 pub use commit::cmd_commit;
 pub use config::cmd_config;
 pub use explain::cmd_explain;
-pub use fix::cmd_fix;
-pub use review::cmd_review;
+pub use fix::{FixMode, FixOptions, cmd_fix};
+pub use review::{ReviewOptions, cmd_review};

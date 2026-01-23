@@ -17,7 +17,13 @@ pub async fn cmd_commit(
     style: &str,
     execute: bool,
     output_mode: OutputMode,
+    chunk_mode: bool,
 ) -> Result<ExitCode> {
+    // Warn if --chunk is passed (not supported for commit)
+    if chunk_mode {
+        eprintln!("warning: --chunk is not supported for commit (requires full context)");
+    }
+
     // Check for piped stdin first - use as diff if present
     let piped_content = try_read_piped_stdin();
 

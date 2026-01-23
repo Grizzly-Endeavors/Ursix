@@ -1,4 +1,5 @@
 mod agent;
+mod chunk;
 mod cli;
 mod commands;
 mod config;
@@ -10,6 +11,7 @@ mod parsers;
 mod pipeline;
 mod prompts;
 mod rules;
+mod tokens;
 mod tools;
 
 use output::{ExitCode, ToExitCode};

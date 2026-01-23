@@ -17,7 +17,13 @@ pub async fn cmd_explain(
     target: &str,
     agent_mode: bool,
     output_mode: OutputMode,
+    chunk_mode: bool,
 ) -> Result<ExitCode> {
+    // Warn if --chunk is passed (not supported for explain)
+    if chunk_mode {
+        eprintln!("warning: --chunk is not supported for explain (requires full context)");
+    }
+
     // Check for piped stdin - use as file content if present
     let piped_content = try_read_piped_stdin();
 

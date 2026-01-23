@@ -50,6 +50,8 @@ pub enum ExitCode {
     AgentLimitError = 9,
     /// Unexpected internal errors (catch-all)
     InternalError = 10,
+    /// Input exceeds token limit (suggest --chunk)
+    TokenLimitError = 11,
 }
 
 /// Trait for error types that can map to an exit code
@@ -130,6 +132,7 @@ mod tests {
         assert_eq!(u8::from(ExitCode::ParseError), 8);
         assert_eq!(u8::from(ExitCode::AgentLimitError), 9);
         assert_eq!(u8::from(ExitCode::InternalError), 10);
+        assert_eq!(u8::from(ExitCode::TokenLimitError), 11);
     }
 
     #[test]
@@ -145,5 +148,6 @@ mod tests {
         assert_eq!(i32::from(ExitCode::ParseError), 8);
         assert_eq!(i32::from(ExitCode::AgentLimitError), 9);
         assert_eq!(i32::from(ExitCode::InternalError), 10);
+        assert_eq!(i32::from(ExitCode::TokenLimitError), 11);
     }
 }

@@ -15,12 +15,15 @@ use crate::output::{ExitCode, ToExitCode};
 pub enum PipelineError {
     #[error("LLM error: {0}")]
     Llm(#[from] LlmError),
+    #[error("token limit exceeded: {0}")]
+    TokenLimit(String),
 }
 
 impl ToExitCode for PipelineError {
     fn to_exit_code(&self) -> ExitCode {
         match self {
             Self::Llm(e) => e.to_exit_code(),
+            Self::TokenLimit(_) => ExitCode::TokenLimitError,
         }
     }
 }
@@ -389,5 +392,11 @@ mod tests {
         use crate::llm::LlmError;
         let err = PipelineError::Llm(LlmError::Api("rate limit".to_string()));
         assert_eq!(err.to_exit_code(), ExitCode::ApiError);
+    }
+
+    #[test]
+    fn test_pipeline_error_to_exit_code_token_limit() {
+        let err = PipelineError::TokenLimit("input too large".to_string());
+        assert_eq!(err.to_exit_code(), ExitCode::TokenLimitError);
     }
 }
