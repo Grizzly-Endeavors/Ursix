@@ -161,13 +161,10 @@ pub enum Command {
         execute: bool,
     },
 
-    /// Manage configuration
+    /// View configuration values (edit .ursix.toml to change settings)
     Config {
-        /// Configuration key to get/set
+        /// Configuration key to display
         key: Option<String>,
-
-        /// Value to set (if omitted, shows current value)
-        value: Option<String>,
 
         /// List all configuration values
         #[arg(long)]
@@ -250,7 +247,7 @@ pub async fn run() -> Result<ExitCode> {
             agent,
             execute,
         } => cmd_commit(&config, body, &style, agent, execute, output_mode).await,
-        Command::Config { key, value, list } => cmd_config(&config, key, value, list, output_mode),
+        Command::Config { key, list } => cmd_config(&config, key, list, output_mode),
         Command::Models => cmd_models(&config, output_mode).await,
     }
 }
@@ -907,7 +904,6 @@ async fn cmd_commit(
 fn cmd_config(
     config: &Config,
     key: Option<String>,
-    value: Option<String>,
     list: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
@@ -952,26 +948,23 @@ fn cmd_config(
         };
         println!("{}", result.render(output_mode));
     } else if let Some(k) = key {
-        if let Some(v) = value {
-            println!("Setting {k} = {v} (not yet implemented)");
-        } else {
-            let val = match k.as_str() {
-                "provider" => config.provider.to_string(),
-                "model" => config.model.clone(),
-                "ollama_url" => config.ollama_url.clone(),
-                "openai_url" => config.openai_url.clone(),
-                "openai_api_key" => api_key_display,
-                "max_turns" => config.max_turns.to_string(),
-                "working_dir" => config.working_dir.display().to_string(),
-                _ => format!("Unknown config key: {k}"),
-            };
-            let result = ConfigResult {
-                entries: vec![ConfigEntry { key: k, value: val }],
-            };
-            println!("{}", result.render(output_mode));
-        }
+        let val = match k.as_str() {
+            "provider" => config.provider.to_string(),
+            "model" => config.model.clone(),
+            "ollama_url" => config.ollama_url.clone(),
+            "openai_url" => config.openai_url.clone(),
+            "openai_api_key" => api_key_display,
+            "max_turns" => config.max_turns.to_string(),
+            "working_dir" => config.working_dir.display().to_string(),
+            _ => format!("Unknown config key: {k}"),
+        };
+        let result = ConfigResult {
+            entries: vec![ConfigEntry { key: k, value: val }],
+        };
+        println!("{}", result.render(output_mode));
     } else {
-        println!("Usage: usx config <key> [value] or usx config --list");
+        println!("Usage: usx config <key> or usx config --list");
+        println!("To change settings, edit .ursix.toml directly.");
     }
     Ok(ExitCode::Success)
 }
