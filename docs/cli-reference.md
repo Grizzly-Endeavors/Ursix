@@ -14,7 +14,6 @@ These flags apply to all commands:
 | `--ollama-url` | string | config | Ollama API base URL |
 | `--openai-url` | string | config | OpenAI-compatible API base URL |
 | `--openai-api-key` | string | config | API key for OpenAI-compatible endpoints |
-| `--max-turns` | usize | config | Maximum agent turns before stopping |
 | `--chunk` | boolean | false | Enable chunked processing for large inputs |
 | `--max-concurrency` | usize | 4 | Maximum concurrent chunk executions |
 | `--tokenizer` | enum | heuristic | Tokenizer mode (`heuristic`, `full`) |
@@ -33,24 +32,13 @@ These flags apply to all commands:
 - [`commit`](commands/commit.md) - Generate commit messages
 - [`config`](commands/config.md) - View configuration
 
-## Execution Modes
-
-### Pipeline Mode (Default)
+## Execution Mode
 
 Single LLM call with pre-gathered context. No tools, no message history.
 
 - Fast and predictable
-- Suitable for most tasks
-- Used by all commands by default
-
-### Agent Mode (`--agent`)
-
-Multi-turn execution with tool access for complex tasks.
-
-- Can explore files, run commands, edit code
-- Stops after `--max-turns` iterations
-- Available on: `explain`, `review`, `fix`
-- Not available on: `commit`, `config`
+- Suitable for all tasks
+- Stateless: same input always produces consistent output
 
 ## Chunked Processing
 
@@ -83,11 +71,15 @@ This allows you to control the cost/detail tradeoff. See [review command docs](c
 |------|------|---------|
 | 0 | Success | Command completed successfully |
 | 1 | IssuesFound | Review found issues or fix had failures |
-| 2 | ConfigError | Configuration loading/validation failed |
-| 3 | InputError | Input file/stdin reading failed |
-| 4 | GitError | Git operation failed |
-| 5 | ParseError | Response parsing failed |
-| 6 | AgentLimitError | Agent exceeded max turns |
+| 2 | UsageError | Invalid CLI arguments |
+| 3 | ConfigError | Configuration loading/validation failed |
+| 4 | InputError | Input file/stdin reading failed |
+| 5 | GitError | Git operation failed |
+| 6 | NetworkError | HTTP request failures |
+| 7 | ApiError | LLM API errors (auth, rate limits) |
+| 8 | ParseError | Response parsing failed |
+| 9 | InternalError | Unexpected internal errors |
+| 10 | TokenLimitError | Input exceeds token limit |
 
 ## Configuration
 
@@ -108,7 +100,6 @@ model = "gpt-4"
 ollama_url = "http://localhost:11434"
 openai_url = "https://api.openai.com/v1"
 openai_api_key = "sk-..."
-max_turns = 10
 tokenizer_mode = "heuristic"
 ```
 
@@ -121,7 +112,6 @@ tokenizer_mode = "heuristic"
 | `ollama_url` | string | Ollama API base URL |
 | `openai_url` | string | OpenAI-compatible API base URL |
 | `openai_api_key` | string | OpenAI API key |
-| `max_turns` | usize | Maximum agent turns |
 | `tokenizer_mode` | enum | Token counting mode (`heuristic`, `full`) |
 
 ## Input Handling

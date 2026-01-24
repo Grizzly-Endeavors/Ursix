@@ -1,14 +1,14 @@
-//! Output types for the `ask` command
+//! Output types for generic text responses
 
 use super::{CommandOutput, ExitCode, ExitStatus};
 use serde::Serialize;
 
-/// Result from the `ask` command
+/// Result from a generic text response
 #[derive(Debug, Serialize)]
 pub struct AskResult {
     /// The LLM's response
     pub response: String,
-    /// Number of agent turns used
+    /// Number of LLM calls made (for internal use)
     pub turns: usize,
 }
 

@@ -49,14 +49,14 @@ mod tests {
                     value: "llama3.2".to_string(),
                 },
                 ConfigEntry {
-                    key: "max_turns".to_string(),
-                    value: "50".to_string(),
+                    key: "tokenizer_mode".to_string(),
+                    value: "heuristic".to_string(),
                 },
             ],
         };
         let output = result.render_human();
         assert!(output.contains("model = llama3.2"));
-        assert!(output.contains("max_turns = 50"));
+        assert!(output.contains("tokenizer_mode = heuristic"));
     }
 
     #[test]

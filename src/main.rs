@@ -1,4 +1,3 @@
-mod agent;
 mod chunk;
 mod cli;
 mod commands;
@@ -12,7 +11,6 @@ mod pipeline;
 mod prompts;
 mod rules;
 mod tokens;
-mod tools;
 
 use output::{ExitCode, ToExitCode};
 use tracing_subscriber::EnvFilter;
@@ -23,16 +21,10 @@ fn extract_exit_code(error: &anyhow::Error) -> ExitCode {
     if let Some(e) = error.downcast_ref::<cli::CliError>() {
         return e.to_exit_code();
     }
-    if let Some(e) = error.downcast_ref::<agent::AgentError>() {
-        return e.to_exit_code();
-    }
     if let Some(e) = error.downcast_ref::<pipeline::PipelineError>() {
         return e.to_exit_code();
     }
     if let Some(e) = error.downcast_ref::<llm::LlmError>() {
-        return e.to_exit_code();
-    }
-    if let Some(e) = error.downcast_ref::<tools::ToolError>() {
         return e.to_exit_code();
     }
 
@@ -41,16 +33,10 @@ fn extract_exit_code(error: &anyhow::Error) -> ExitCode {
         if let Some(e) = cause.downcast_ref::<cli::CliError>() {
             return e.to_exit_code();
         }
-        if let Some(e) = cause.downcast_ref::<agent::AgentError>() {
-            return e.to_exit_code();
-        }
         if let Some(e) = cause.downcast_ref::<pipeline::PipelineError>() {
             return e.to_exit_code();
         }
         if let Some(e) = cause.downcast_ref::<llm::LlmError>() {
-            return e.to_exit_code();
-        }
-        if let Some(e) = cause.downcast_ref::<tools::ToolError>() {
             return e.to_exit_code();
         }
     }

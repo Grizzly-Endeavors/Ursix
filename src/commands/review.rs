@@ -9,21 +9,19 @@ use crate::chunk::{
     CategoryChunk, ChunkOptions, ChunkedResult, chunk_by_category, chunk_by_category_and_file,
     chunk_by_file, execute_category_chunks, execute_chunked,
 };
-use crate::cli::{run_agent, run_pipeline};
+use crate::cli::run_pipeline;
 use crate::config::Config;
 use crate::context::{GatheredContext, gather_review_context};
 use crate::input::{read_from_source, stdin_is_piped, try_read_piped_stdin};
 use crate::output::{CommandOutput, ExitCode, ExitStatus, OutputMode, ReviewIssue, ReviewResult};
 use crate::parsers::parse_review_response;
 use crate::pipeline::PipelineError;
-use crate::prompts::{REVIEW_PROMPT, build_category_review_prompt, build_review_prompt};
+use crate::prompts::{build_category_review_prompt, build_review_prompt};
 use crate::rules::RulesConfig;
 use crate::tokens::{TokenCheck, TokenLimits, check_token_limits, count_context_tokens};
 
 /// Options for the review command
 pub struct ReviewOptions {
-    /// Use agentic mode
-    pub agent: bool,
     /// Enable chunked processing
     pub chunk: bool,
     /// Maximum concurrent chunk executions
@@ -40,7 +38,6 @@ pub async fn cmd_review(
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let ReviewOptions {
-        agent: agent_mode,
         chunk: chunk_mode,
         max_concurrency,
     } = options;
@@ -51,15 +48,7 @@ pub async fn cmd_review(
 
     let piped_content = check_piped_stdin(from.as_ref(), diff.as_ref(), &files);
 
-    // Agent mode: use flattened rules
-    if agent_mode {
-        let rules_section = rules_config
-            .resolve(checks, &file_paths)
-            .to_prompt_section();
-        return run_review_agent(config, diff.as_ref(), &files, &rules_section, output_mode).await;
-    }
-
-    // Pipeline mode: gather context
+    // Gather context
     let context = gather_context(
         config,
         from.as_ref(),
@@ -412,50 +401,6 @@ async fn run_nested_review(
         .await;
 
     let result = aggregate_review_results(chunked_result, true);
-    let exit_code = result.exit_code();
-    println!("{}", result.render(output_mode));
-    Ok(exit_code)
-}
-
-/// Run review in agent mode
-async fn run_review_agent(
-    config: &Config,
-    diff: Option<&String>,
-    files: &[String],
-    rules_section: &str,
-    output_mode: OutputMode,
-) -> Result<ExitCode> {
-    let base_prompt = if let Some(d) = diff {
-        format!("Review the changes in git diff {d}")
-    } else if !files.is_empty() {
-        format!("Review the code in: {}", files.join(", "))
-    } else {
-        "Review the staged changes (use git diff --cached)".to_string()
-    };
-
-    let system_prompt = if rules_section.is_empty() {
-        REVIEW_PROMPT.to_string()
-    } else {
-        format!("{REVIEW_PROMPT}\n{rules_section}")
-    };
-
-    let prompt_with_json = format!(
-        "{base_prompt}\n\n\
-         When you have completed your review, provide your final response as JSON:\n\
-         {{\"summary\": \"brief summary\", \"issues\": [\
-         {{\"severity\": \"error|warning|info\", \"file\": \"path\", \"line\": 42, \"message\": \"description\"}}]}}"
-    );
-
-    let agent_result = run_agent(config, &system_prompt, &prompt_with_json).await?;
-
-    let result = parse_review_response(&agent_result.content).unwrap_or_else(|e| ReviewResult {
-        summary: String::new(),
-        issues: Vec::new(),
-        passed: false,
-        parse_warning: Some(format!("could not parse structured response: {e}")),
-        raw_response: Some(agent_result.content.clone()),
-    });
-
     let exit_code = result.exit_code();
     println!("{}", result.render(output_mode));
     Ok(exit_code)

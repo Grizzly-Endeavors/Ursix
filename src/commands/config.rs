@@ -42,10 +42,6 @@ pub fn cmd_config(
                     value: api_key_display.clone(),
                 },
                 ConfigEntry {
-                    key: "max_turns".to_string(),
-                    value: config.max_turns.to_string(),
-                },
-                ConfigEntry {
                     key: "tokenizer_mode".to_string(),
                     value: config.tokenizer_mode.to_string(),
                 },
@@ -63,7 +59,6 @@ pub fn cmd_config(
             "ollama_url" => config.ollama_url.clone(),
             "openai_url" => config.openai_url.clone(),
             "openai_api_key" => api_key_display,
-            "max_turns" => config.max_turns.to_string(),
             "tokenizer_mode" => config.tokenizer_mode.to_string(),
             "working_dir" => config.working_dir.display().to_string(),
             _ => format!("unknown config key: {k}"),

@@ -20,10 +20,6 @@ Plus all [global flags](../cli-reference.md#global-flags).
 
 ## Behavior
 
-### Pipeline Mode Only
-
-The `commit` command always runs in pipeline mode. Agent mode (`--agent`) is not available as commit generation is a simple single-pass operation.
-
 ### Input Sources
 
 1. Piped stdin - If stdin is piped, uses piped content as diff
@@ -116,8 +112,8 @@ cat staged.diff | usx commit --body
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 4 | Git error (no staged changes, commit failed) |
-| 5 | Parse error |
+| 5 | Git error (no staged changes, commit failed) |
+| 8 | Parse error |
 
 ## Integration
 

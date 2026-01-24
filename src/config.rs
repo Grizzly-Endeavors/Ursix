@@ -23,9 +23,6 @@ pub const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
 /// Default URL for OpenAI-compatible API
 pub const DEFAULT_OPENAI_URL: &str = "https://api.openai.com/v1";
 
-/// Default maximum agent turns
-pub const DEFAULT_MAX_TURNS: usize = 50;
-
 /// Tokenizer mode for token counting
 ///
 /// Controls how tokens are counted for input validation and chunking decisions.
@@ -159,9 +156,6 @@ pub struct Config {
     /// Working directory for file operations
     pub working_dir: PathBuf,
 
-    /// Maximum turns in the agent loop before stopping
-    pub max_turns: usize,
-
     /// Tokenizer mode for token counting
     pub tokenizer_mode: TokenizerMode,
 }
@@ -229,9 +223,6 @@ impl Config {
         if let Some(ref url) = file.openai_url {
             self.openai_url.clone_from(url);
         }
-        if let Some(turns) = file.max_turns {
-            self.max_turns = turns;
-        }
         if let Some(mode) = file.tokenizer_mode {
             self.tokenizer_mode = mode;
         }
@@ -259,11 +250,6 @@ impl Config {
         } else if let Ok(key) = std::env::var("OPENAI_API_KEY") {
             self.openai_api_key = Some(key);
         }
-        if let Ok(turns) = std::env::var("URSIX_MAX_TURNS")
-            && let Ok(turns) = turns.parse()
-        {
-            self.max_turns = turns;
-        }
         if let Ok(mode) = std::env::var("URSIX_TOKENIZER_MODE")
             && let Ok(m) = mode.parse()
         {
@@ -281,7 +267,6 @@ impl Default for Config {
             openai_url: String::from(DEFAULT_OPENAI_URL),
             openai_api_key: None,
             working_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-            max_turns: DEFAULT_MAX_TURNS,
             tokenizer_mode: TokenizerMode::default(),
         }
     }
@@ -305,10 +290,6 @@ pub struct ConfigFile {
     /// OpenAI-compatible API URL
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai_url: Option<String>,
-
-    /// Maximum agent turns
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_turns: Option<usize>,
 
     /// Tokenizer mode (heuristic or full)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -342,7 +323,6 @@ mod tests {
         assert_eq!(config.ollama_url, DEFAULT_OLLAMA_URL);
         assert_eq!(config.openai_url, DEFAULT_OPENAI_URL);
         assert!(config.openai_api_key.is_none());
-        assert_eq!(config.max_turns, DEFAULT_MAX_TURNS);
     }
 
     #[test]
@@ -379,7 +359,6 @@ mod tests {
             model: Some("custom-model".to_string()),
             ollama_url: None,
             openai_url: Some("http://custom:8000/v1".to_string()),
-            max_turns: Some(25),
             tokenizer_mode: None,
         };
 
@@ -389,7 +368,6 @@ mod tests {
         assert_eq!(config.model, "custom-model");
         assert_eq!(config.ollama_url, DEFAULT_OLLAMA_URL); // Unchanged
         assert_eq!(config.openai_url, "http://custom:8000/v1");
-        assert_eq!(config.max_turns, 25);
     }
 
     // Note: Environment variable override tests removed because std::env::set_var
@@ -409,7 +387,6 @@ mod tests {
         assert_eq!(loaded.model, Some("partial-model".to_string()));
         assert!(loaded.ollama_url.is_none());
         assert!(loaded.openai_url.is_none());
-        assert!(loaded.max_turns.is_none());
     }
 
     #[test]
@@ -482,7 +459,6 @@ mod tests {
             model: None,
             ollama_url: None,
             openai_url: None,
-            max_turns: None,
             tokenizer_mode: Some(TokenizerMode::Full),
         };
 

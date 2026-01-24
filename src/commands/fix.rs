@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use tokio::process::Command as TokioCommand;
 
 use crate::chunk::{ChunkOptions, ChunkedResult, chunk_by_file, execute_chunked};
-use crate::cli::{run_agent, run_pipeline};
+use crate::cli::run_pipeline;
 use crate::config::Config;
 use crate::context::{GatheredContext, gather_fix_context};
 use crate::input::{read_from_source, stdin_is_piped, try_read_piped_stdin};
@@ -16,17 +16,8 @@ use crate::output::{
 };
 use crate::parsers::parse_fix_response;
 use crate::pipeline::PipelineError;
-use crate::prompts::{FIX_PROMPT, pipeline_prompt_for_command};
+use crate::prompts::pipeline_prompt_for_command;
 use crate::tokens::{TokenCheck, TokenLimits, check_token_limits, count_context_tokens};
-
-/// Execution mode for the fix command
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FixMode {
-    /// Pipeline mode (default)
-    Pipeline,
-    /// Agentic mode with tool access
-    Agent,
-}
 
 /// Options for the fix command
 pub struct FixOptions {
@@ -34,8 +25,6 @@ pub struct FixOptions {
     pub lint: bool,
     /// Apply fixes automatically
     pub apply: bool,
-    /// Execution mode (pipeline or agent)
-    pub mode: FixMode,
     /// Enable chunked processing
     pub chunk: bool,
     /// Maximum concurrent chunk executions
@@ -52,7 +41,6 @@ pub async fn cmd_fix(
     let FixOptions {
         lint,
         apply,
-        mode,
         chunk: chunk_mode,
         max_concurrency,
     } = options;
@@ -67,104 +55,96 @@ pub async fn cmd_fix(
         try_read_piped_stdin()
     };
 
-    if mode == FixMode::Agent {
-        return run_fix_agent(config, target, lint, apply, output_mode).await;
+    // Gather issues from: --from flag > piped stdin > --lint clippy
+    let has_piped_input = piped_content.is_some();
+    let issues = if let Some(ref path) = from {
+        Some(read_from_source(path).await?)
+    } else if let Some(content) = piped_content {
+        tracing::debug!(target = %target, "using piped stdin as issues input");
+        Some(content)
+    } else if lint {
+        // Run clippy to gather lint diagnostics
+        Some(run_clippy_diagnostics(&config.working_dir, target).await?)
+    } else {
+        None
+    };
+
+    let files = vec![PathBuf::from(target)];
+    let context = gather_fix_context(&config.working_dir, &files, issues.as_deref())
+        .await
+        .context("failed to gather fix context")?;
+
+    // Check token limits (non-chunked mode)
+    if !chunk_mode {
+        let token_count = count_context_tokens(&context, config.tokenizer_mode)?;
+        match check_token_limits(token_count, &TokenLimits::default()) {
+            TokenCheck::Warning { message, .. } => {
+                eprintln!("warning: {message}");
+            }
+            TokenCheck::Error { message, .. } => {
+                return Err(PipelineError::TokenLimit(message).into());
+            }
+            TokenCheck::Ok(_) => {}
+        }
     }
 
-    {
-        // Pipeline mode: gather context and make single LLM call
-
-        // Gather issues from: --from flag > piped stdin > --lint clippy
-        let has_piped_input = piped_content.is_some();
-        let issues = if let Some(ref path) = from {
-            Some(read_from_source(path).await?)
-        } else if let Some(content) = piped_content {
-            tracing::debug!(target = %target, "using piped stdin as issues input");
-            Some(content)
-        } else if lint {
-            // Run clippy to gather lint diagnostics
-            Some(run_clippy_diagnostics(&config.working_dir, target).await?)
-        } else {
-            None
-        };
-
-        let files = vec![PathBuf::from(target)];
-        let context = gather_fix_context(&config.working_dir, &files, issues.as_deref())
-            .await
-            .context("failed to gather fix context")?;
-
-        // Check token limits (non-chunked mode)
-        if !chunk_mode {
-            let token_count = count_context_tokens(&context, config.tokenizer_mode)?;
-            match check_token_limits(token_count, &TokenLimits::default()) {
-                TokenCheck::Warning { message, .. } => {
-                    eprintln!("warning: {message}");
-                }
-                TokenCheck::Error { message, .. } => {
-                    return Err(PipelineError::TokenLimit(message).into());
-                }
-                TokenCheck::Ok(_) => {}
-            }
-        }
-
-        // Chunked mode: process files in parallel
-        if chunk_mode && !context.files.is_empty() {
-            return run_chunked_fix(
-                config,
-                target,
-                &context,
-                apply,
-                max_concurrency,
-                output_mode,
-            )
-            .await;
-        }
-
-        let prompt = if lint || from.is_some() || has_piped_input {
-            format!("Fix the issues shown above in {target}")
-        } else {
-            format!("Fix issues in {target}")
-        };
-
-        let response = run_pipeline(
+    // Chunked mode: process files in parallel
+    if chunk_mode && !context.files.is_empty() {
+        return run_chunked_fix(
             config,
-            pipeline_prompt_for_command("fix"),
+            target,
             &context,
-            &prompt,
-            true, // enforce JSON output at API level
+            apply,
+            max_concurrency,
+            output_mode,
         )
-        .await?;
-
-        let result = parse_fix_response(&response).unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "failed to parse fix response, returning empty result");
-            FixResult {
-                diagnosis: String::new(),
-                fixes: Vec::new(),
-                unfixable_count: 0,
-                parse_warning: Some(format!("could not parse structured response: {e}")),
-                raw_response: Some(response.clone()),
-            }
-        });
-
-        // Apply fixes if requested and track results
-        let apply_results = if apply && !result.fixes.is_empty() {
-            Some(apply_fixes(&config.working_dir, &result.fixes).await)
-        } else {
-            None
-        };
-
-        let exit_code = determine_fix_exit_code(&result, apply_results.as_ref());
-
-        // Print the fix result
-        println!("{}", result.render(output_mode));
-
-        // Print apply results summary if fixes were applied
-        if let Some(results) = apply_results {
-            print_apply_results(&results, output_mode);
-        }
-
-        Ok(exit_code)
+        .await;
     }
+
+    let prompt = if lint || from.is_some() || has_piped_input {
+        format!("Fix the issues shown above in {target}")
+    } else {
+        format!("Fix issues in {target}")
+    };
+
+    let response = run_pipeline(
+        config,
+        pipeline_prompt_for_command("fix"),
+        &context,
+        &prompt,
+        true, // enforce JSON output at API level
+    )
+    .await?;
+
+    let result = parse_fix_response(&response).unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "failed to parse fix response, returning empty result");
+        FixResult {
+            diagnosis: String::new(),
+            fixes: Vec::new(),
+            unfixable_count: 0,
+            parse_warning: Some(format!("could not parse structured response: {e}")),
+            raw_response: Some(response.clone()),
+        }
+    });
+
+    // Apply fixes if requested and track results
+    let apply_results = if apply && !result.fixes.is_empty() {
+        Some(apply_fixes(&config.working_dir, &result.fixes).await)
+    } else {
+        None
+    };
+
+    let exit_code = determine_fix_exit_code(&result, apply_results.as_ref());
+
+    // Print the fix result
+    println!("{}", result.render(output_mode));
+
+    // Print apply results summary if fixes were applied
+    if let Some(results) = apply_results {
+        print_apply_results(&results, output_mode);
+    }
+
+    Ok(exit_code)
 }
 
 /// Run fix with chunked execution
@@ -246,48 +226,6 @@ fn determine_fix_exit_code(result: &FixResult, apply_results: Option<&ApplyResul
     } else {
         result.exit_code()
     }
-}
-
-/// Run fix in agent mode
-async fn run_fix_agent(
-    config: &Config,
-    target: &str,
-    lint: bool,
-    apply: bool,
-    output_mode: OutputMode,
-) -> Result<ExitCode> {
-    let base_prompt = if lint {
-        format!("Fix lint/clippy issues in: {target}. Run clippy first to identify issues.")
-    } else {
-        format!("Fix issues in: {target}")
-    };
-
-    let prompt_with_json = format!(
-        "{base_prompt}\n\n\
-         When you have completed your fixes, provide your final response as JSON:\n\
-         {{\"diagnosis\": \"description of issues found\", \"fixes\": [\
-         {{\"file\": \"path\", \"line\": 42, \"original\": \"old code\", \"replacement\": \"new code\", \"explanation\": \"why\"}}], \
-         \"unfixable_count\": 0}}"
-    );
-
-    let agent_result = run_agent(config, FIX_PROMPT, &prompt_with_json).await?;
-
-    let result = parse_fix_response(&agent_result.content).unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "failed to parse agent fix response, returning raw content");
-        FixResult {
-            diagnosis: String::new(),
-            fixes: Vec::new(),
-            unfixable_count: 0,
-            parse_warning: Some(format!("could not parse structured response: {e}")),
-            raw_response: Some(agent_result.content.clone()),
-        }
-    });
-
-    if apply && !result.fixes.is_empty() {
-        let _ = apply_fixes(&config.working_dir, &result.fixes).await;
-    }
-    println!("{}", result.render(output_mode));
-    Ok(result.exit_code())
 }
 
 /// Print apply results summary to stdout

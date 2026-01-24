@@ -14,14 +14,11 @@ Comprehensive documentation for the Ursix CLI tool.
 
 ## Overview
 
-Ursix is an extensible CLI tool for LLM-powered development tasks, supporting both stateless pipeline and agentic modes.
+Ursix is a CLI tool providing Unix utilities powered by LLMs. It uses a stateless pipeline model for fast, predictable results.
 
-### Execution Modes
+### Execution
 
-| Mode | Description | When to Use |
-|------|-------------|-------------|
-| Pipeline (default) | Single LLM call, no tools, fast | Most tasks |
-| Agent (`--agent`) | Multi-turn with tool access | Complex exploration |
+Single LLM call with pre-gathered context. No tools, no iteration, no message history. Same input always produces consistent output.
 
 ### Installation
 

@@ -55,7 +55,6 @@ $EDITOR ~/.ursix.toml
 | `ollama_url` | string | Ollama API base URL |
 | `openai_url` | string | OpenAI-compatible API base URL |
 | `openai_api_key` | boolean | API key status (`[set]`/`[not set]`) |
-| `max_turns` | usize | Maximum agent turns |
 | `tokenizer_mode` | enum | Token counting mode |
 | `working_dir` | path | Current working directory |
 
@@ -76,7 +75,6 @@ Configuration:
   ollama_url:     http://localhost:11434
   openai_url:     https://api.openai.com/v1
   openai_api_key: [set]
-  max_turns:      10
   tokenizer_mode: heuristic
   working_dir:    /home/user/project
 ```
@@ -143,9 +141,6 @@ model = "gpt-4"
 ollama_url = "http://localhost:11434"
 openai_url = "https://api.openai.com/v1"
 openai_api_key = "sk-..."
-
-# Agent Settings
-max_turns = 10
 
 # Tokenizer
 tokenizer_mode = "heuristic"

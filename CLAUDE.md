@@ -4,9 +4,7 @@ Unix utilities powered by LLMs. Stateless, composable, automation-first.
 
 ## Architecture
 
-The CLI follows a hybrid pipeline/agent model:
-- **Default (Pipeline)**: Stateless single-pass LLM calls without tools - fast and predictable
-- **Opt-in (Agent)**: Multi-turn agentic mode with tool access via `--agent` flag
+The CLI uses a stateless pipeline model: single-pass LLM calls with pre-gathered context.
 
 ```
 src/
@@ -15,8 +13,7 @@ src/
 ├── config.rs            # Runtime configuration (layered: files, env, CLI)
 ├── input.rs             # Input source handling (--from, stdin)
 ├── context.rs           # Pre-LLM context gathering (files, git state)
-├── pipeline.rs          # Stateless single-pass executor (default mode)
-├── agent.rs             # Agentic loop with tool execution (--agent mode)
+├── pipeline.rs          # Stateless single-pass executor
 ├── chunk.rs             # Token-aware parallel chunking
 ├── tokens.rs            # Token counting (heuristic and full modes)
 ├── parsers.rs           # Response parsing utilities
@@ -40,42 +37,26 @@ src/
 │   ├── defaults.rs      # Built-in default rules
 │   ├── loader.rs        # YAML loading
 │   └── resolver.rs      # Category-based filtering
-├── llm/
-│   ├── mod.rs           # LlmClient trait, Message/ToolCall types
-│   ├── ollama.rs        # Ollama API implementation
-│   └── openai.rs        # OpenAI-compatible API implementation
-└── tools/
-    ├── mod.rs           # Tool trait, ToolResult, ToolError
-    ├── executor.rs      # Tool dispatch and execution
-    ├── bash.rs          # Shell execution with timeout
-    ├── file.rs          # read, write, edit operations
-    ├── search.rs        # glob, grep operations
-    └── path.rs          # Path validation and safety
+└── llm/
+    ├── mod.rs           # LlmClient trait, Message/ToolCall types
+    ├── ollama.rs        # Ollama API implementation
+    └── openai.rs        # OpenAI-compatible API implementation
 ```
 
-## Execution Modes
+## Usage
 
-### Pipeline Mode (Default)
 Single LLM call with pre-gathered context. No tools, no message history.
 ```bash
 usx explain src/main.rs           # Gather file, single LLM call
 usx commit                        # Gather staged diff, generate message
 usx review --checks style,security
-```
-
-### Agent Mode (--agent)
-Multi-turn execution with tool access for complex tasks.
-```bash
-usx fix src/main.rs --agent       # Can run clippy, edit files
-usx review --agent                # Can explore related files
-usx explain src/ --agent          # Can traverse directories
+usx fix src/main.rs --lint        # Fix clippy issues
 ```
 
 ## Key CLI Flags
 
 | Flag | Description |
 |------|-------------|
-| `--agent` | Enable agentic mode with tool access (multi-turn) |
 | `--from FILE` | Read context from file (use `-` for stdin) |
 | `--execute` | Auto-execute git commit (commit command) |
 | `--checks LIST` | Comma-separated checks to focus on (review command) |
@@ -140,10 +121,10 @@ DO NOT, under any circumstance, change this config or add allow macros without e
 ## Logging (tracing)
 - **error**: failures that stop an operation
 - **warn**: recoverable issues, degraded behavior
-- **info**: major operations (agent loop start/end, tool execution)
+- **info**: major operations (LLM calls, chunked processing)
 - **debug**: internal details, state transitions
 - **trace**: verbose diagnostics (full payloads, timing)
-- Use structured fields: `info!(tool = %name, "executing tool")` not string interpolation
+- Use structured fields: `info!(chunks = count, "starting chunked review")` not string interpolation
 
 # Misc Notes
 - Testing is a first class operation, NEVER skip test implementation.

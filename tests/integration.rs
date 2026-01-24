@@ -168,21 +168,6 @@ fn cli_fix_accepts_from_flag() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn cli_fix_accepts_agent_flag() -> TestResult {
-    // Verify --agent flag is accepted
-    let result = Command::cargo_bin("usx")?
-        .args(["fix", "--agent", "nonexistent.rs"])
-        .output()?;
-
-    let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(
-        !stderr.contains("unexpected argument"),
-        "fix command should accept --agent flag"
-    );
-    Ok(())
-}
-
 // --- Piped stdin tests ---
 // These test that commands properly detect and accept piped stdin.
 // They may fail later in the pipeline (LLM calls), but should not error on stdin handling.

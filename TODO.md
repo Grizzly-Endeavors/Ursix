@@ -4,7 +4,7 @@ Issues and improvements needed before the core feature set is production-ready.
 
 ## Guiding Principles
 
-- **Stateless execution**: Every invocation is a single-pass operation, even in agent mode. No session state, no back-and-forth. Agent mode just means the LLM can use tools within that single invocation.
+- **Stateless execution**: Every invocation is a single-pass operation. No session state, no conversation history, no tool loops.
 - **Unix-style contracts**: Same command + same flags = same output structure. Scripts should be able to rely on output format.
 - **No silent failures**: If something doesn't work, the user must know. Warnings in logs are not sufficient.
 - **Lean over feature-rich**: Remove half-baked features rather than ship them incomplete.
@@ -50,8 +50,7 @@ No `isatty()` checks. Could adjust output (colors, progress indicators) based on
 - [x] Add signal handling for graceful Ctrl+C interruption
 - [x] Deprecate `ask` command - removed entirely (doesn't fit Unix utility model)
 - [x] Deprecate `models` command - removed entirely (provider-specific, not core functionality)
-- [x] Agent mode breaks output contracts - agent mode now produces structured output matching pipeline mode
-- [x] Remove `--agent` from `commit` command (agent mode doesn't make sense for commit)
+- [x] Remove agent mode entirely - pipeline mode only for simpler, more predictable behavior
 - [x] `fix --apply` fails silently - now tracks success/failure per fix with detailed results and proper exit codes
 - [x] `ReviewResult.render_human()` drops issues - now displays issues in readable format (file:line, severity, message)
 - [x] Parse failures silently report success - added `parse_warning` field to report failures to users

@@ -16,27 +16,14 @@ usx explain <target> [OPTIONS]
 
 ## Flags
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--agent` | boolean | false | Use agentic mode for deep exploration |
-
 Plus all [global flags](../cli-reference.md#global-flags).
 
 ## Behavior
-
-### Pipeline Mode (default)
 
 1. Reads target file content
 2. Gathers context (file metadata, structure)
 3. Single LLM call for explanation
 4. Returns structured explanation
-
-### Agent Mode (`--agent`)
-
-1. Multi-turn agentic exploration
-2. Can explore related files
-3. Uses tools for deeper analysis
-4. Provides comprehensive explanation
 
 ### Stdin Support
 
@@ -77,9 +64,6 @@ usx explain src/main.rs
 # Human-readable output
 usx explain src/main.rs --text
 
-# Deep exploration with agent mode
-usx explain src/cli.rs --agent
-
 # Explain piped content
 cat complex_function.rs | usx explain the_function
 
@@ -92,6 +76,5 @@ usx explain src/main.rs --model gpt-4
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 3 | Input error (file not found) |
-| 5 | Parse error |
-| 6 | Agent limit exceeded (agent mode) |
+| 4 | Input error (file not found) |
+| 8 | Parse error |

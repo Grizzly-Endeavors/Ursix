@@ -2,7 +2,7 @@
 
 ## What Ursix Is
 
-Ursix is a Unix-style agent harness. It exposes LLM capabilities as CLI commands that behave like any other Unix tool—structured input, structured output, predictable behavior, composable via pipes and scripts.
+Ursix is a Unix-style CLI for LLM operations. It exposes LLM capabilities as CLI commands that behave like any other Unix tool—structured input, structured output, predictable behavior, composable via pipes and scripts.
 
 **Commands are functions, not conversations.**
 
@@ -38,16 +38,16 @@ This means:
 - No interactive prompts unless explicitly requested
 - Deterministic behavior given the same inputs
 
-### Isolated Agents
+### Stateless Execution
 
-When a command spins up multiple agents (e.g., parallel checks), they are fully isolated. No shared context, no message passing, no collaboration.
+Each command is a stateless function: gather context, call the LLM once, parse the response, output results. There's no conversation history, no multi-turn loops, no tool execution.
 
 This is intentional:
-- **Atomic**: Each agent's success or failure is independent
-- **Auditable**: You can inspect exactly what each agent saw and produced
-- **Tuneable**: You can use different models for different agents without side effects
+- **Atomic**: Each invocation's success or failure is independent
+- **Auditable**: You can inspect exactly what input the LLM received and what it produced
+- **Predictable**: Same input produces consistent output
 
-The cost of duplicated work (e.g., multiple agents reading the same file) is negligible compared to the complexity cost of coordination.
+When using chunked processing (e.g., parallel file reviews), each chunk is processed independently. The cost of duplicated work is negligible compared to the complexity cost of coordination.
 
 ### Bring Your Own Model
 

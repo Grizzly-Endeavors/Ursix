@@ -46,12 +46,10 @@ pub enum ExitCode {
     ApiError = 7,
     /// Failed to parse LLM response
     ParseError = 8,
-    /// Agent exceeded max turns
-    AgentLimitError = 9,
     /// Unexpected internal errors (catch-all)
-    InternalError = 10,
+    InternalError = 9,
     /// Input exceeds token limit (suggest --chunk)
-    TokenLimitError = 11,
+    TokenLimitError = 10,
 }
 
 /// Trait for error types that can map to an exit code
@@ -130,9 +128,8 @@ mod tests {
         assert_eq!(u8::from(ExitCode::NetworkError), 6);
         assert_eq!(u8::from(ExitCode::ApiError), 7);
         assert_eq!(u8::from(ExitCode::ParseError), 8);
-        assert_eq!(u8::from(ExitCode::AgentLimitError), 9);
-        assert_eq!(u8::from(ExitCode::InternalError), 10);
-        assert_eq!(u8::from(ExitCode::TokenLimitError), 11);
+        assert_eq!(u8::from(ExitCode::InternalError), 9);
+        assert_eq!(u8::from(ExitCode::TokenLimitError), 10);
     }
 
     #[test]
@@ -146,8 +143,7 @@ mod tests {
         assert_eq!(i32::from(ExitCode::NetworkError), 6);
         assert_eq!(i32::from(ExitCode::ApiError), 7);
         assert_eq!(i32::from(ExitCode::ParseError), 8);
-        assert_eq!(i32::from(ExitCode::AgentLimitError), 9);
-        assert_eq!(i32::from(ExitCode::InternalError), 10);
-        assert_eq!(i32::from(ExitCode::TokenLimitError), 11);
+        assert_eq!(i32::from(ExitCode::InternalError), 9);
+        assert_eq!(i32::from(ExitCode::TokenLimitError), 10);
     }
 }

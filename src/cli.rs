@@ -9,9 +9,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use thiserror::Error;
 
-use crate::agent::{Agent, AgentError, AgentResult};
 use crate::commands::{
-    FixMode, FixOptions, ReviewOptions, cmd_commit, cmd_config, cmd_explain, cmd_fix, cmd_review,
+    FixOptions, ReviewOptions, cmd_commit, cmd_config, cmd_explain, cmd_fix, cmd_review,
 };
 use crate::config::{Config, Provider, TokenizerMode};
 use crate::context::GatheredContext;
@@ -24,7 +23,7 @@ use crate::pipeline::PipelineError;
 
 #[derive(Parser, Debug)]
 #[command(name = "usx")]
-#[command(about = "Ursix - An extensible agentic CLI for LLM-powered development")]
+#[command(about = "Ursix - Unix utilities powered by LLMs")]
 #[command(version)]
 pub struct Cli {
     /// Output as plain text instead of JSON (default: JSON)
@@ -51,10 +50,6 @@ pub struct Cli {
     #[arg(long, global = true, env = "URSIX_OPENAI_API_KEY")]
     pub openai_api_key: Option<String>,
 
-    /// Maximum agent turns before stopping
-    #[arg(long, global = true)]
-    pub max_turns: Option<usize>,
-
     /// Enable chunked processing for large inputs (parallel file-by-file processing)
     #[arg(long, global = true)]
     pub chunk: bool,
@@ -80,10 +75,6 @@ pub enum Command {
     Explain {
         /// File path or concept to explain
         target: String,
-
-        /// Use agentic mode for deep exploration (default: pipeline mode)
-        #[arg(long)]
-        agent: bool,
     },
 
     /// Review code changes
@@ -94,10 +85,6 @@ pub enum Command {
 
         /// Review specific files
         files: Vec<String>,
-
-        /// Use agentic mode for thorough multi-file analysis (default: pipeline mode)
-        #[arg(long)]
-        agent: bool,
 
         /// Read input from a file (use - for stdin)
         #[arg(long, value_name = "FILE")]
@@ -120,10 +107,6 @@ pub enum Command {
         /// Apply fixes automatically (without confirmation)
         #[arg(long)]
         apply: bool,
-
-        /// Use agentic mode with full tool access (default: pipeline mode)
-        #[arg(long)]
-        agent: bool,
 
         /// Read issues from a file (use - for stdin, e.g., from review JSON output)
         #[arg(long, value_name = "FILE")]
@@ -173,9 +156,6 @@ pub enum CliError {
 
     #[error("{0}")]
     Pipeline(#[from] PipelineError),
-
-    #[error("{0}")]
-    Agent(#[from] AgentError),
 }
 
 impl ToExitCode for CliError {
@@ -186,7 +166,6 @@ impl ToExitCode for CliError {
             Self::Git(_) => ExitCode::GitError,
             Self::Parse(_) => ExitCode::ParseError,
             Self::Pipeline(e) => e.to_exit_code(),
-            Self::Agent(e) => e.to_exit_code(),
         }
     }
 }
@@ -227,26 +206,19 @@ pub async fn run() -> Result<ExitCode> {
     if let Some(ref key) = cli.openai_api_key {
         config.openai_api_key = Some(key.clone());
     }
-    if let Some(turns) = cli.max_turns {
-        config.max_turns = turns;
-    }
     if let Some(mode) = cli.tokenizer {
         config.tokenizer_mode = mode;
     }
 
     match cli.command {
-        Command::Explain { target, agent } => {
-            cmd_explain(&config, &target, agent, output_mode, cli.chunk).await
-        }
+        Command::Explain { target } => cmd_explain(&config, &target, output_mode, cli.chunk).await,
         Command::Review {
             diff,
             files,
-            agent,
             from,
             checks,
         } => {
             let options = ReviewOptions {
-                agent,
                 chunk: cli.chunk,
                 max_concurrency: cli.max_concurrency,
             };
@@ -256,17 +228,11 @@ pub async fn run() -> Result<ExitCode> {
             target,
             lint,
             apply,
-            agent,
             from,
         } => {
             let options = FixOptions {
                 lint,
                 apply,
-                mode: if agent {
-                    FixMode::Agent
-                } else {
-                    FixMode::Pipeline
-                },
                 chunk: cli.chunk,
                 max_concurrency: cli.max_concurrency,
             };
@@ -304,44 +270,6 @@ pub(crate) fn create_openai_client(config: &Config) -> Result<OpenAiClient> {
         ))
         .into())
     }
-}
-
-/// Run the agent with the appropriate provider
-pub(crate) async fn run_agent(
-    config: &Config,
-    system_prompt: &str,
-    user_prompt: &str,
-) -> Result<AgentResult> {
-    match config.provider {
-        Provider::Ollama => {
-            let client = OllamaClient::new(&config.ollama_url, &config.model);
-            run_agent_with_client(config, client, system_prompt, user_prompt).await
-        }
-        Provider::OpenAi => {
-            let client = create_openai_client(config)?;
-            run_agent_with_client(config, client, system_prompt, user_prompt).await
-        }
-    }
-}
-
-/// Run the agent with a specific LLM client
-async fn run_agent_with_client<C: LlmClient>(
-    config: &Config,
-    client: C,
-    system_prompt: &str,
-    user_prompt: &str,
-) -> Result<AgentResult> {
-    let agent = Agent::new(config.clone(), client);
-    let result = agent.run(system_prompt, user_prompt).await?;
-
-    if result.interrupted {
-        tracing::info!(
-            turns = result.turns_completed,
-            "agent was interrupted by signal"
-        );
-    }
-
-    Ok(result)
 }
 
 /// Run the pipeline with the appropriate provider
@@ -406,11 +334,5 @@ mod tests {
     fn test_cli_error_to_exit_code_parse() {
         let err = CliError::Parse(anyhow::anyhow!("invalid json"));
         assert_eq!(err.to_exit_code(), ExitCode::ParseError);
-    }
-
-    #[test]
-    fn test_cli_error_to_exit_code_agent() {
-        let err = CliError::Agent(AgentError::MaxTurnsExceeded(10));
-        assert_eq!(err.to_exit_code(), ExitCode::AgentLimitError);
     }
 }

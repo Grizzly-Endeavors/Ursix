@@ -20,7 +20,6 @@ usx fix <target> [OPTIONS]
 |------|------|---------|-------------|
 | `--lint` | boolean | false | Fix lint/clippy issues (runs `cargo clippy` first) |
 | `--apply` | boolean | false | Apply fixes automatically without confirmation |
-| `--agent` | boolean | false | Use agentic mode with full tool access |
 | `--from` | path | None | Read issues from a file (use `-` for stdin) |
 
 Plus all [global flags](../cli-reference.md#global-flags).
@@ -34,19 +33,12 @@ Plus all [global flags](../cli-reference.md#global-flags).
 3. `--lint` - Run `cargo clippy` to identify issues
 4. Default - Code analysis only (no lint info)
 
-### Pipeline Mode (default)
+### Execution
 
 1. Gathers code context
 2. Identifies issues from configured source
 3. Single LLM call for fix suggestions
 4. Optionally applies fixes with `--apply`
-
-### Agent Mode (`--agent`)
-
-1. Multi-turn agentic mode with full tool access
-2. Can run clippy, explore code, edit files
-3. Iteratively refines fixes
-4. Useful for complex refactoring
 
 ### Fix Application (`--apply`)
 
@@ -132,9 +124,6 @@ usx fix src/main.rs --apply
 # Run clippy and auto-apply
 usx fix src/main.rs --lint --apply
 
-# Deep agentic fix
-usx fix src/main.rs --agent
-
 # Fix issues from review output (JSON is default)
 usx review | usx fix src/main.rs --from -
 
@@ -151,9 +140,8 @@ usx fix src/main.rs --text
 |------|---------|
 | 0 | Success (all fixes applied or no issues) |
 | 1 | Issues found (unfixable or apply failed) |
-| 3 | Input error |
-| 5 | Parse error |
-| 6 | Agent limit exceeded (agent mode) |
+| 4 | Input error |
+| 8 | Parse error |
 
 ## Integration
 

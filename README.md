@@ -113,7 +113,7 @@ Reads a file and explains what it does.
 
 ```bash
 usx explain src/auth/middleware.rs          # Explain a file
-usx explain src/database/ --agent           # Deep exploration with tool access
+usx explain src/database/schema.rs          # Explain another file
 ```
 
 ### `usx review` — Code Review
@@ -125,7 +125,6 @@ usx review                                  # Review staged changes
 usx review src/api.rs src/handlers.rs       # Review specific files
 usx review --diff HEAD~3                    # Review a specific diff range
 usx review --checks security,performance    # Focus on specific rule categories
-usx review --agent                          # Thorough multi-file analysis
 ```
 
 **Output (JSON by default):**
@@ -147,7 +146,6 @@ Identifies and fixes issues in code.
 usx fix src/lib.rs                          # Suggest fixes
 usx fix src/main.rs --lint                  # Fix clippy/lint issues
 usx fix src/lib.rs --lint --apply           # Apply fixes automatically
-usx fix src/auth.rs --agent                 # Complex fixes with tool access
 usx fix src/lib.rs --from review.json       # Fix issues from a previous review
 ```
 
@@ -172,9 +170,7 @@ usx config --list                           # Show all settings
 usx config model                            # Show specific value
 ```
 
-## Execution Modes
-
-### Pipeline Mode (Default)
+## Execution Mode
 
 Single LLM call with pre-gathered context. No tools, no iteration, deterministic.
 
@@ -184,19 +180,7 @@ usx commit              # Gathers staged changes → generates message
 usx explain src/lib.rs  # Reads file → explains in one pass
 ```
 
-**Use for:** CI/CD, git hooks, scripts, any automation.
-
-### Agent Mode (`--agent`)
-
-Multi-turn execution with tool access. The LLM can read files, run commands, and iterate.
-
-```bash
-usx fix src/main.rs --agent     # Can run clippy, edit files, verify fixes
-usx review --agent              # Can explore related files for context
-usx explain src/ --agent        # Can traverse directories, read multiple files
-```
-
-**Use for:** Complex tasks requiring exploration or multi-step fixes.
+Designed for CI/CD, git hooks, scripts, and any automation.
 
 ## Scripting & CI/CD
 
@@ -215,9 +199,8 @@ Ursix is designed for automation first.
 | `6` | Network error |
 | `7` | API error (auth, rate limit) |
 | `8` | Parse error |
-| `9` | Agent limit exceeded |
-| `10` | Internal error |
-| `11` | Token limit exceeded |
+| `9` | Internal error |
+| `10` | Token limit exceeded |
 
 ```bash
 usx review && echo "Clean" || echo "Issues found (exit: $?)"
@@ -370,7 +353,6 @@ provider = "ollama"
 model = "qwen2.5-coder:7b"
 ollama_url = "http://localhost:11434"
 openai_url = "https://api.openai.com/v1"
-max_turns = 50
 ```
 
 ### Environment Variables
@@ -381,7 +363,6 @@ export URSIX_MODEL=gpt-4
 export URSIX_OPENAI_API_KEY=sk-...
 export URSIX_OPENAI_URL=https://api.openai.com/v1
 export URSIX_OLLAMA_URL=http://localhost:11434
-export URSIX_MAX_TURNS=50
 ```
 
 ### CLI Reference
@@ -394,7 +375,6 @@ Global Flags:
     --ollama-url <URL>     Ollama API base URL
     --openai-url <URL>     OpenAI-compatible API base URL
     --openai-api-key <KEY> API key for OpenAI endpoints
-    --max-turns <N>        Maximum agent turns (default: 50)
     --chunk                Enable chunked processing for large inputs
     --max-concurrency <N>  Parallel chunk limit (default: 4)
     --tokenizer <MODE>     Token counting: heuristic (fast) or full (accurate)
@@ -410,7 +390,6 @@ src/
 ├── context.rs           # Pre-LLM context gathering (files, git state)
 ├── input.rs             # Input source handling (stdin, files)
 ├── pipeline.rs          # Stateless single-pass executor
-├── agent.rs             # Multi-turn agentic loop
 ├── chunk.rs             # Token-aware parallel chunking
 ├── tokens.rs            # Token counting (heuristic and full modes)
 ├── parsers.rs           # Response parsing utilities
@@ -433,31 +412,11 @@ src/
 │   ├── defaults.rs      # Built-in default rules
 │   ├── loader.rs        # YAML loading
 │   └── resolver.rs      # Category-based filtering
-├── llm/
-│   ├── mod.rs           # LlmClient trait and types
-│   ├── ollama.rs        # Ollama API implementation
-│   └── openai.rs        # OpenAI-compatible API implementation
-└── tools/
-    ├── mod.rs           # Tool trait and types
-    ├── executor.rs      # Tool dispatch and execution
-    ├── bash.rs          # Shell execution with timeout
-    ├── file.rs          # Read, write, edit operations
-    ├── search.rs        # Glob and grep operations
-    └── path.rs          # Path validation and safety
+└── llm/
+    ├── mod.rs           # LlmClient trait and types
+    ├── ollama.rs        # Ollama API implementation
+    └── openai.rs        # OpenAI-compatible API implementation
 ```
-
-### Agent Tools
-
-In `--agent` mode, the LLM has access to:
-
-| Tool | Description |
-|------|-------------|
-| `bash` | Execute shell commands (2min timeout, dangerous command warnings) |
-| `read` | Read file contents with optional line numbers |
-| `write` | Create or overwrite files |
-| `edit` | Make precise text replacements |
-| `glob` | Find files by pattern |
-| `grep` | Search file contents with regex |
 
 ## Contributing
 

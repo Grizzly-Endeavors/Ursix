@@ -27,8 +27,6 @@ pub async fn cmd_commit(
     // Check for piped stdin first - use as diff if present
     let piped_content = try_read_piped_stdin();
 
-    // Commit is always pipeline mode - agent mode doesn't make sense for
-    // a simple single-pass operation like generating a commit message
     let context = if let Some(content) = piped_content {
         // Use piped stdin as diff content
         tracing::debug!("using piped stdin as commit diff");

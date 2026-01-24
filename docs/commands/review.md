@@ -19,7 +19,6 @@ usx review [FILES...] [OPTIONS]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--diff` | string | None | Review specific git diff (e.g., `HEAD~1`, `branch-name`) |
-| `--agent` | boolean | false | Use agentic mode for thorough multi-file analysis |
 | `--from` | path | None | Read input from a file (use `-` for stdin) |
 | `--checks` | string[] | empty | Comma-separated checks to perform |
 
@@ -35,18 +34,11 @@ Plus all [global flags](../cli-reference.md#global-flags).
 4. `files...` - Review specific files
 5. Default - Review staged changes (`git diff --cached`)
 
-### Pipeline Mode (default)
+### Execution
 
 1. Gathers diff or file content
 2. Single LLM call for review
 3. Returns issues and summary
-
-### Agent Mode (`--agent`)
-
-1. Multi-turn analysis
-2. Can explore related files for context
-3. Uses tools for thorough review
-4. Provides comprehensive analysis
 
 ### Checks (`--checks`)
 
@@ -135,9 +127,6 @@ usx review --diff HEAD~1
 # Review with specific checks
 usx review --checks style,security
 
-# Deep analysis with agent mode
-usx review --agent
-
 # Review piped diff
 cat changes.diff | usx review
 
@@ -151,10 +140,9 @@ usx review --chunk --max-concurrency 8
 |------|---------|
 | 0 | Success (no issues) |
 | 1 | Issues found |
-| 3 | Input error |
-| 4 | Git error |
-| 5 | Parse error |
-| 6 | Agent limit exceeded (agent mode) |
+| 4 | Input error |
+| 5 | Git error |
+| 8 | Parse error |
 
 ## Integration
 
