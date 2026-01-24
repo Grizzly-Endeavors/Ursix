@@ -9,7 +9,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::Semaphore;
 
-use crate::config::Config;
+use crate::config::{Config, TokenizerMode};
 use crate::context::GatheredContext;
 use crate::tokens::{TokenCount, TokenLimits, count_tokens};
 
@@ -99,8 +99,8 @@ impl Default for ChunkOptions {
 /// Git diff and status are not included in file chunks.
 ///
 /// # Errors
-/// Returns error if token counting fails.
-pub fn chunk_by_file(context: &GatheredContext) -> Result<Vec<Chunk>> {
+/// Returns error if token counting fails (only possible with Full tokenizer mode).
+pub fn chunk_by_file(context: &GatheredContext, mode: TokenizerMode) -> Result<Vec<Chunk>> {
     let mut chunks = Vec::new();
 
     for (i, file) in context.files.iter().enumerate() {
@@ -113,7 +113,7 @@ pub fn chunk_by_file(context: &GatheredContext) -> Result<Vec<Chunk>> {
 
         // Count tokens for this chunk
         let formatted = format_chunk_context(&chunk_context);
-        let token_count = count_tokens(&formatted)?;
+        let token_count = count_tokens(&formatted, mode)?;
 
         chunks.push(Chunk {
             id: format!("file-{}-{}", i, file.path.display()),
@@ -135,7 +135,7 @@ pub fn chunk_by_file(context: &GatheredContext) -> Result<Vec<Chunk>> {
         };
 
         let formatted = format_chunk_context(&chunk_context);
-        let token_count = count_tokens(&formatted)?;
+        let token_count = count_tokens(&formatted, mode)?;
 
         chunks.push(Chunk {
             id: "diff-0".to_string(),
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn test_chunk_by_file_empty() {
         let context = GatheredContext::default();
-        let chunks = chunk_by_file(&context).unwrap();
+        let chunks = chunk_by_file(&context, TokenizerMode::Heuristic).unwrap();
         assert!(chunks.is_empty());
     }
 
@@ -310,7 +310,7 @@ mod tests {
             additional_context: None,
         };
 
-        let chunks = chunk_by_file(&context).unwrap();
+        let chunks = chunk_by_file(&context, TokenizerMode::Heuristic).unwrap();
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].id.contains("test.rs"));
         assert_eq!(chunks[0].context.files.len(), 1);
@@ -338,7 +338,7 @@ mod tests {
             additional_context: Some("Context for all".to_string()),
         };
 
-        let chunks = chunk_by_file(&context).unwrap();
+        let chunks = chunk_by_file(&context, TokenizerMode::Heuristic).unwrap();
         assert_eq!(chunks.len(), 3);
 
         // Each chunk should have one file
@@ -361,7 +361,7 @@ mod tests {
             additional_context: None,
         };
 
-        let chunks = chunk_by_file(&context).unwrap();
+        let chunks = chunk_by_file(&context, TokenizerMode::Heuristic).unwrap();
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].id, "diff-0");
         assert!(chunks[0].context.git_diff.is_some());

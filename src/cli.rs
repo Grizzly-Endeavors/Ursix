@@ -13,7 +13,7 @@ use crate::agent::{Agent, AgentError, AgentResult};
 use crate::commands::{
     FixMode, FixOptions, ReviewOptions, cmd_commit, cmd_config, cmd_explain, cmd_fix, cmd_review,
 };
-use crate::config::{Config, Provider};
+use crate::config::{Config, Provider, TokenizerMode};
 use crate::context::GatheredContext;
 use crate::llm::LlmClient;
 use crate::llm::ollama::OllamaClient;
@@ -62,6 +62,13 @@ pub struct Cli {
     /// Maximum concurrent chunk executions (default: 4)
     #[arg(long, global = true, default_value = "4")]
     pub max_concurrency: usize,
+
+    /// Tokenizer mode for token counting (heuristic or full)
+    ///
+    /// 'heuristic' (default): Fast character-based approximation
+    /// 'full': Accurate `HuggingFace` tokenizer (has network/CPU overhead)
+    #[arg(long, global = true)]
+    pub tokenizer: Option<TokenizerMode>,
 
     #[command(subcommand)]
     pub command: Command,
@@ -222,6 +229,9 @@ pub async fn run() -> Result<ExitCode> {
     }
     if let Some(turns) = cli.max_turns {
         config.max_turns = turns;
+    }
+    if let Some(mode) = cli.tokenizer {
+        config.tokenizer_mode = mode;
     }
 
     match cli.command {

@@ -98,7 +98,7 @@ pub async fn cmd_review(
 
     // Check token limits (non-chunked mode)
     if !chunk_mode {
-        let token_count = count_context_tokens(&context)?;
+        let token_count = count_context_tokens(&context, config.tokenizer_mode)?;
         match check_token_limits(token_count, &TokenLimits::default()) {
             TokenCheck::Warning { message, .. } => {
                 eprintln!("warning: {message}");
@@ -152,7 +152,7 @@ async fn run_chunked_review(
     max_concurrency: usize,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
-    let chunks = chunk_by_file(context)?;
+    let chunks = chunk_by_file(context, config.tokenizer_mode)?;
 
     if chunks.is_empty() {
         eprintln!("warning: no chunks to process");

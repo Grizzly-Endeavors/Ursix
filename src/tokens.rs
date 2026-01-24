@@ -1,14 +1,23 @@
-//! Token counting using `HuggingFace` tokenizers
+//! Token counting for input validation and chunking decisions
 //!
-//! Provides token counting functionality for input validation and chunking decisions.
-//! Uses GPT-2 tokenizer as a reasonable cross-provider approximation.
+//! Provides two token counting modes:
+//! - **Heuristic** (default): Fast character-based approximation (~4 chars per token)
+//! - **Full**: Accurate `HuggingFace` tokenizer (GPT-2), with network/CPU overhead
+//!
+//! The heuristic mode is recommended for most use cases. Full mode is only needed
+//! when precise token counts are critical.
 
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
 use tokenizers::Tokenizer;
 
+use crate::config::TokenizerMode;
 use crate::context::GatheredContext;
+
+/// Track whether we've shown the full tokenizer warning
+static FULL_TOKENIZER_WARNING_SHOWN: AtomicBool = AtomicBool::new(false);
 
 /// Global tokenizer instance (loaded once, cached)
 static TOKENIZER: OnceLock<Tokenizer> = OnceLock::new();
@@ -90,16 +99,59 @@ pub enum TokenCheck {
     },
 }
 
-/// Count tokens in a string using `HuggingFace` tokenizer
+/// Count tokens using heuristic approximation
+///
+/// Uses ~4 characters per token as a reasonable approximation for English text
+/// and code. This is fast and requires no external dependencies.
+///
+/// The 4 chars/token ratio is based on empirical analysis of GPT tokenizers:
+/// - English prose: ~4-5 chars/token
+/// - Code: ~3-4 chars/token (more symbols)
+/// - Mixed content: ~4 chars/token
+#[must_use]
+pub fn count_tokens_heuristic(content: &str) -> TokenCount {
+    // Use 4 characters per token as approximation
+    // This is slightly conservative (may overcount) which is safer for limit checking
+    let char_count = content.chars().count();
+    TokenCount::new(char_count.div_ceil(4))
+}
+
+/// Count tokens using full `HuggingFace` tokenizer
+///
+/// Uses GPT-2 tokenizer as a reasonable cross-provider approximation.
+/// More accurate than heuristic but has overhead:
+/// - First call downloads tokenizer data (~2MB)
+/// - Each call has CPU overhead for tokenization
 ///
 /// # Errors
 /// Returns error if the tokenizer cannot be loaded or encoding fails.
-pub fn count_tokens(content: &str) -> Result<TokenCount> {
+pub fn count_tokens_full(content: &str) -> Result<TokenCount> {
     let tokenizer = get_tokenizer()?;
     let encoding = tokenizer
         .encode(content, false)
         .map_err(|e| anyhow::anyhow!("tokenization failed: {e}"))?;
     Ok(TokenCount::new(encoding.get_tokens().len()))
+}
+
+/// Count tokens in a string using the specified mode
+///
+/// # Errors
+/// Returns error if full tokenizer mode is used and the tokenizer cannot be loaded.
+pub fn count_tokens(content: &str, mode: TokenizerMode) -> Result<TokenCount> {
+    match mode {
+        TokenizerMode::Heuristic => Ok(count_tokens_heuristic(content)),
+        TokenizerMode::Full => {
+            // Show warning once about overhead
+            if !FULL_TOKENIZER_WARNING_SHOWN.swap(true, Ordering::Relaxed) {
+                tracing::warn!(
+                    "using full tokenizer mode; this has additional overhead \
+                     (network on first use, CPU per call). Consider 'heuristic' mode \
+                     unless precise token counts are critical."
+                );
+            }
+            count_tokens_full(content)
+        }
+    }
 }
 
 /// Format gathered context into a string for token counting
@@ -154,10 +206,10 @@ fn format_context_for_counting(context: &GatheredContext) -> String {
 /// Count tokens for gathered context
 ///
 /// # Errors
-/// Returns error if the tokenizer cannot be loaded or encoding fails.
-pub fn count_context_tokens(context: &GatheredContext) -> Result<TokenCount> {
+/// Returns error if full tokenizer mode is used and the tokenizer cannot be loaded.
+pub fn count_context_tokens(context: &GatheredContext, mode: TokenizerMode) -> Result<TokenCount> {
     let formatted = format_context_for_counting(context);
-    count_tokens(&formatted)
+    count_tokens(&formatted, mode)
 }
 
 /// Check token count against limits
@@ -192,22 +244,71 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn test_count_tokens_empty() {
-        let count = count_tokens("").unwrap();
+    fn test_count_tokens_heuristic_empty() {
+        let count = count_tokens_heuristic("");
         assert_eq!(count.count, 0);
     }
 
     #[test]
-    fn test_count_tokens_simple() {
-        let count = count_tokens("hello world").unwrap();
+    fn test_count_tokens_heuristic_simple() {
+        // "hello world" = 11 chars, ~3 tokens with heuristic
+        let count = count_tokens_heuristic("hello world");
+        assert!(count.count > 0);
+        assert!(count.count < 10);
+    }
+
+    #[test]
+    fn test_count_tokens_heuristic_code() {
+        let count = count_tokens_heuristic("fn main() { println!(\"Hello, world!\"); }");
+        assert!(count.count > 0);
+    }
+
+    #[test]
+    fn test_count_tokens_heuristic_approximation() {
+        // 100 chars should be ~25 tokens (100/4)
+        let content = "a".repeat(100);
+        let count = count_tokens_heuristic(&content);
+        assert_eq!(count.count, 25);
+
+        // 99 chars should round up to 25 tokens ((99+3)/4)
+        let content = "a".repeat(99);
+        let count = count_tokens_heuristic(&content);
+        assert_eq!(count.count, 25);
+
+        // 101 chars should be 26 tokens ((101+3)/4)
+        let content = "a".repeat(101);
+        let count = count_tokens_heuristic(&content);
+        assert_eq!(count.count, 26);
+    }
+
+    #[test]
+    fn test_count_tokens_full_empty() {
+        let count = count_tokens_full("").unwrap();
+        assert_eq!(count.count, 0);
+    }
+
+    #[test]
+    fn test_count_tokens_full_simple() {
+        let count = count_tokens_full("hello world").unwrap();
         // GPT-2 tokenizes "hello world" as 2-3 tokens typically
         assert!(count.count > 0);
         assert!(count.count < 10);
     }
 
     #[test]
-    fn test_count_tokens_code() {
-        let count = count_tokens("fn main() { println!(\"Hello, world!\"); }").unwrap();
+    fn test_count_tokens_full_code() {
+        let count = count_tokens_full("fn main() { println!(\"Hello, world!\"); }").unwrap();
+        assert!(count.count > 0);
+    }
+
+    #[test]
+    fn test_count_tokens_with_mode() {
+        // Heuristic mode
+        let count = count_tokens("hello world", TokenizerMode::Heuristic).unwrap();
+        assert!(count.count > 0);
+
+        // Full mode
+        let count = count_tokens("hello world", TokenizerMode::Full).unwrap();
         assert!(count.count > 0);
     }
 
@@ -259,7 +360,7 @@ mod tests {
     #[test]
     fn test_count_context_tokens_empty() {
         let context = GatheredContext::default();
-        let count = count_context_tokens(&context).unwrap();
+        let count = count_context_tokens(&context, TokenizerMode::Heuristic).unwrap();
         assert_eq!(count.count, 0);
     }
 
@@ -274,7 +375,7 @@ mod tests {
             git_status: None,
             additional_context: None,
         };
-        let count = count_context_tokens(&context).unwrap();
+        let count = count_context_tokens(&context, TokenizerMode::Heuristic).unwrap();
         assert!(count.count > 0);
     }
 
@@ -286,7 +387,22 @@ mod tests {
             git_status: None,
             additional_context: None,
         };
-        let count = count_context_tokens(&context).unwrap();
+        let count = count_context_tokens(&context, TokenizerMode::Heuristic).unwrap();
+        assert!(count.count > 0);
+    }
+
+    #[test]
+    fn test_count_context_tokens_full_mode() {
+        let context = GatheredContext {
+            files: vec![FileContext {
+                path: PathBuf::from("test.rs"),
+                content: "fn main() {}".to_string(),
+            }],
+            git_diff: None,
+            git_status: None,
+            additional_context: None,
+        };
+        let count = count_context_tokens(&context, TokenizerMode::Full).unwrap();
         assert!(count.count > 0);
     }
 
