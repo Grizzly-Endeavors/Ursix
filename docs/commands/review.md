@@ -80,7 +80,7 @@ Issues:
 - [severity] file.rs:67 - Description
 ```
 
-### JSON Format (`--json`)
+### JSON Format (default)
 
 ```json
 {
@@ -101,8 +101,11 @@ Issues:
 ## Examples
 
 ```bash
-# Review staged changes
+# Review staged changes (JSON output by default)
 usx review
+
+# Human-readable output
+usx review --text
 
 # Review specific files
 usx review src/main.rs src/cli.rs
@@ -121,9 +124,6 @@ cat changes.diff | usx review
 
 # Parallel processing for large repos
 usx review --chunk --max-concurrency 8
-
-# JSON output for CI integration
-usx review --json
 ```
 
 ## Exit Codes
@@ -142,8 +142,8 @@ usx review --json
 ### CI Pipeline
 
 ```bash
-# Fail CI if issues found
-usx review --json | jq -e '.passed'
+# Fail CI if issues found (JSON is default)
+usx review | jq -e '.passed'
 ```
 
 ### Pre-commit Hook
@@ -156,6 +156,6 @@ usx review || exit 1
 ### Piping to Fix
 
 ```bash
-# Review and fix in one pipeline
-usx review --json | usx fix src/ --from -
+# Review and fix in one pipeline (JSON is default)
+usx review | usx fix src/ --from -
 ```

@@ -11,6 +11,20 @@ Issues and improvements needed before the core feature set is production-ready.
 
 ---
 
+## Medium Priority
+
+### Context window management
+
+Large diffs overwhelm smaller LLMs and cause reliability issues. Need:
+- Token counting/visibility (model-aware or approximate)
+- Diff chunking strategies (file-level, with per-command semantics)
+- Context budgets with fail-fast behavior when limits exceeded
+- `--dry-run` or similar to show token counts without LLM call
+
+Design constraint: chunking strategy varies per command (commit vs review have different needs), but should use shared primitives.
+
+---
+
 ## Low Priority / Future Consideration
 
 ### Exit code granularity

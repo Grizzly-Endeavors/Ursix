@@ -57,7 +57,7 @@ usx review --agent                # Can explore related files
 | `--stdin` | Read context from stdin (ask command) |
 | `--execute` | Auto-execute git commit (commit command) |
 | `--checks LIST` | Comma-separated checks to focus on (review command) |
-| `--json` | Output as JSON for scripting |
+| `--text` | Output as plain text instead of JSON (default: JSON) |
 # Commit Requirements, Linting, and Formatting. 
 
 ## Git Hooks

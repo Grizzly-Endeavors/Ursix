@@ -20,7 +20,7 @@ usx config [KEY] [OPTIONS]
 |------|------|---------|-------------|
 | `--list` | boolean | false | List all configuration values |
 
-Plus [global flags](../cli-reference.md#global-flags) (only `--json` is relevant).
+Plus [global flags](../cli-reference.md#global-flags) (only `--text` is relevant for human-readable output).
 
 ## Behavior
 
@@ -81,7 +81,7 @@ Configuration:
   working_dir:    /home/user/project
 ```
 
-### JSON Format (`--json`)
+### JSON Format (default)
 
 ```json
 {
@@ -99,15 +99,15 @@ Configuration:
 # Show usage help
 usx config
 
-# List all configuration
+# List all configuration (JSON output by default)
 usx config --list
+
+# Human-readable output
+usx config --list --text
 
 # Get specific value
 usx config provider
 usx config model
-
-# JSON output
-usx config --list --json
 
 # Check if API key is set
 usx config openai_api_key

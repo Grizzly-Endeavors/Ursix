@@ -27,9 +27,9 @@ use crate::pipeline::PipelineError;
 #[command(about = "Ursix - An extensible agentic CLI for LLM-powered development")]
 #[command(version)]
 pub struct Cli {
-    /// Output as JSON for scripting
+    /// Output as plain text instead of JSON (default: JSON)
     #[arg(long, global = true)]
-    pub json: bool,
+    pub text: bool,
 
     /// LLM provider (ollama, openai)
     #[arg(long, global = true)]
@@ -125,7 +125,7 @@ pub enum Command {
         #[arg(long)]
         agent: bool,
 
-        /// Read issues from a file (use - for stdin, e.g., from review --json output)
+        /// Read issues from a file (use - for stdin, e.g., from review JSON output)
         #[arg(long, value_name = "FILE")]
         from: Option<PathBuf>,
     },
@@ -200,11 +200,11 @@ pub async fn run() -> Result<ExitCode> {
 
     let working_dir = std::env::current_dir().context("failed to get current directory")?;
 
-    // Determine output mode
-    let output_mode = if cli.json {
-        OutputMode::Json
-    } else {
+    // Determine output mode (JSON is default, --text for human-readable)
+    let output_mode = if cli.text {
         OutputMode::Human
+    } else {
+        OutputMode::Json
     };
 
     // Load config from files and env vars, then apply CLI overrides

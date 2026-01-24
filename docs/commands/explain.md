@@ -59,7 +59,7 @@ Explanation:
 [formatted explanation text]
 ```
 
-### JSON Format (`--json`)
+### JSON Format (default)
 
 ```json
 {
@@ -71,17 +71,17 @@ Explanation:
 ## Examples
 
 ```bash
-# Explain a file
+# Explain a file (JSON output by default)
 usx explain src/main.rs
+
+# Human-readable output
+usx explain src/main.rs --text
 
 # Deep exploration with agent mode
 usx explain src/cli.rs --agent
 
 # Explain piped content
 cat complex_function.rs | usx explain the_function
-
-# JSON output for scripting
-usx explain src/main.rs --json
 
 # Use specific model
 usx explain src/main.rs --model gpt-4

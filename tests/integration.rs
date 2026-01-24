@@ -42,30 +42,31 @@ fn cli_requires_subcommand() -> TestResult {
 
 #[test]
 fn cli_config_list() -> TestResult {
+    // Default output is JSON
     Command::cargo_bin("usx")?
         .args(["config", "--list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("model = "));
+        .stdout(predicate::str::contains("\"key\": \"model\""));
     Ok(())
 }
 
 #[test]
 fn cli_accepts_model_flag() -> TestResult {
-    // Verify --model flag is accepted by checking config list works with it
+    // Verify --model flag is accepted by checking config list works with it (JSON default)
     Command::cargo_bin("usx")?
         .args(["--model", "test-model", "config", "--list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("model = test-model"));
+        .stdout(predicate::str::contains("\"value\": \"test-model\""));
     Ok(())
 }
 
 #[test]
-fn cli_accepts_json_flag() -> TestResult {
-    // Verify --json flag produces valid JSON output
+fn cli_default_produces_json() -> TestResult {
+    // Verify default output produces valid JSON (JSON is now the default)
     Command::cargo_bin("usx")?
-        .args(["--json", "config", "--list"])
+        .args(["config", "--list"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"key\":"))
@@ -75,14 +76,26 @@ fn cli_accepts_json_flag() -> TestResult {
 
 #[test]
 fn cli_json_output_is_valid() -> TestResult {
-    // Verify config --list with --json produces parseable JSON
+    // Verify config --list produces parseable JSON (JSON is now the default)
     let output = Command::cargo_bin("usx")?
-        .args(["--json", "config", "--list"])
+        .args(["config", "--list"])
         .output()?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Should be valid JSON
     serde_json::from_str::<serde_json::Value>(&stdout)?;
+    Ok(())
+}
+
+#[test]
+fn cli_text_flag_produces_human_output() -> TestResult {
+    // Verify --text flag produces human-readable output
+    Command::cargo_bin("usx")?
+        .args(["--text", "config", "--list"])
+        .assert()
+        .success()
+        // Human output uses "=" format, not JSON
+        .stdout(predicate::str::contains(" = "));
     Ok(())
 }
 

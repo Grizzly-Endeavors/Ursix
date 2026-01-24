@@ -57,7 +57,7 @@ Ursix brings LLM capabilities to where you already work—your terminal—with c
 | "What does this code do?" | `usx explain src/module.rs` with full file context |
 | "Write me a commit message" | `usx commit` analyzes staged changes and formats properly |
 | "Fix these lint errors" | `usx fix --lint --apply` diagnoses and patches files |
-| "Automate in CI" | `--json` output with exit codes for pipelines |
+| "Automate in CI" | JSON output by default with exit codes for pipelines |
 | "Enforce team standards" | Configurable `rules.yml` makes reviews consistent |
 
 ### Key Design Principles
@@ -299,7 +299,7 @@ export URSIX_MAX_TURNS=50
 
 ```
 Global Flags:
-    --json              Output as JSON for scripting
+    --text              Output as plain text instead of JSON (default: JSON)
     --provider <NAME>   LLM provider (ollama, openai)
 -m, --model <MODEL>     Model to use
     --ollama-url <URL>  Ollama API base URL
@@ -432,10 +432,10 @@ This enables filtering and tracking by rule in CI:
 
 ```bash
 # Count issues by rule
-usx review --json | jq '[.issues[].rule] | group_by(.) | map({rule: .[0], count: length})'
+usx review | jq '[.issues[].rule] | group_by(.) | map({rule: .[0], count: length})'
 
 # Fail only on security rules
-usx review --checks security --json | jq -e '.passed'
+usx review --checks security | jq -e '.passed'
 ```
 
 ## Scripting & CI/CD
@@ -444,17 +444,17 @@ Ursix is designed for automation. Every command supports structured output, mean
 
 ### JSON Output
 
-All commands support `--json` for machine-readable output:
+All commands output JSON by default for machine-readable output (use `--text` for human-readable):
 
 ```bash
 # Structured review results
-usx review --json | jq '.issues[] | select(.severity == "error")'
+usx review | jq '.issues[] | select(.severity == "error")'
 
 # Parse commit message components
-usx commit --json | jq -r '.title'
+usx commit | jq -r '.title'
 
 # Extract explanation for documentation
-usx explain src/api.rs --json | jq -r '.explanation'
+usx explain src/api.rs | jq -r '.explanation'
 ```
 
 ### Exit Codes
@@ -469,10 +469,10 @@ Commands return meaningful exit codes for scripting:
 
 ```bash
 # Conditional execution
-usx review && echo "Review passed" || echo "Issues found"
+usx review --text && echo "Review passed" || echo "Issues found"
 
 # In CI pipelines
-usx review --json > review.json
+usx review > review.json
 if [ $? -ne 0 ]; then
   cat review.json | jq '.issues[]'
   exit 1
@@ -488,10 +488,10 @@ Commands read from stdin and write to stdout:
 cat src/complex.rs | usx ask --stdin "What are the potential bugs here?"
 
 # Chain review and fix
-usx review --json | usx fix --from - src/main.rs --apply
+usx review | usx fix --from - src/main.rs --apply
 
 # Process multiple files
-find src -name "*.rs" -exec usx explain {} --json \; | jq -s '.'
+find src -name "*.rs" -exec usx explain {} \; | jq -s '.'
 
 # Use with other tools
 git diff HEAD~1 | usx ask --stdin "Summarize these changes"
@@ -516,7 +516,7 @@ jobs:
 
       - name: Review Changes
         run: |
-          usx review --diff origin/${{ github.base_ref }}...HEAD --json > review.json
+          usx review --diff origin/${{ github.base_ref }}...HEAD > review.json
 
           # Always output the summary
           jq -r '.summary' review.json
@@ -543,7 +543,7 @@ jobs:
 code-review:
   stage: test
   script:
-    - usx review --diff $CI_MERGE_REQUEST_DIFF_BASE_SHA...$CI_COMMIT_SHA --json > review.json
+    - usx review --diff $CI_MERGE_REQUEST_DIFF_BASE_SHA...$CI_COMMIT_SHA > review.json
     - |
       if [ $(jq '.passed' review.json) = "false" ]; then
         jq '.issues[]' review.json
@@ -569,7 +569,7 @@ usx commit > "$1"
 ```bash
 #!/bin/bash
 # .git/hooks/pre-commit
-usx review --checks security --json > /tmp/review.json
+usx review --checks security > /tmp/review.json
 if [ $(jq '.passed' /tmp/review.json) = "false" ]; then
   echo "Security issues found:"
   jq -r '.issues[] | "  \(.file):\(.line) - \(.message)"' /tmp/review.json
@@ -586,7 +586,7 @@ git diff --name-only HEAD~1 | xargs usx review
 # Batch explain all modules
 for f in src/*.rs; do
   echo "=== $f ==="
-  usx explain "$f" --json | jq -r '.explanation'
+  usx explain "$f" | jq -r '.explanation'
 done
 
 # Generate changelog from commits
@@ -595,7 +595,7 @@ git log --oneline HEAD~10..HEAD | while read sha msg; do
 done
 
 # Find files needing documentation
-usx review --checks style --json | jq -r '.issues[] | select(.rule == "doc-comments") | .file' | sort -u
+usx review --checks style | jq -r '.issues[] | select(.rule == "doc-comments") | .file' | sort -u
 ```
 
 ### Shell Integration
@@ -610,7 +610,7 @@ alias commit='usx commit --execute'
 
 # Function: review and fix in one go
 fix-review() {
-  usx review --json > /tmp/review.json
+  usx review > /tmp/review.json
   if [ $(jq '.passed' /tmp/review.json) = "false" ]; then
     usx fix --from /tmp/review.json "$@" --apply
   fi

@@ -8,7 +8,7 @@ These flags apply to all commands:
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--json` | boolean | false | Output as JSON for scripting |
+| `--text` | boolean | false | Output as plain text instead of JSON |
 | `--provider` | enum | config | LLM provider (`ollama`, `openai`) |
 | `-m, --model` | string | config | Model to use |
 | `--ollama-url` | string | config | Ollama API base URL |

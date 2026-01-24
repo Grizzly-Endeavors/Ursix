@@ -10,7 +10,7 @@ Each command does one thing. It takes explicit input, produces structured output
 
 ```bash
 # This is Ursix
-usx review --checks=style --json > issues.json
+usx review --checks=style > issues.json
 usx fix --from=issues.json
 usx commit
 
@@ -33,7 +33,7 @@ usx "hey can you look at my code and maybe fix some stuff and also write a commi
 Every command must be scriptable. If it can't be used in a bash script or CI pipeline without human intervention, it doesn't belong in Ursix.
 
 This means:
-- Structured output (`--json`) on every command
+- Structured JSON output by default (`--text` for human-readable)
 - Semantic exit codes (0 = success, 1 = issues found, 2 = error)
 - No interactive prompts unless explicitly requested
 - Deterministic behavior given the same inputs
@@ -65,11 +65,11 @@ while ! usx review --checks=style; do
     usx fix --from-last-review
 done
 
-# Filtering via jq  
-usx review --json | jq '.issues[] | select(.severity == "error")'
+# Filtering via jq
+usx review | jq '.issues[] | select(.severity == "error")'
 
 # Parallel execution via xargs
-find . -name "*.rs" | xargs -P4 -I{} usx explain {} --json
+find . -name "*.rs" | xargs -P4 -I{} usx explain {}
 ```
 
 If you find yourself wanting a complex built-in workflow, consider whether it could be a shell script instead.
@@ -88,7 +88,7 @@ Ursix fills this gap by treating AI review (and AI-powered fixes) as Unix comman
 
 ```bash
 for i in {1..3}; do
-    usx review --checks=style,security --json > /tmp/review.json
+    usx review --checks=style,security > /tmp/review.json
     [ $(jq '.issues | length' /tmp/review.json) -eq 0 ] && break
     usx fix --from=/tmp/review.json
 done

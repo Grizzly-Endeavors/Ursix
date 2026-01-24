@@ -74,7 +74,7 @@ feat(cli): add review command with configurable checks
 [optional body if --body]
 ```
 
-### JSON Format (`--json`)
+### JSON Format (default)
 
 ```json
 {
@@ -86,8 +86,11 @@ feat(cli): add review command with configurable checks
 ## Examples
 
 ```bash
-# Generate conventional commit message
+# Generate conventional commit message (JSON output by default)
 usx commit
+
+# Human-readable output
+usx commit --text
 
 # Include detailed body
 usx commit --body
@@ -106,9 +109,6 @@ usx commit --style simple --execute
 
 # Generate from piped diff
 cat staged.diff | usx commit --body
-
-# JSON output for scripting
-usx commit --json
 ```
 
 ## Exit Codes
@@ -147,7 +147,7 @@ usx commit --execute
 ### CI Commit
 
 ```bash
-# Generate message for CI commits
-MESSAGE=$(usx commit --json | jq -r '.message')
+# Generate message for CI commits (JSON is default)
+MESSAGE=$(usx commit | jq -r '.message')
 git commit -m "$MESSAGE"
 ```

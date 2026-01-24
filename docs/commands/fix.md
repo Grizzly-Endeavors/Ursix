@@ -86,7 +86,7 @@ Fixes:
 Applied: 2/2 fixes
 ```
 
-### JSON Format (`--json`)
+### JSON Format (default)
 
 ```json
 {
@@ -135,14 +135,14 @@ usx fix src/main.rs --lint --apply
 # Deep agentic fix
 usx fix src/main.rs --agent
 
-# Fix issues from review output
-usx review --json | usx fix src/main.rs --from -
+# Fix issues from review output (JSON is default)
+usx review | usx fix src/main.rs --from -
 
 # Parallel processing
 usx fix src/ --lint --chunk --max-concurrency 8
 
-# JSON output
-usx fix src/main.rs --json
+# Human-readable output
+usx fix src/main.rs --text
 ```
 
 ## Exit Codes
@@ -160,8 +160,8 @@ usx fix src/main.rs --json
 ### Review to Fix Pipeline
 
 ```bash
-# Find issues and fix them
-usx review --json | usx fix src/ --from - --apply
+# Find issues and fix them (JSON is default)
+usx review | usx fix src/ --from - --apply
 ```
 
 ### Lint Fix Workflow
