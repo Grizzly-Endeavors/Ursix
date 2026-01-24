@@ -64,6 +64,19 @@ Enable with `--chunk` flag (available on `review`, `fix`).
 
 **Not supported on:** `explain`, `commit` (require full context)
 
+### Category Chunking (review only)
+
+When using `--checks` with the review command, each category is processed with a separate LLM call:
+
+| `--checks` | `--chunk` | Behavior |
+|------------|-----------|----------|
+| No | No | Single call, all rules |
+| No | Yes | File chunking only |
+| Yes | No | Category chunking (one call per category) |
+| Yes | Yes | Nested (categories × files) |
+
+This allows you to control the cost/detail tradeoff. See [review command docs](commands/review.md) for details.
+
 ## Exit Codes
 
 | Code | Name | Meaning |

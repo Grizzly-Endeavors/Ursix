@@ -11,6 +11,7 @@ use tokio::sync::Semaphore;
 
 use crate::config::{Config, TokenizerMode};
 use crate::context::GatheredContext;
+use crate::rules::{CategoryResolvedRules, ResolvedRules};
 use crate::tokens::{TokenCount, TokenLimits, count_tokens};
 
 /// A chunk of context to be processed independently
@@ -230,6 +231,239 @@ where
                     .map_err(|e| format!("semaphore error: {e}"))?;
 
                 tracing::debug!(chunk_id = %chunk_id, "executing chunk");
+
+                match exec(cfg, chunk).await {
+                    Ok(result) => Ok(ChunkResult {
+                        chunk_id,
+                        result: Some(result),
+                        error: None,
+                    }),
+                    Err(e) => Ok(ChunkResult {
+                        chunk_id,
+                        result: None,
+                        error: Some(e.to_string()),
+                    }),
+                }
+            })
+        })
+        .collect();
+
+    let mut results = Vec::new();
+    let mut failures = Vec::new();
+
+    for handle in handles {
+        match handle.await {
+            Ok(Ok(chunk_result)) => {
+                if let Some(result) = chunk_result.result {
+                    results.push(result);
+                } else if let Some(error) = chunk_result.error {
+                    failures.push(ChunkFailure {
+                        chunk_id: chunk_result.chunk_id,
+                        error,
+                    });
+                }
+            }
+            Ok(Err(e)) => {
+                failures.push(ChunkFailure {
+                    chunk_id: "unknown".to_string(),
+                    error: e,
+                });
+            }
+            Err(e) => {
+                failures.push(ChunkFailure {
+                    chunk_id: "unknown".to_string(),
+                    error: format!("task join error: {e}"),
+                });
+            }
+        }
+    }
+
+    ChunkedResult {
+        results,
+        failures,
+        total_chunks,
+    }
+}
+
+/// A chunk for category-based processing
+///
+/// Used when `--checks` is specified to enable per-category LLM calls.
+#[derive(Debug, Clone)]
+pub struct CategoryChunk {
+    /// The category name (e.g., "security", "style")
+    pub category: String,
+    /// Rules for this category
+    pub rules: ResolvedRules,
+    /// The context to review
+    pub context: GatheredContext,
+    /// Token count for this chunk
+    pub token_count: TokenCount,
+}
+
+/// Split context into chunks by category (one category per chunk)
+///
+/// Each category becomes its own chunk with the full context.
+/// Used when `--checks` is specified without `--chunk`.
+///
+/// # Errors
+/// Returns error if token counting fails (only possible with Full tokenizer mode).
+pub fn chunk_by_category(
+    context: &GatheredContext,
+    category_rules: &CategoryResolvedRules,
+    mode: TokenizerMode,
+) -> Result<Vec<CategoryChunk>> {
+    let mut chunks = Vec::new();
+
+    for (category, rules) in category_rules.iter() {
+        if rules.is_empty() {
+            continue;
+        }
+
+        // Count tokens for context + rules prompt section
+        let rules_section = rules.to_category_prompt_section(category);
+        let formatted = format!("{}\n{}", format_chunk_context(context), rules_section);
+        let token_count = count_tokens(&formatted, mode)?;
+
+        chunks.push(CategoryChunk {
+            category: category.clone(),
+            rules: rules.clone(),
+            context: context.clone(),
+            token_count,
+        });
+    }
+
+    // Sort by category name for consistent output
+    chunks.sort_by(|a, b| a.category.cmp(&b.category));
+
+    Ok(chunks)
+}
+
+/// Split context into nested chunks (category × file)
+///
+/// Creates a chunk for each (category, file) pair. Used when both
+/// `--checks` and `--chunk` are specified for maximum detail.
+///
+/// # Errors
+/// Returns error if token counting fails (only possible with Full tokenizer mode).
+pub fn chunk_by_category_and_file(
+    context: &GatheredContext,
+    category_rules: &CategoryResolvedRules,
+    mode: TokenizerMode,
+) -> Result<Vec<CategoryChunk>> {
+    let mut chunks = Vec::new();
+
+    // If no files, just return category chunks with diff context
+    if context.files.is_empty() {
+        return chunk_by_category(context, category_rules, mode);
+    }
+
+    for (category, rules) in category_rules.iter() {
+        if rules.is_empty() {
+            continue;
+        }
+
+        for file in &context.files {
+            // Create a single-file context
+            let file_context = GatheredContext {
+                files: vec![file.clone()],
+                git_diff: None,
+                git_status: None,
+                additional_context: context.additional_context.clone(),
+            };
+
+            // Count tokens for context + rules
+            let rules_section = rules.to_category_prompt_section(category);
+            let formatted = format!("{}\n{}", format_chunk_context(&file_context), rules_section);
+            let token_count = count_tokens(&formatted, mode)?;
+
+            chunks.push(CategoryChunk {
+                category: category.clone(),
+                rules: rules.clone(),
+                context: file_context,
+                token_count,
+            });
+        }
+    }
+
+    // Sort by category then file path for consistent output
+    chunks.sort_by(|a, b| {
+        let cat_cmp = a.category.cmp(&b.category);
+        if cat_cmp.is_eq() {
+            let a_path = a.context.files.first().map(|f| &f.path);
+            let b_path = b.context.files.first().map(|f| &f.path);
+            a_path.cmp(&b_path)
+        } else {
+            cat_cmp
+        }
+    });
+
+    Ok(chunks)
+}
+
+/// Result from processing a category chunk
+#[derive(Debug)]
+pub struct CategoryChunkResult<T> {
+    /// The category this result corresponds to
+    pub category: String,
+    /// The file path if this was a nested chunk
+    pub file: Option<String>,
+    /// The result if processing succeeded
+    pub result: Option<T>,
+    /// The error message if processing failed
+    pub error: Option<String>,
+}
+
+/// Execute category chunks in parallel with concurrency control
+///
+/// Similar to `execute_chunked` but specialized for category chunks.
+pub async fn execute_category_chunks<T, F, Fut>(
+    config: &Config,
+    chunks: Vec<CategoryChunk>,
+    options: &ChunkOptions,
+    execute_fn: F,
+) -> ChunkedResult<T>
+where
+    T: Send + 'static,
+    F: Fn(Config, CategoryChunk) -> Fut + Send + Sync + Clone + 'static,
+    Fut: Future<Output = Result<T>> + Send,
+{
+    let total_chunks = chunks.len();
+
+    if chunks.is_empty() {
+        return ChunkedResult {
+            results: Vec::new(),
+            failures: Vec::new(),
+            total_chunks: 0,
+        };
+    }
+
+    let semaphore = Arc::new(Semaphore::new(options.max_concurrency));
+    let config = config.clone();
+
+    let handles: Vec<_> = chunks
+        .into_iter()
+        .map(|chunk| {
+            let sem = Arc::clone(&semaphore);
+            let cfg = config.clone();
+            let exec = execute_fn.clone();
+            let chunk_id = format!(
+                "{}-{}",
+                chunk.category,
+                chunk
+                    .context
+                    .files
+                    .first()
+                    .map_or_else(|| "diff".to_string(), |f| f.path.display().to_string())
+            );
+
+            tokio::spawn(async move {
+                // Acquire semaphore permit before execution
+                let _permit = sem
+                    .acquire()
+                    .await
+                    .map_err(|e| format!("semaphore error: {e}"))?;
+
+                tracing::debug!(chunk_id = %chunk_id, "executing category chunk");
 
                 match exec(cfg, chunk).await {
                     Ok(result) => Ok(ChunkResult {
@@ -526,5 +760,170 @@ mod tests {
         assert_eq!(result.results.len(), 10);
         // Max concurrent should be at most 2 (the limit)
         assert!(max_concurrent.load(Ordering::SeqCst) <= 2);
+    }
+
+    // Category chunking tests
+    use crate::rules::{CategoryResolvedRules, ResolvedRule, ResolvedRules, Severity};
+
+    fn create_test_category_rules() -> CategoryResolvedRules {
+        let mut category_rules = CategoryResolvedRules::default();
+
+        category_rules.insert(
+            "security".to_string(),
+            ResolvedRules {
+                rules: vec![ResolvedRule {
+                    category: "security".to_string(),
+                    name: "no-unwrap".to_string(),
+                    description: "Avoid unwrap".to_string(),
+                    severity: Severity::Error,
+                }],
+            },
+        );
+
+        category_rules.insert(
+            "style".to_string(),
+            ResolvedRules {
+                rules: vec![ResolvedRule {
+                    category: "style".to_string(),
+                    name: "docs".to_string(),
+                    description: "Add docs".to_string(),
+                    severity: Severity::Warning,
+                }],
+            },
+        );
+
+        category_rules
+    }
+
+    #[test]
+    fn test_chunk_by_category_empty() {
+        let context = GatheredContext::default();
+        let category_rules = CategoryResolvedRules::default();
+        let chunks =
+            chunk_by_category(&context, &category_rules, TokenizerMode::Heuristic).unwrap();
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn test_chunk_by_category_multiple() {
+        let context = GatheredContext {
+            files: vec![FileContext {
+                path: PathBuf::from("test.rs"),
+                content: "fn main() {}".to_string(),
+            }],
+            git_diff: None,
+            git_status: None,
+            additional_context: None,
+        };
+
+        let category_rules = create_test_category_rules();
+        let chunks =
+            chunk_by_category(&context, &category_rules, TokenizerMode::Heuristic).unwrap();
+
+        assert_eq!(chunks.len(), 2);
+        // Should be sorted by category name
+        assert_eq!(chunks[0].category, "security");
+        assert_eq!(chunks[1].category, "style");
+
+        // Each chunk should have the full context
+        assert_eq!(chunks[0].context.files.len(), 1);
+        assert_eq!(chunks[1].context.files.len(), 1);
+    }
+
+    #[test]
+    fn test_chunk_by_category_and_file_empty_files() {
+        let context = GatheredContext {
+            files: Vec::new(),
+            git_diff: Some("+fn new() {}".to_string()),
+            git_status: None,
+            additional_context: None,
+        };
+
+        let category_rules = create_test_category_rules();
+        let chunks =
+            chunk_by_category_and_file(&context, &category_rules, TokenizerMode::Heuristic)
+                .unwrap();
+
+        // Should fall back to category-only chunks when no files
+        assert_eq!(chunks.len(), 2);
+    }
+
+    #[test]
+    fn test_chunk_by_category_and_file_nested() {
+        let context = GatheredContext {
+            files: vec![
+                FileContext {
+                    path: PathBuf::from("a.rs"),
+                    content: "fn a() {}".to_string(),
+                },
+                FileContext {
+                    path: PathBuf::from("b.rs"),
+                    content: "fn b() {}".to_string(),
+                },
+            ],
+            git_diff: None,
+            git_status: None,
+            additional_context: None,
+        };
+
+        let category_rules = create_test_category_rules();
+        let chunks =
+            chunk_by_category_and_file(&context, &category_rules, TokenizerMode::Heuristic)
+                .unwrap();
+
+        // 2 categories × 2 files = 4 chunks
+        assert_eq!(chunks.len(), 4);
+
+        // Each chunk should have exactly one file
+        for chunk in &chunks {
+            assert_eq!(chunk.context.files.len(), 1);
+        }
+
+        // Check sorting: security-a.rs, security-b.rs, style-a.rs, style-b.rs
+        assert_eq!(chunks[0].category, "security");
+        assert!(
+            chunks[0].context.files[0]
+                .path
+                .to_string_lossy()
+                .contains("a.rs")
+        );
+        assert_eq!(chunks[1].category, "security");
+        assert!(
+            chunks[1].context.files[0]
+                .path
+                .to_string_lossy()
+                .contains("b.rs")
+        );
+        assert_eq!(chunks[2].category, "style");
+        assert_eq!(chunks[3].category, "style");
+    }
+
+    #[tokio::test]
+    async fn test_execute_category_chunks_success() {
+        let config = Config::default();
+        let category_rules = create_test_category_rules();
+        let context = GatheredContext {
+            files: vec![FileContext {
+                path: PathBuf::from("test.rs"),
+                content: "fn main() {}".to_string(),
+            }],
+            git_diff: None,
+            git_status: None,
+            additional_context: None,
+        };
+
+        let chunks =
+            chunk_by_category(&context, &category_rules, TokenizerMode::Heuristic).unwrap();
+        let options = ChunkOptions::default();
+
+        let result: ChunkedResult<String> =
+            execute_category_chunks(&config, chunks, &options, |_cfg, chunk| async move {
+                Ok(format!("reviewed-{}", chunk.category))
+            })
+            .await;
+
+        assert_eq!(result.total_chunks, 2);
+        assert_eq!(result.results.len(), 2);
+        assert!(result.failures.is_empty());
     }
 }

@@ -276,6 +276,65 @@ Output ONLY the JSON, no other text."#;
     format!("{base}{rules_part}{suffix}")
 }
 
+/// Build a focused review prompt for a single category.
+///
+/// Unlike `build_review_prompt`, this creates a prompt focused on reviewing
+/// only one category of rules, enabling per-category LLM calls.
+#[must_use]
+pub fn build_category_review_prompt(category: &str, rules_section: &str) -> String {
+    let base = format!(
+        r"You are a code reviewer focused on {category} issues. Your task is to review the provided code for {category} concerns only.
+
+Focus exclusively on {category} issues. Do not report issues outside this category.
+"
+    );
+
+    let rules_part = if rules_section.is_empty() {
+        String::new()
+    } else {
+        format!("{rules_section}\n")
+    };
+
+    let suffix = format!(
+        r#"Be constructive and explain why something is an issue, not just that it is.
+Categorize issues by severity: "error" for critical bugs, "warning" for potential problems, "info" for suggestions.
+
+Return your review as JSON in this exact format:
+{{
+  "summary": "Brief summary of {category} findings",
+  "issues": [
+    {{
+      "severity": "error|warning|info",
+      "file": "path/to/file.rs",
+      "line": 42,
+      "message": "Description of the {category} issue",
+      "rule": "rule-name"
+    }}
+  ]
+}}
+
+Notes:
+- The "issues" array can be empty if no {category} issues were found
+- The "file" and "line" fields are optional if the issue is general
+- The "rule" field is optional - include it when the issue relates to a specific rule from above
+- Use "error" sparingly, only for critical problems
+- ONLY report {category} issues - ignore issues that belong to other categories
+
+Output ONLY the JSON, no other text."#
+    );
+
+    format!("{base}{rules_part}{suffix}")
+}
+
+/// Capitalize the first letter of a string.
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,5 +427,44 @@ mod tests {
     fn test_build_review_prompt_includes_rule_field() {
         let prompt = build_review_prompt("");
         assert!(prompt.contains("\"rule\":"));
+    }
+
+    #[test]
+    fn test_build_category_review_prompt_empty_rules() {
+        let prompt = build_category_review_prompt("security", "");
+        assert!(prompt.contains("focused on security"));
+        assert!(prompt.contains("security concerns only"));
+        assert!(prompt.contains("JSON"));
+        assert!(prompt.contains("ONLY report security issues"));
+    }
+
+    #[test]
+    fn test_build_category_review_prompt_with_rules() {
+        let rules = "## Review Rules - Security\n\n- **no-unwrap** [error]: Avoid unwrap";
+        let prompt = build_category_review_prompt("security", rules);
+        assert!(prompt.contains("focused on security"));
+        assert!(prompt.contains("## Review Rules - Security"));
+        assert!(prompt.contains("no-unwrap"));
+    }
+
+    #[test]
+    fn test_build_category_review_prompt_different_categories() {
+        let security_prompt = build_category_review_prompt("security", "");
+        let style_prompt = build_category_review_prompt("style", "");
+
+        assert!(security_prompt.contains("security issues"));
+        assert!(!security_prompt.contains("style issues"));
+
+        assert!(style_prompt.contains("style issues"));
+        assert!(!style_prompt.contains("security issues"));
+    }
+
+    #[test]
+    fn test_capitalize_first() {
+        assert_eq!(capitalize_first("hello"), "Hello");
+        assert_eq!(capitalize_first("HELLO"), "HELLO");
+        assert_eq!(capitalize_first(""), "");
+        assert_eq!(capitalize_first("a"), "A");
+        assert_eq!(capitalize_first("security"), "Security");
     }
 }

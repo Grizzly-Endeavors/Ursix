@@ -27,6 +27,10 @@ Design constraint: chunking strategy varies per command (commit vs review have d
 
 ## Low Priority / Future Consideration
 
+### Large category sub-chunking
+
+When a single category has many rules (10+), consider further chunking within that category to avoid overwhelming the LLM with too many rules in a single call.
+
 ### Exit code granularity
 
 All errors return exit code 2. Scripts can't distinguish "file not found" from "API timeout" from "config error".

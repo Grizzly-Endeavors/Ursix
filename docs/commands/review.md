@@ -56,8 +56,10 @@ Common check types:
 - `style` - Code style and formatting
 - `security` - Security vulnerabilities
 - `performance` - Performance issues
-- `bugs` - Potential bugs
+- `correctness` - Potential bugs and logic errors
 - `tests` - Test coverage
+
+When `--checks` is specified, the review uses per-category LLM calls for more focused analysis.
 
 ### Chunked Mode (`--chunk`)
 
@@ -66,6 +68,23 @@ Processes files in parallel for large codebases:
 ```bash
 usx review --chunk --max-concurrency 8
 ```
+
+### Behavior Matrix
+
+The combination of `--checks` and `--chunk` flags determines the execution mode:
+
+| `--checks` | `--chunk` | Behavior | Example (3 cats, 4 files) |
+|------------|-----------|----------|---------------------------|
+| No | No | Single call, all rules | 1 call |
+| No | Yes | File chunking only | 4 calls |
+| Yes | No | Category chunking | 3 calls |
+| Yes | Yes | Nested (categories × files) | 12 calls |
+
+This gives you control over the cost/detail tradeoff:
+- **No flags**: Broad review, single LLM call (cheapest)
+- **`--checks` only**: Focused review per category (more calls, better focus)
+- **`--chunk` only**: File-level parallelism for large codebases
+- **Both flags**: Maximum detail with nested parallelism (most calls, most thorough)
 
 ## Output
 

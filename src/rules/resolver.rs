@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use super::{ResolvedRule, ResolvedRules, RulesConfig};
+use super::{CategoryResolvedRules, ResolvedRule, ResolvedRules, RulesConfig};
 
 impl RulesConfig {
     /// Resolve rules based on selected categories and file patterns.
@@ -42,6 +42,57 @@ impl RulesConfig {
         resolved.sort_by(|a, b| (&a.category, &a.name).cmp(&(&b.category, &b.name)));
 
         ResolvedRules { rules: resolved }
+    }
+
+    /// Resolve rules grouped by category.
+    ///
+    /// Unlike `resolve()` which flattens all rules, this preserves category
+    /// grouping for per-category LLM calls when `--checks` is specified.
+    ///
+    /// # Arguments
+    /// * `checks` - Category names to include (empty means all categories)
+    /// * `files` - File paths being reviewed (for pattern matching)
+    #[must_use]
+    pub fn resolve_by_category(
+        &self,
+        checks: &[String],
+        files: &[PathBuf],
+    ) -> CategoryResolvedRules {
+        let mut category_rules = CategoryResolvedRules::default();
+
+        for (category, rules) in &self.categories {
+            // Skip if checks are specified and this category isn't in the list
+            if !checks.is_empty() && !checks.iter().any(|c| c.eq_ignore_ascii_case(category)) {
+                continue;
+            }
+
+            let mut resolved = Vec::new();
+            for rule in rules {
+                // Check if rule applies to any of the files
+                if let Some(ref pattern) = rule.files
+                    && !files.is_empty()
+                    && !Self::matches_any_file(pattern, files)
+                {
+                    continue;
+                }
+
+                resolved.push(ResolvedRule {
+                    category: category.clone(),
+                    name: rule.name.clone(),
+                    description: rule.description.clone(),
+                    severity: rule.severity,
+                });
+            }
+
+            // Sort by name for consistent output within category
+            resolved.sort_by(|a, b| a.name.cmp(&b.name));
+
+            if !resolved.is_empty() {
+                category_rules.insert(category.clone(), ResolvedRules { rules: resolved });
+            }
+        }
+
+        category_rules
     }
 
     /// Check if a glob pattern matches any of the given files.
@@ -128,5 +179,86 @@ mod tests {
         let resolved = config.resolve(&[], &files);
         assert_eq!(resolved.rules.len(), 1);
         assert_eq!(resolved.rules[0].name, "all-files");
+    }
+
+    #[test]
+    fn test_resolve_by_category_all() {
+        let config = RulesConfig::defaults();
+        let category_rules = config.resolve_by_category(&[], &[]);
+
+        // Should have all categories from defaults
+        assert!(category_rules.category_count() >= 4);
+        assert!(category_rules.get("security").is_some());
+        assert!(category_rules.get("style").is_some());
+    }
+
+    #[test]
+    fn test_resolve_by_category_specific() {
+        let config = RulesConfig::defaults();
+        let checks = vec!["security".to_string(), "style".to_string()];
+        let category_rules = config.resolve_by_category(&checks, &[]);
+
+        // Should only have the two requested categories
+        assert_eq!(category_rules.category_count(), 2);
+        assert!(category_rules.get("security").is_some());
+        assert!(category_rules.get("style").is_some());
+        assert!(category_rules.get("performance").is_none());
+    }
+
+    #[test]
+    fn test_resolve_by_category_case_insensitive() {
+        let config = RulesConfig::defaults();
+        let checks = vec!["SECURITY".to_string()];
+        let category_rules = config.resolve_by_category(&checks, &[]);
+
+        assert_eq!(category_rules.category_count(), 1);
+        assert!(category_rules.get("security").is_some());
+    }
+
+    #[test]
+    fn test_resolve_by_category_with_files() {
+        let mut config = RulesConfig::default();
+        config.categories.insert(
+            "test".to_string(),
+            vec![
+                Rule {
+                    name: "rs-only".to_string(),
+                    description: "Rust files only".to_string(),
+                    severity: Severity::Warning,
+                    files: Some("*.rs".to_string()),
+                },
+                Rule {
+                    name: "all-files".to_string(),
+                    description: "All files".to_string(),
+                    severity: Severity::Warning,
+                    files: None,
+                },
+            ],
+        );
+
+        // With .py file, only all-files rule applies
+        let files = vec![PathBuf::from("script.py")];
+        let category_rules = config.resolve_by_category(&[], &files);
+        let test_rules = category_rules.get("test").unwrap();
+        assert_eq!(test_rules.len(), 1);
+        assert_eq!(test_rules.rules[0].name, "all-files");
+    }
+
+    #[test]
+    fn test_resolve_by_category_flatten_matches_resolve() {
+        let config = RulesConfig::defaults();
+        let checks = vec!["security".to_string()];
+        let files: Vec<PathBuf> = Vec::new();
+
+        let resolved = config.resolve(&checks, &files);
+        let category_resolved = config.resolve_by_category(&checks, &files);
+        let flattened = category_resolved.flatten();
+
+        // Both should have the same rules
+        assert_eq!(resolved.len(), flattened.len());
+        for (r, f) in resolved.rules.iter().zip(flattened.rules.iter()) {
+            assert_eq!(r.name, f.name);
+            assert_eq!(r.category, f.category);
+        }
     }
 }

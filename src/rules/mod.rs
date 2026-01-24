@@ -119,10 +119,93 @@ impl ResolvedRules {
         output
     }
 
+    /// Format rules for a single category as a markdown section.
+    #[must_use]
+    pub fn to_category_prompt_section(&self, category: &str) -> String {
+        use std::fmt::Write;
+
+        if self.rules.is_empty() {
+            return String::new();
+        }
+
+        let mut output = format!(
+            "\n## Review Rules - {}\n\nApply these {} rules during your review:\n\n",
+            capitalize(category),
+            category
+        );
+
+        for rule in &self.rules {
+            let _ = writeln!(
+                output,
+                "- **{}** [{}]: {}",
+                rule.name, rule.severity, rule.description
+            );
+        }
+
+        output
+    }
+
     /// Returns true if there are no resolved rules.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
+    }
+
+    /// Returns the number of rules.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.rules.len()
+    }
+}
+
+/// Collection of resolved rules organized by category.
+///
+/// Used when `--checks` is specified to enable per-category LLM calls.
+#[derive(Debug, Clone, Default)]
+pub struct CategoryResolvedRules {
+    /// Rules organized by category name
+    categories: HashMap<String, ResolvedRules>,
+}
+
+impl CategoryResolvedRules {
+    /// Returns true if there are no categories with rules.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.categories.is_empty() || self.categories.values().all(ResolvedRules::is_empty)
+    }
+
+    /// Returns the number of categories.
+    #[must_use]
+    pub fn category_count(&self) -> usize {
+        self.categories.len()
+    }
+
+    /// Iterate over categories and their rules.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &ResolvedRules)> {
+        self.categories.iter()
+    }
+
+    /// Flatten all categories into a single `ResolvedRules`.
+    #[must_use]
+    pub fn flatten(&self) -> ResolvedRules {
+        let mut all_rules = Vec::new();
+        for rules in self.categories.values() {
+            all_rules.extend(rules.rules.clone());
+        }
+        // Sort by category then name for consistent output
+        all_rules.sort_by(|a, b| (&a.category, &a.name).cmp(&(&b.category, &b.name)));
+        ResolvedRules { rules: all_rules }
+    }
+
+    /// Insert rules for a category.
+    pub fn insert(&mut self, category: String, rules: ResolvedRules) {
+        self.categories.insert(category, rules);
+    }
+
+    /// Get rules for a specific category.
+    #[must_use]
+    pub fn get(&self, category: &str) -> Option<&ResolvedRules> {
+        self.categories.get(category)
     }
 }
 
@@ -231,5 +314,149 @@ categories:
         assert_eq!(capitalize("HELLO"), "HELLO");
         assert_eq!(capitalize(""), "");
         assert_eq!(capitalize("a"), "A");
+    }
+
+    #[test]
+    fn test_to_category_prompt_section() {
+        let resolved = ResolvedRules {
+            rules: vec![
+                ResolvedRule {
+                    category: "security".to_string(),
+                    name: "no-unwrap".to_string(),
+                    description: "Avoid unwrap".to_string(),
+                    severity: Severity::Error,
+                },
+                ResolvedRule {
+                    category: "security".to_string(),
+                    name: "no-secrets".to_string(),
+                    description: "No hardcoded secrets".to_string(),
+                    severity: Severity::Error,
+                },
+            ],
+        };
+
+        let section = resolved.to_category_prompt_section("security");
+        assert!(section.contains("## Review Rules - Security"));
+        assert!(section.contains("security rules"));
+        assert!(section.contains("**no-unwrap** [error]"));
+        assert!(section.contains("**no-secrets** [error]"));
+    }
+
+    #[test]
+    fn test_resolved_rules_len() {
+        let resolved = ResolvedRules {
+            rules: vec![
+                ResolvedRule {
+                    category: "test".to_string(),
+                    name: "rule1".to_string(),
+                    description: "desc".to_string(),
+                    severity: Severity::Warning,
+                },
+                ResolvedRule {
+                    category: "test".to_string(),
+                    name: "rule2".to_string(),
+                    description: "desc".to_string(),
+                    severity: Severity::Warning,
+                },
+            ],
+        };
+        assert_eq!(resolved.len(), 2);
+    }
+
+    #[test]
+    fn test_category_resolved_rules_empty() {
+        let cat_rules = CategoryResolvedRules::default();
+        assert!(cat_rules.is_empty());
+        assert_eq!(cat_rules.category_count(), 0);
+    }
+
+    #[test]
+    fn test_category_resolved_rules_insert_and_get() {
+        let mut cat_rules = CategoryResolvedRules::default();
+
+        let security_rules = ResolvedRules {
+            rules: vec![ResolvedRule {
+                category: "security".to_string(),
+                name: "no-unwrap".to_string(),
+                description: "Avoid unwrap".to_string(),
+                severity: Severity::Error,
+            }],
+        };
+
+        cat_rules.insert("security".to_string(), security_rules);
+
+        assert!(!cat_rules.is_empty());
+        assert_eq!(cat_rules.category_count(), 1);
+        assert!(cat_rules.get("security").is_some());
+        assert!(cat_rules.get("style").is_none());
+    }
+
+    #[test]
+    fn test_category_resolved_rules_iter() {
+        let mut cat_rules = CategoryResolvedRules::default();
+
+        cat_rules.insert(
+            "security".to_string(),
+            ResolvedRules {
+                rules: vec![ResolvedRule {
+                    category: "security".to_string(),
+                    name: "sec-rule".to_string(),
+                    description: "desc".to_string(),
+                    severity: Severity::Error,
+                }],
+            },
+        );
+
+        cat_rules.insert(
+            "style".to_string(),
+            ResolvedRules {
+                rules: vec![ResolvedRule {
+                    category: "style".to_string(),
+                    name: "style-rule".to_string(),
+                    description: "desc".to_string(),
+                    severity: Severity::Warning,
+                }],
+            },
+        );
+
+        let categories: Vec<_> = cat_rules.iter().map(|(k, _)| k.clone()).collect();
+        assert_eq!(categories.len(), 2);
+        assert!(categories.contains(&"security".to_string()));
+        assert!(categories.contains(&"style".to_string()));
+    }
+
+    #[test]
+    fn test_category_resolved_rules_flatten() {
+        let mut cat_rules = CategoryResolvedRules::default();
+
+        cat_rules.insert(
+            "security".to_string(),
+            ResolvedRules {
+                rules: vec![ResolvedRule {
+                    category: "security".to_string(),
+                    name: "sec-rule".to_string(),
+                    description: "desc".to_string(),
+                    severity: Severity::Error,
+                }],
+            },
+        );
+
+        cat_rules.insert(
+            "style".to_string(),
+            ResolvedRules {
+                rules: vec![ResolvedRule {
+                    category: "style".to_string(),
+                    name: "style-rule".to_string(),
+                    description: "desc".to_string(),
+                    severity: Severity::Warning,
+                }],
+            },
+        );
+
+        let flattened = cat_rules.flatten();
+        assert_eq!(flattened.len(), 2);
+        // Should be sorted by category then name
+        assert_eq!(flattened.rules[0].category, "security");
+        assert_eq!(flattened.rules[1].category, "style");
     }
 }
