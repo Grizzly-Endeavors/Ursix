@@ -1,6 +1,6 @@
 # Ursix
 
-Extensible CLI tool for LLM-powered development tasks, supporting both stateless pipeline and agentic modes.
+Unix utilities powered by LLMs. Stateless, composable, automation-first.
 
 ## Architecture
 
@@ -10,24 +10,47 @@ The CLI follows a hybrid pipeline/agent model:
 
 ```
 src/
-├── main.rs          # Entry point, tokio runtime
-├── cli.rs           # clap argument parsing, command dispatch
-├── config.rs        # Runtime configuration (layered: files, env, CLI)
-├── input.rs         # Input source handling (--from, stdin, inline args)
-├── context.rs       # Pre-LLM context gathering (files, git state)
-├── pipeline.rs      # Stateless single-pass executor (default mode)
-├── agent.rs         # Agentic loop with tool execution (--agent mode)
-├── output.rs        # Structured output formatting (human/JSON)
-├── prompts.rs       # System prompts for each command
+├── main.rs              # Entry point, tokio runtime
+├── cli.rs               # clap argument parsing, command dispatch
+├── config.rs            # Runtime configuration (layered: files, env, CLI)
+├── input.rs             # Input source handling (--from, stdin)
+├── context.rs           # Pre-LLM context gathering (files, git state)
+├── pipeline.rs          # Stateless single-pass executor (default mode)
+├── agent.rs             # Agentic loop with tool execution (--agent mode)
+├── chunk.rs             # Token-aware parallel chunking
+├── tokens.rs            # Token counting (heuristic and full modes)
+├── parsers.rs           # Response parsing utilities
+├── prompts.rs           # System prompts for each command
+├── commands/
+│   ├── mod.rs
+│   ├── explain.rs
+│   ├── review.rs
+│   ├── fix.rs
+│   ├── commit.rs
+│   └── config.rs
+├── output/
+│   ├── mod.rs           # Exit codes, output modes, traits
+│   ├── explain.rs
+│   ├── review.rs
+│   ├── fix.rs
+│   ├── commit.rs
+│   └── config.rs
+├── rules/
+│   ├── mod.rs           # Rule types and resolution
+│   ├── defaults.rs      # Built-in default rules
+│   ├── loader.rs        # YAML loading
+│   └── resolver.rs      # Category-based filtering
 ├── llm/
-│   ├── mod.rs       # LlmClient trait, Message/ToolCall/ToolDefinition types
-│   ├── ollama.rs    # Ollama API implementation
-│   └── openai.rs    # OpenAI-compatible API implementation
+│   ├── mod.rs           # LlmClient trait, Message/ToolCall types
+│   ├── ollama.rs        # Ollama API implementation
+│   └── openai.rs        # OpenAI-compatible API implementation
 └── tools/
-    ├── mod.rs       # Tool trait, ToolResult, ToolError
-    ├── bash.rs      # Shell execution with timeout
-    ├── file.rs      # read, write, edit operations
-    └── search.rs    # glob, grep operations
+    ├── mod.rs           # Tool trait, ToolResult, ToolError
+    ├── executor.rs      # Tool dispatch and execution
+    ├── bash.rs          # Shell execution with timeout
+    ├── file.rs          # read, write, edit operations
+    ├── search.rs        # glob, grep operations
+    └── path.rs          # Path validation and safety
 ```
 
 ## Execution Modes
@@ -43,9 +66,9 @@ usx review --checks style,security
 ### Agent Mode (--agent)
 Multi-turn execution with tool access for complex tasks.
 ```bash
-usx ask --agent "refactor the error handling in src/cli.rs"
 usx fix src/main.rs --agent       # Can run clippy, edit files
 usx review --agent                # Can explore related files
+usx explain src/ --agent          # Can traverse directories
 ```
 
 ## Key CLI Flags
@@ -54,11 +77,14 @@ usx review --agent                # Can explore related files
 |------|-------------|
 | `--agent` | Enable agentic mode with tool access (multi-turn) |
 | `--from FILE` | Read context from file (use `-` for stdin) |
-| `--stdin` | Read context from stdin (ask command) |
 | `--execute` | Auto-execute git commit (commit command) |
 | `--checks LIST` | Comma-separated checks to focus on (review command) |
 | `--text` | Output as plain text instead of JSON (default: JSON) |
-# Commit Requirements, Linting, and Formatting. 
+| `--chunk` | Enable chunked processing for large inputs |
+| `--max-concurrency N` | Parallel chunk limit (default: 4) |
+| `--tokenizer MODE` | Token counting: heuristic (fast) or full (accurate) |
+
+# Commit Requirements, Linting, and Formatting.
 
 ## Git Hooks
 
@@ -78,7 +104,7 @@ Clippy pedantic is enabled with strict error handling:
 
 Test modules have `#[allow(clippy::unwrap_used)]` for readability.
 
-DO NOT, under any circumstance, change this config or add allow macros without explicit approval from the user. 
+DO NOT, under any circumstance, change this config or add allow macros without explicit approval from the user.
 
 # Style Guidelines
 
@@ -122,4 +148,4 @@ DO NOT, under any circumstance, change this config or add allow macros without e
 # Misc Notes
 - Testing is a first class operation, NEVER skip test implementation.
 - Commits should be made frequently, especially for large multi-phase tasks.
-- All changes must be pushed before giving the user a completion summary.  
+- All changes must be pushed before giving the user a completion summary.

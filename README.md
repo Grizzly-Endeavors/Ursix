@@ -2,7 +2,7 @@
 
 # Ursix
 
-**LLM-powered development tools that fit your workflow**
+**LLM as a boring Unix utility**
 
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Ollama](https://img.shields.io/badge/ollama-compatible-blue.svg)](https://ollama.ai/)
@@ -10,8 +10,8 @@
 
 [Getting Started](#getting-started) •
 [Commands](#commands) •
-[Review Rules](#review-rules) •
 [Scripting & CI/CD](#scripting--cicd) •
+[Review Rules](#review-rules) •
 [Contributing](#contributing)
 
 </div>
@@ -20,54 +20,49 @@
 
 ## What is Ursix?
 
-Ursix (`usx`) is a command-line tool that brings LLM capabilities directly into your development workflow. Instead of copy-pasting code into chat windows or context-switching between tools, Ursix provides purpose-built commands for common development tasks—code review, explanation, commit messages, and fixes—all from your terminal.
+Ursix (`usx`) is a set of Unix utilities that happen to use an LLM under the hood. It's not a chat interface. It's not an AI assistant. It's `grep`, `sed`, and `lint`—if they could understand intent.
 
 ```bash
-# Review your staged changes before committing
-usx review
-
-# Generate a conventional commit message
-usx commit --execute
-
-# Explain unfamiliar code
-usx explain src/auth/jwt.rs
-
-# Fix clippy warnings automatically
-usx fix src/lib.rs --lint --apply
+# These are commands, not conversations
+usx review                        # Like `lint`, but for code changes
+usx commit --execute              # Like `git commit`, but writes the message for you
+usx explain src/auth/jwt.rs       # Like `man`, but for your actual code
+usx fix src/lib.rs --lint --apply # Like `cargo fix`, but smarter
 ```
+
+Ursix commands read from stdin, write to stdout, return meaningful exit codes, and output JSON by default. They compose with `jq`, `xargs`, `find`, and everything else in your toolkit. No chat history. No memory. No magic—just predictable, scriptable tools.
 
 ## Why Ursix?
 
-### The Problem
+### The Problem with AI Coding Tools
 
-AI coding assistants are powerful, but using them often means:
-- **Context-switching**: leaving your terminal to paste code into a web interface
-- **Copy-paste overhead**: manually moving code and diffs back and forth
-- **Generic responses**: chat interfaces don't know about your project structure
-- **No automation**: can't integrate into CI/CD or git hooks
-- **Inconsistent standards**: code review feedback varies by reviewer mood and memory
+Most AI coding tools are chat interfaces bolted onto an LLM:
+- **Interactive-first**: designed for back-and-forth conversation, not scripts
+- **Unpredictable output**: prose mixed with code, formatting varies by mood
+- **Not composable**: can't pipe to `jq`, can't use in CI, can't automate
+- **Session-dependent**: relies on chat history and context that doesn't persist
+- **Black box behavior**: unclear what the model sees or why it responds as it does
 
-### The Solution
+### The Unix Way
 
-Ursix brings LLM capabilities to where you already work—your terminal—with commands designed for specific development tasks:
+Ursix takes a different approach:
 
-| Pain Point | Ursix Solution |
-|------------|----------------|
-| "I need to review these changes" | `usx review` reads your git diff automatically |
-| "What does this code do?" | `usx explain src/module.rs` with full file context |
-| "Write me a commit message" | `usx commit` analyzes staged changes and formats properly |
-| "Fix these lint errors" | `usx fix --lint --apply` diagnoses and patches files |
-| "Automate in CI" | JSON output by default with exit codes for pipelines |
-| "Enforce team standards" | Configurable `rules.yml` makes reviews consistent |
+| Chat Wrapper | Ursix |
+|--------------|-------|
+| "Can you review my code?" | `usx review` |
+| Copy-paste diff into chat | Reads git diff automatically |
+| Parse prose response manually | JSON output, structured fields |
+| Hope it remembers context | Stateless—same input, same output |
+| Can't automate | Exit codes, stdin/stdout, CI-native |
 
-### Key Design Principles
+**Design principles:**
 
-- **Unix philosophy**: stdin/stdout, exit codes, pipes—Ursix composes with your existing tools
-- **Predictable by default**: single-pass pipeline mode for fast, deterministic results
-- **Powerful when needed**: opt-in `--agent` mode for complex multi-step tasks
-- **Works offline**: first-class support for local models via Ollama
-- **CI-native**: JSON output, meaningful exit codes, and configurable rules for automation
-- **Codified standards**: turn subjective review feedback into enforceable, versioned rules
+- **Stateless by default** — Each command is a pure function: input → LLM → output. No session, no memory, no surprises.
+- **JSON-first** — Machine-readable output by default. Use `--text` when you want human-readable.
+- **Meaningful exit codes** — 12 distinct codes for precise error handling in scripts.
+- **Offline-capable** — First-class Ollama support. Your code never leaves your machine.
+- **Predictable** — Pipeline mode (default) makes a single LLM call with pre-gathered context. No tool loops, no iteration, no runaway agents.
+- **Composable** — Works with `jq`, `xargs`, `find`, `parallel`, `watch`, and the rest of your Unix toolkit.
 
 ## Getting Started
 
@@ -80,421 +75,183 @@ Ursix brings LLM capabilities to where you already work—your terminal—with c
 
 ### Installation
 
-**From source:**
-
 ```bash
 git clone https://github.com/your-org/ursix.git
 cd ursix
 cargo install --path .
 ```
 
-**Verify installation:**
+Verify:
 
 ```bash
 usx --version
-usx models  # List available Ollama models
+usx config --list
 ```
 
-### First Steps
+### Quick Start
 
 ```bash
 # Start Ollama if using local models
 ollama serve
 
-# Ask a question
-usx ask "What is the idiomatic way to handle errors in Rust?"
+# Explain a file
+usx explain src/main.rs --text
 
-# Explain a file in your project
-usx explain src/main.rs
+# Review staged changes
+git add -p
+usx review --text
 
-# Review your staged changes
-git add -p  # Stage some changes
-usx review
+# Generate and apply a commit message
+usx commit --execute
 ```
 
 ## Commands
 
-### `usx ask` — General Queries
-
-Ask questions with optional file context.
-
-```bash
-# Simple question
-usx ask "How do I parse JSON in Rust?"
-
-# With file context
-usx ask --from src/config.rs "How can I improve error handling here?"
-
-# Pipe in context
-cat error.log | usx ask --stdin "What's causing this error?"
-
-# Complex tasks with tool access
-usx ask --agent "Refactor the error handling in src/cli.rs"
-```
-
 ### `usx explain` — Code Explanation
 
-Get clear explanations of code with full file context.
+Reads a file and explains what it does.
 
 ```bash
-# Explain a file
-usx explain src/auth/middleware.rs
-
-# Deep exploration mode
-usx explain src/database/ --agent
+usx explain src/auth/middleware.rs          # Explain a file
+usx explain src/database/ --agent           # Deep exploration with tool access
 ```
 
 ### `usx review` — Code Review
 
-Review code changes with actionable feedback.
+Reviews code changes and outputs structured feedback.
 
 ```bash
-# Review staged changes (default)
-usx review
-
-# Review specific files
-usx review src/api.rs src/handlers.rs
-
-# Review a specific diff
-usx review --diff HEAD~3
-
-# Focus on specific concerns
-usx review --checks security,performance
-
-# Thorough multi-file analysis
-usx review --agent
+usx review                                  # Review staged changes
+usx review src/api.rs src/handlers.rs       # Review specific files
+usx review --diff HEAD~3                    # Review a specific diff range
+usx review --checks security,performance    # Focus on specific rule categories
+usx review --agent                          # Thorough multi-file analysis
 ```
 
-**Exit codes:**
-- `0` — Review passed (no errors or warnings)
-- `1` — Review found issues
-
-### `usx fix` — Code Fixes
-
-Identify and fix issues in your code.
-
-```bash
-# Fix issues in a file
-usx fix src/lib.rs
-
-# Fix clippy/lint issues
-usx fix src/main.rs --lint
-
-# Auto-apply fixes
-usx fix src/lib.rs --lint --apply
-
-# Complex fixes with tool access
-usx fix src/auth.rs --agent
-```
-
-### `usx commit` — Commit Messages
-
-Generate conventional commit messages from staged changes.
-
-```bash
-# Generate commit message
-usx commit
-
-# Include detailed body
-usx commit --body
-
-# Generate and execute immediately
-usx commit --execute
-
-# Different styles
-usx commit --style simple
-```
-
-### `usx config` — Configuration
-
-Manage Ursix configuration.
-
-```bash
-# List all settings
-usx config --list
-
-# Get a specific value
-usx config model
-
-# Set a value (coming soon)
-usx config model qwen2.5-coder:7b
-```
-
-### `usx models` — List Models
-
-List available models from your Ollama instance.
-
-```bash
-usx models
-```
-
-## Execution Modes
-
-Ursix supports two execution modes, letting you choose between speed and capability:
-
-### Pipeline Mode (Default)
-
-Fast, single-pass LLM calls with pre-gathered context. No tool execution, predictable behavior.
-
-```bash
-usx review              # Gathers diff, single LLM call
-usx commit              # Gathers staged changes, generates message
-usx explain src/lib.rs  # Reads file, explains in one pass
-```
-
-**Best for:** Quick tasks, CI/CD pipelines, deterministic output.
-
-### Agent Mode (`--agent`)
-
-Multi-turn execution with full tool access. The LLM can read files, run commands, and iterate on solutions.
-
-```bash
-usx ask --agent "Find and fix all TODO comments in src/"
-usx fix src/main.rs --agent  # Can run clippy, edit files, verify fixes
-usx review --agent           # Can explore related files for context
-```
-
-**Best for:** Complex tasks requiring exploration, multi-file changes, iterative fixes.
-
-## Configuration
-
-Ursix uses layered configuration (highest priority first):
-
-1. **CLI flags** — `--model qwen2.5-coder:7b`
-2. **Environment variables** — `URSIX_MODEL=qwen2.5-coder:7b`
-3. **Project config** — `.ursix.toml` in current or parent directories
-4. **Global config** — `~/.config/ursix/config.toml`
-
-### Configuration File
-
-Create `.ursix.toml` in your project root:
-
-```toml
-# LLM Provider: "ollama" or "openai"
-provider = "ollama"
-
-# Model selection
-model = "qwen2.5-coder:7b"
-
-# Provider URLs
-ollama_url = "http://localhost:11434"
-openai_url = "https://api.openai.com/v1"
-
-# Agent mode settings
-max_turns = 50
-```
-
-### Environment Variables
-
-```bash
-export URSIX_PROVIDER=openai
-export URSIX_MODEL=gpt-4
-export URSIX_OPENAI_API_KEY=sk-...
-export URSIX_OPENAI_URL=https://api.openai.com/v1
-export URSIX_OLLAMA_URL=http://localhost:11434
-export URSIX_MAX_TURNS=50
-```
-
-### CLI Reference
-
-```
-Global Flags:
-    --text              Output as plain text instead of JSON (default: JSON)
-    --provider <NAME>   LLM provider (ollama, openai)
--m, --model <MODEL>     Model to use
-    --ollama-url <URL>  Ollama API base URL
-    --openai-url <URL>  OpenAI-compatible API base URL
-    --openai-api-key    API key for OpenAI endpoints
-    --max-turns <N>     Maximum agent turns (default: 50)
--v, --verbose           Enable verbose output
-```
-
-## Review Rules
-
-**Turn subjective nitpicks into enforceable standards.**
-
-Code review feedback is often inconsistent—what one reviewer catches, another misses. Senior developers carry implicit knowledge about "how we do things here" that isn't documented anywhere. Ursix solves this with a versioned, declarative rules system that makes team standards explicit and enforceable.
-
-### Why Rules Matter
-
-Without codified rules:
-- Review quality depends on reviewer attention and mood
-- New team members don't know unwritten conventions
-- The same issues get flagged (or missed) inconsistently
-- "We should do X" discussions never become enforced policy
-
-With Ursix rules:
-- Standards are versioned alongside your code
-- Every review applies the same checks consistently
-- Onboarding is faster—rules document team expectations
-- Discussions become PRs to `rules.yml`, not repeated comments
-
-### Creating Rules
-
-Create `rules.yml` (or `.ursix/rules.yml`) in your project root:
-
-```yaml
-categories:
-  security:
-    - name: no-unwrap
-      description: "Avoid .unwrap() outside of tests—use proper error handling"
-      severity: error
-      files: "src/**/*.rs"
-
-    - name: no-hardcoded-secrets
-      description: "Never hardcode API keys, passwords, or secrets"
-      severity: error
-
-  style:
-    - name: doc-comments
-      description: "Public functions and types must have doc comments"
-      severity: warning
-      files: "src/lib.rs"
-
-    - name: no-println
-      description: "Use tracing macros instead of println! for logging"
-      severity: warning
-      files: "src/**/*.rs"
-
-  performance:
-    - name: avoid-unnecessary-clone
-      description: "Prefer borrowing over cloning when possible"
-      severity: info
-      files: "*.rs"
-```
-
-### Rule Structure
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Unique identifier (appears in JSON output) |
-| `description` | Yes | Natural language description for the LLM |
-| `severity` | No | `error`, `warning`, or `info` (default: `warning`) |
-| `files` | No | Glob pattern to limit scope (default: all files) |
-
-### Using Rules
-
-```bash
-# Apply all rules
-usx review
-
-# Apply only security rules
-usx review --checks security
-
-# Apply multiple categories
-usx review --checks security,performance
-
-# Rules auto-filter by file type
-usx review src/api.rs  # Only applies rules matching src/api.rs
-```
-
-### Rule Hierarchy
-
-Rules load from multiple locations and merge:
-
-1. **Global rules**: `~/.config/ursix/rules.yml` (your personal defaults)
-2. **Project rules**: `rules.yml` or `.ursix/rules.yml` (team standards)
-
-Project rules extend global rules—they don't replace them.
-
-### Built-in Defaults
-
-If no `rules.yml` exists, Ursix applies sensible defaults:
-
-| Category | Rules |
-|----------|-------|
-| **Security** | no-unwrap, no-hardcoded-secrets, input-validation |
-| **Style** | doc-comments, naming-conventions |
-| **Performance** | avoid-clone, efficient-collections |
-| **Correctness** | error-handling, boundary-conditions |
-
-### Output with Rules
-
-When rules trigger issues, the JSON output includes the rule name:
-
+**Output (JSON by default):**
 ```json
 {
   "summary": "Found 2 issues",
   "issues": [
-    {
-      "severity": "error",
-      "file": "src/auth.rs",
-      "line": 42,
-      "message": "Using .unwrap() on user input—this will panic on invalid data",
-      "rule": "no-unwrap"
-    }
+    {"severity": "error", "file": "src/auth.rs", "line": 42, "message": "...", "rule": "no-unwrap"}
   ],
   "passed": false
 }
 ```
 
-This enables filtering and tracking by rule in CI:
+### `usx fix` — Code Fixes
+
+Identifies and fixes issues in code.
 
 ```bash
-# Count issues by rule
-usx review | jq '[.issues[].rule] | group_by(.) | map({rule: .[0], count: length})'
-
-# Fail only on security rules
-usx review --checks security | jq -e '.passed'
+usx fix src/lib.rs                          # Suggest fixes
+usx fix src/main.rs --lint                  # Fix clippy/lint issues
+usx fix src/lib.rs --lint --apply           # Apply fixes automatically
+usx fix src/auth.rs --agent                 # Complex fixes with tool access
+usx fix src/lib.rs --from review.json       # Fix issues from a previous review
 ```
+
+### `usx commit` — Commit Messages
+
+Generates conventional commit messages from staged changes.
+
+```bash
+usx commit                                  # Generate message (JSON)
+usx commit --text                           # Human-readable output
+usx commit --body                           # Include detailed body
+usx commit --execute                        # Generate and run `git commit`
+usx commit --style simple                   # Non-conventional format
+```
+
+### `usx config` — Configuration
+
+View current configuration.
+
+```bash
+usx config --list                           # Show all settings
+usx config model                            # Show specific value
+```
+
+## Execution Modes
+
+### Pipeline Mode (Default)
+
+Single LLM call with pre-gathered context. No tools, no iteration, deterministic.
+
+```bash
+usx review              # Gathers diff → single LLM call → JSON output
+usx commit              # Gathers staged changes → generates message
+usx explain src/lib.rs  # Reads file → explains in one pass
+```
+
+**Use for:** CI/CD, git hooks, scripts, any automation.
+
+### Agent Mode (`--agent`)
+
+Multi-turn execution with tool access. The LLM can read files, run commands, and iterate.
+
+```bash
+usx fix src/main.rs --agent     # Can run clippy, edit files, verify fixes
+usx review --agent              # Can explore related files for context
+usx explain src/ --agent        # Can traverse directories, read multiple files
+```
+
+**Use for:** Complex tasks requiring exploration or multi-step fixes.
 
 ## Scripting & CI/CD
 
-Ursix is designed for automation. Every command supports structured output, meaningful exit codes, and Unix-style composition.
-
-### JSON Output
-
-All commands output JSON by default for machine-readable output (use `--text` for human-readable):
-
-```bash
-# Structured review results
-usx review | jq '.issues[] | select(.severity == "error")'
-
-# Parse commit message components
-usx commit | jq -r '.title'
-
-# Extract explanation for documentation
-usx explain src/api.rs | jq -r '.explanation'
-```
+Ursix is designed for automation first.
 
 ### Exit Codes
 
-Commands return meaningful exit codes for scripting:
-
-| Exit Code | Meaning |
-|-----------|---------|
-| `0` | Success (review passed, no issues) |
-| `1` | Issues found (review failed, unfixable problems) |
-| `2` | Execution error (invalid args, LLM failure) |
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Issues found (review failed, problems detected) |
+| `2` | Usage error (invalid arguments) |
+| `3` | Configuration error |
+| `4` | Input error (file not found) |
+| `5` | Git error |
+| `6` | Network error |
+| `7` | API error (auth, rate limit) |
+| `8` | Parse error |
+| `9` | Agent limit exceeded |
+| `10` | Internal error |
+| `11` | Token limit exceeded |
 
 ```bash
-# Conditional execution
-usx review --text && echo "Review passed" || echo "Issues found"
-
-# In CI pipelines
-usx review > review.json
-if [ $? -ne 0 ]; then
-  cat review.json | jq '.issues[]'
-  exit 1
-fi
+usx review && echo "Clean" || echo "Issues found (exit: $?)"
 ```
 
-### Pipe Integration
+### Token-Aware Chunking
 
-Commands read from stdin and write to stdout:
+Large codebases can exceed LLM context limits. Ursix handles this with parallel chunked processing:
 
 ```bash
-# Pipe file content for analysis
-cat src/complex.rs | usx ask --stdin "What are the potential bugs here?"
+usx review --chunk                          # Process files in parallel chunks
+usx review --chunk --max-concurrency 8      # Control parallelism
+```
 
-# Chain review and fix
-usx review | usx fix --from - src/main.rs --apply
+Each chunk stays within token limits. Results are aggregated. Failures are tracked per-chunk.
 
-# Process multiple files
+### Composing with Unix Tools
+
+```bash
+# Review only changed files
+git diff --name-only HEAD~1 | xargs usx review
+
+# Batch process modules
 find src -name "*.rs" -exec usx explain {} \; | jq -s '.'
 
-# Use with other tools
-git diff HEAD~1 | usx ask --stdin "Summarize these changes"
+# Filter review issues
+usx review | jq '.issues[] | select(.severity == "error")'
+
+# Count issues by rule
+usx review | jq '[.issues[].rule] | group_by(.) | map({rule: .[0], count: length})'
+
+# Chain review and fix
+usx review > review.json
+usx fix src/ --from review.json --apply
 ```
 
 ### GitHub Actions
@@ -517,15 +274,9 @@ jobs:
       - name: Review Changes
         run: |
           usx review --diff origin/${{ github.base_ref }}...HEAD > review.json
-
-          # Always output the summary
           jq -r '.summary' review.json
-
-          # Fail if issues found
           if [ $(jq '.passed' review.json) = "false" ]; then
-            echo "::group::Review Issues"
             jq -r '.issues[] | "[\(.severity)] \(.file):\(.line // "?") - \(.message)"' review.json
-            echo "::endgroup::"
             exit 1
           fi
 
@@ -537,205 +288,209 @@ jobs:
           path: review.json
 ```
 
-### GitLab CI
-
-```yaml
-code-review:
-  stage: test
-  script:
-    - usx review --diff $CI_MERGE_REQUEST_DIFF_BASE_SHA...$CI_COMMIT_SHA > review.json
-    - |
-      if [ $(jq '.passed' review.json) = "false" ]; then
-        jq '.issues[]' review.json
-        exit 1
-      fi
-  artifacts:
-    reports:
-      codequality: review.json
-```
-
 ### Git Hooks
 
-**prepare-commit-msg** — Auto-generate commit messages:
-
+**prepare-commit-msg:**
 ```bash
 #!/bin/bash
-# .git/hooks/prepare-commit-msg
-usx commit > "$1"
+usx commit --text > "$1"
 ```
 
-**pre-commit** — Review staged changes:
-
+**pre-commit:**
 ```bash
 #!/bin/bash
-# .git/hooks/pre-commit
 usx review --checks security > /tmp/review.json
 if [ $(jq '.passed' /tmp/review.json) = "false" ]; then
   echo "Security issues found:"
-  jq -r '.issues[] | "  \(.file):\(.line) - \(.message)"' /tmp/review.json
+  jq -r '.issues[] | "\(.file):\(.line) - \(.message)"' /tmp/review.json
   exit 1
 fi
 ```
 
-### Composing with Unix Tools
+## Review Rules
 
-```bash
-# Review only changed files
-git diff --name-only HEAD~1 | xargs usx review
+Codify your team's standards in version-controlled YAML.
 
-# Batch explain all modules
-for f in src/*.rs; do
-  echo "=== $f ==="
-  usx explain "$f" | jq -r '.explanation'
-done
+### Why Rules?
 
-# Generate changelog from commits
-git log --oneline HEAD~10..HEAD | while read sha msg; do
-  git show $sha --stat | usx ask --stdin "Summarize this commit"
-done
+- **Consistent reviews** — Same checks every time, not dependent on reviewer mood
+- **Documented standards** — New team members see expectations immediately
+- **Auditable** — Changes to standards are PRs, not hallway conversations
 
-# Find files needing documentation
-usx review --checks style | jq -r '.issues[] | select(.rule == "doc-comments") | .file' | sort -u
+### Creating Rules
+
+Create `rules.yml` or `.ursix/rules.yml`:
+
+```yaml
+categories:
+  security:
+    - name: no-unwrap
+      description: "Avoid .unwrap() outside of tests—use proper error handling"
+      severity: error
+      files: "src/**/*.rs"
+
+    - name: no-hardcoded-secrets
+      description: "Never hardcode API keys, passwords, or secrets"
+      severity: error
+
+  style:
+    - name: doc-comments
+      description: "Public functions and types must have doc comments"
+      severity: warning
+      files: "src/lib.rs"
 ```
 
-### Shell Integration
-
-Add to `.bashrc` or `.zshrc`:
+### Using Rules
 
 ```bash
-# Aliases
-alias review='usx review'
-alias explain='usx explain'
-alias commit='usx commit --execute'
+usx review                          # Apply all rules
+usx review --checks security        # Only security rules
+usx review --checks security,style  # Multiple categories
+```
 
-# Function: review and fix in one go
-fix-review() {
-  usx review > /tmp/review.json
-  if [ $(jq '.passed' /tmp/review.json) = "false" ]; then
-    usx fix --from /tmp/review.json "$@" --apply
-  fi
-}
+Rules output includes the rule name for filtering:
+```bash
+usx review | jq '.issues[] | select(.rule == "no-unwrap")'
+```
 
-# Function: explain with less paging
-explain() {
-  usx explain "$@" | less
-}
+## Configuration
+
+Layered configuration (highest priority first):
+
+1. **CLI flags** — `--model qwen2.5-coder:7b`
+2. **Environment variables** — `URSIX_MODEL=qwen2.5-coder:7b`
+3. **Project config** — `.ursix.toml` in current or parent directories
+4. **Global config** — `~/.config/ursix/config.toml`
+
+### Configuration File
+
+```toml
+# .ursix.toml
+provider = "ollama"
+model = "qwen2.5-coder:7b"
+ollama_url = "http://localhost:11434"
+openai_url = "https://api.openai.com/v1"
+max_turns = 50
+```
+
+### Environment Variables
+
+```bash
+export URSIX_PROVIDER=openai
+export URSIX_MODEL=gpt-4
+export URSIX_OPENAI_API_KEY=sk-...
+export URSIX_OPENAI_URL=https://api.openai.com/v1
+export URSIX_OLLAMA_URL=http://localhost:11434
+export URSIX_MAX_TURNS=50
+```
+
+### CLI Reference
+
+```
+Global Flags:
+    --text                 Human-readable output (default: JSON)
+    --provider <NAME>      LLM provider (ollama, openai)
+-m, --model <MODEL>        Model to use
+    --ollama-url <URL>     Ollama API base URL
+    --openai-url <URL>     OpenAI-compatible API base URL
+    --openai-api-key <KEY> API key for OpenAI endpoints
+    --max-turns <N>        Maximum agent turns (default: 50)
+    --chunk                Enable chunked processing for large inputs
+    --max-concurrency <N>  Parallel chunk limit (default: 4)
+    --tokenizer <MODE>     Token counting: heuristic (fast) or full (accurate)
 ```
 
 ## Architecture
 
 ```
 src/
-├── main.rs          # Entry point, tokio runtime
-├── cli.rs           # Argument parsing, command dispatch
-├── config.rs        # Layered configuration (files, env, CLI)
-├── rules.rs         # Review rules loading and resolution
-├── pipeline.rs      # Stateless single-pass executor
-├── agent.rs         # Multi-turn agentic loop
-├── output.rs        # Human/JSON output formatting
-├── prompts.rs       # Command-specific system prompts
+├── main.rs              # Entry point, tokio runtime
+├── cli.rs               # Argument parsing, command dispatch
+├── config.rs            # Layered configuration (files, env, CLI)
+├── context.rs           # Pre-LLM context gathering (files, git state)
+├── input.rs             # Input source handling (stdin, files)
+├── pipeline.rs          # Stateless single-pass executor
+├── agent.rs             # Multi-turn agentic loop
+├── chunk.rs             # Token-aware parallel chunking
+├── tokens.rs            # Token counting (heuristic and full modes)
+├── parsers.rs           # Response parsing utilities
+├── prompts.rs           # Command-specific system prompts
+├── commands/
+│   ├── mod.rs
+│   ├── explain.rs
+│   ├── review.rs
+│   ├── fix.rs
+│   ├── commit.rs
+│   └── config.rs
+├── output/
+│   ├── mod.rs           # Exit codes, output modes
+│   ├── explain.rs
+│   ├── review.rs
+│   ├── fix.rs
+│   └── commit.rs
+├── rules/
+│   ├── mod.rs           # Rule types and resolution
+│   ├── defaults.rs      # Built-in default rules
+│   ├── loader.rs        # YAML loading
+│   └── resolver.rs      # Category-based filtering
 ├── llm/
-│   ├── mod.rs       # LlmClient trait and types
-│   ├── ollama.rs    # Ollama API implementation
-│   └── openai.rs    # OpenAI-compatible API implementation
+│   ├── mod.rs           # LlmClient trait and types
+│   ├── ollama.rs        # Ollama API implementation
+│   └── openai.rs        # OpenAI-compatible API implementation
 └── tools/
-    ├── mod.rs       # Tool trait and types
-    ├── bash.rs      # Shell execution
-    ├── file.rs      # Read, write, edit operations
-    └── search.rs    # Glob and grep operations
+    ├── mod.rs           # Tool trait and types
+    ├── executor.rs      # Tool dispatch and execution
+    ├── bash.rs          # Shell execution with timeout
+    ├── file.rs          # Read, write, edit operations
+    ├── search.rs        # Glob and grep operations
+    └── path.rs          # Path validation and safety
 ```
 
 ### Agent Tools
 
-When running in `--agent` mode, the LLM has access to:
+In `--agent` mode, the LLM has access to:
 
 | Tool | Description |
 |------|-------------|
-| `bash` | Execute shell commands with timeout |
-| `read` | Read file contents |
+| `bash` | Execute shell commands (2min timeout, dangerous command warnings) |
+| `read` | Read file contents with optional line numbers |
 | `write` | Create or overwrite files |
-| `edit` | Make precise edits to existing files |
-| `glob` | Find files matching patterns |
+| `edit` | Make precise text replacements |
+| `glob` | Find files by pattern |
 | `grep` | Search file contents with regex |
 
 ## Contributing
-
-Contributions are welcome. Please read the guidelines below before submitting.
 
 ### Development Setup
 
 ```bash
 git clone https://github.com/your-org/ursix.git
 cd ursix
-./.githooks/install.sh  # Install pre-commit hooks
+./.githooks/install.sh
 cargo build
 cargo test
 ```
 
 ### Code Quality
 
-The project enforces strict quality standards via pre-commit hooks:
+Pre-commit hooks enforce:
+- `cargo fmt --check`
+- Pedantic Clippy (no `unwrap`, `expect`, `panic`, `todo`, `unimplemented`)
+- Full test suite
 
-- **Formatting**: `cargo fmt --check`
-- **Linting**: Pedantic Clippy with strict error handling rules
-- **Testing**: Full test suite must pass
+### Adding Commands
 
-Key lint rules:
-- `unsafe_code` — forbidden
-- `unwrap_used`, `expect_used`, `panic` — denied
-- No `todo!()` or `unimplemented!()` in committed code
-
-### Running Tests
-
-```bash
-# Unit and integration tests
-cargo test
-
-# With output
-cargo test -- --nocapture
-```
-
-### Adding New Commands
-
-1. Add the command variant to `Command` enum in `cli.rs`
-2. Create the handler function `cmd_<name>()`
-3. Add system prompts in `prompts.rs` (both agent and pipeline variants)
-4. Add output types in `output.rs`
+1. Add variant to `Command` enum in `cli.rs`
+2. Create handler in `commands/`
+3. Add prompts in `prompts.rs`
+4. Add output types in `output/`
 5. Write tests
-
-### Adding LLM Providers
-
-Implement the `LlmClient` trait:
-
-```rust
-#[async_trait]
-pub trait LlmClient: Send + Sync {
-    async fn send_chat_completion(
-        &self,
-        messages: &[Message],
-        tools: Option<&[ToolDefinition]>,
-        json_mode: bool,
-    ) -> Result<ChatResponse, LlmError>;
-
-    fn model_name(&self) -> &str;
-}
-```
-
-## Acknowledgments
-
-Ursix is built with:
-
-- [Clap](https://github.com/clap-rs/clap) — Command-line argument parsing
-- [Tokio](https://tokio.rs/) — Async runtime
-- [Reqwest](https://github.com/seanmonstar/reqwest) — HTTP client
-- [Serde](https://serde.rs/) — Serialization framework
 
 ---
 
 <div align="center">
 
 **[Report a Bug](https://github.com/your-org/ursix/issues)** •
-**[Request a Feature](https://github.com/your-org/ursix/issues)** •
-**[Discussions](https://github.com/your-org/ursix/discussions)**
+**[Request a Feature](https://github.com/your-org/ursix/issues)**
 
 </div>
