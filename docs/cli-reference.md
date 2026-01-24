@@ -1,0 +1,121 @@
+# CLI Reference
+
+Complete reference for all Ursix commands and flags.
+
+## Global Flags
+
+These flags apply to all commands:
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--json` | boolean | false | Output as JSON for scripting |
+| `--provider` | enum | config | LLM provider (`ollama`, `openai`) |
+| `-m, --model` | string | config | Model to use |
+| `--ollama-url` | string | config | Ollama API base URL |
+| `--openai-url` | string | config | OpenAI-compatible API base URL |
+| `--openai-api-key` | string | config | API key for OpenAI-compatible endpoints |
+| `--max-turns` | usize | config | Maximum agent turns before stopping |
+| `--chunk` | boolean | false | Enable chunked processing for large inputs |
+| `--max-concurrency` | usize | 4 | Maximum concurrent chunk executions |
+| `--tokenizer` | enum | heuristic | Tokenizer mode (`heuristic`, `full`) |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `URSIX_OPENAI_API_KEY` | API key for OpenAI-compatible endpoints |
+
+## Commands
+
+- [`explain`](commands/explain.md) - Explain code, files, or concepts
+- [`review`](commands/review.md) - Review code changes
+- [`fix`](commands/fix.md) - Fix issues in code
+- [`commit`](commands/commit.md) - Generate commit messages
+- [`config`](commands/config.md) - View configuration
+
+## Execution Modes
+
+### Pipeline Mode (Default)
+
+Single LLM call with pre-gathered context. No tools, no message history.
+
+- Fast and predictable
+- Suitable for most tasks
+- Used by all commands by default
+
+### Agent Mode (`--agent`)
+
+Multi-turn execution with tool access for complex tasks.
+
+- Can explore files, run commands, edit code
+- Stops after `--max-turns` iterations
+- Available on: `explain`, `review`, `fix`
+- Not available on: `commit`, `config`
+
+## Chunked Processing
+
+Enable with `--chunk` flag (available on `review`, `fix`).
+
+- Splits input by file boundaries
+- Processes files in parallel
+- Controlled by `--max-concurrency`
+- Aggregates results from all chunks
+- Useful for large codebases
+
+**Not supported on:** `explain`, `commit` (require full context)
+
+## Exit Codes
+
+| Code | Name | Meaning |
+|------|------|---------|
+| 0 | Success | Command completed successfully |
+| 1 | IssuesFound | Review found issues or fix had failures |
+| 2 | ConfigError | Configuration loading/validation failed |
+| 3 | InputError | Input file/stdin reading failed |
+| 4 | GitError | Git operation failed |
+| 5 | ParseError | Response parsing failed |
+| 6 | AgentLimitError | Agent exceeded max turns |
+
+## Configuration
+
+Configuration is loaded from multiple sources (highest to lowest precedence):
+
+1. CLI flags
+2. Environment variables
+3. `.ursix.toml` in working directory
+4. `~/.ursix.toml` in home directory
+5. Built-in defaults
+
+### Configuration File Format
+
+```toml
+# .ursix.toml
+provider = "openai"
+model = "gpt-4"
+ollama_url = "http://localhost:11434"
+openai_url = "https://api.openai.com/v1"
+openai_api_key = "sk-..."
+max_turns = 10
+tokenizer_mode = "heuristic"
+```
+
+### Available Settings
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `provider` | enum | LLM provider (`ollama`, `openai`) |
+| `model` | string | Model name to use |
+| `ollama_url` | string | Ollama API base URL |
+| `openai_url` | string | OpenAI-compatible API base URL |
+| `openai_api_key` | string | OpenAI API key |
+| `max_turns` | usize | Maximum agent turns |
+| `tokenizer_mode` | enum | Token counting mode (`heuristic`, `full`) |
+
+## Input Handling
+
+For commands with multiple input methods, precedence is:
+
+1. Explicit file input (`--from FILE`)
+2. Piped stdin (if no explicit input and stdin is piped)
+3. Command arguments (positional, `--diff`, files)
+4. Default behavior (git context, filesystem scan)
