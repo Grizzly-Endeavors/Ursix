@@ -323,12 +323,7 @@ async fn run_file_chunked_review(
     })
     .await;
 
-    Ok(output_chunked_review_results(
-        chunked_result,
-        false,
-        partial,
-        output_mode,
-    ))
+    output_chunked_review_results(chunked_result, false, partial, output_mode)
 }
 
 /// Run review with category-based chunking (one LLM call per category)
@@ -369,12 +364,7 @@ async fn run_category_review(
         })
         .await;
 
-    Ok(output_chunked_review_results(
-        chunked_result,
-        true,
-        partial,
-        output_mode,
-    ))
+    output_chunked_review_results(chunked_result, true, partial, output_mode)
 }
 
 /// Run review with nested chunking (category × file)
@@ -415,12 +405,7 @@ async fn run_nested_review(
         })
         .await;
 
-    Ok(output_chunked_review_results(
-        chunked_result,
-        true,
-        partial,
-        output_mode,
-    ))
+    output_chunked_review_results(chunked_result, true, partial, output_mode)
 }
 
 /// Execute a review for a single file chunk
@@ -467,12 +452,15 @@ async fn execute_category_review_chunk(
 ///
 /// When `partial` is true and there are failures, returns partial results.
 /// Otherwise, aggregates normally (failures become error issues).
+///
+/// # Errors
+/// Returns error if JSON serialization fails in partial mode.
 fn output_chunked_review_results(
     chunked: ChunkedResult<ReviewResult>,
     deduplicate: bool,
     partial: bool,
     output_mode: OutputMode,
-) -> ExitCode {
+) -> Result<ExitCode> {
     let has_failures = !chunked.failures.is_empty();
     let has_successes = !chunked.results.is_empty();
 
@@ -481,19 +469,20 @@ fn output_chunked_review_results(
         let partial_result = build_partial_review_result(&chunked, deduplicate);
         let response =
             PartialFailureResponse::new(partial_result, crate::output::OutputMeta::minimal());
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&response)
-                .unwrap_or_else(|e| format!("{{\"error\": \"serialization failed: {e}\"}}"))
-        );
-        return ExitCode::IssuesFound;
+        match serde_json::to_string_pretty(&response) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                anyhow::bail!("failed to serialize partial review result: {e}");
+            }
+        }
+        return Ok(ExitCode::IssuesFound);
     }
 
     // Normal mode: aggregate results (failures become error issues)
     let result = aggregate_review_results(chunked, deduplicate);
     let exit_code = result.exit_code();
     println!("{}", result.render(output_mode));
-    exit_code
+    Ok(exit_code)
 }
 
 /// Build a partial review result from chunked results

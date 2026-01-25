@@ -60,21 +60,31 @@ async fn read_file(path: &Path) -> Result<FileContext> {
     })
 }
 
-/// Read multiple files concurrently
-async fn read_files(paths: &[PathBuf]) -> Vec<FileContext> {
+/// Result of reading multiple files, tracking both successes and failures
+#[derive(Debug)]
+struct ReadFilesResult {
+    /// Successfully read files
+    files: Vec<FileContext>,
+    /// Files that failed to read, with error messages
+    failures: Vec<(PathBuf, String)>,
+}
+
+/// Read multiple files concurrently, tracking failures explicitly
+async fn read_files(paths: &[PathBuf]) -> ReadFilesResult {
     let futures: Vec<_> = paths.iter().map(|p| read_file(p)).collect();
     let results = futures::future::join_all(futures).await;
 
-    results
-        .into_iter()
-        .filter_map(|r| match r {
-            Ok(ctx) => Some(ctx),
-            Err(e) => {
-                tracing::warn!(error = %e, "failed to read file for context");
-                None
-            }
-        })
-        .collect()
+    let mut files = Vec::new();
+    let mut failures = Vec::new();
+
+    for (path, result) in paths.iter().zip(results) {
+        match result {
+            Ok(ctx) => files.push(ctx),
+            Err(e) => failures.push((path.clone(), e.to_string())),
+        }
+    }
+
+    ReadFilesResult { files, failures }
 }
 
 /// Gather context for code review
@@ -101,10 +111,15 @@ pub async fn gather_review_context(
         .await
         .context("failed to get git diff for review")?;
 
-    let file_contexts = read_files(files).await;
+    let read_result = read_files(files).await;
+
+    // Report any file read failures to stderr so users are aware
+    for (path, error) in &read_result.failures {
+        eprintln!("warning: skipping {}: {error}", path.display());
+    }
 
     Ok(GatheredContext {
-        files: file_contexts,
+        files: read_result.files,
         git_diff: Some(git_diff),
         git_status: None,
         additional_context: None,
@@ -160,14 +175,19 @@ pub async fn gather_explain_context(
         })
         .collect();
 
-    let file_contexts = read_files(&resolved_paths).await;
+    let read_result = read_files(&resolved_paths).await;
 
-    if file_contexts.is_empty() && !files.is_empty() {
+    // Report any file read failures to stderr so users are aware
+    for (path, error) in &read_result.failures {
+        eprintln!("warning: skipping {}: {error}", path.display());
+    }
+
+    if read_result.files.is_empty() && !files.is_empty() {
         anyhow::bail!("could not read any of the specified files");
     }
 
     Ok(GatheredContext {
-        files: file_contexts,
+        files: read_result.files,
         git_diff: None,
         git_status: None,
         additional_context: None,
@@ -200,10 +220,15 @@ pub async fn gather_fix_context(
         })
         .collect();
 
-    let file_contexts = read_files(&resolved_paths).await;
+    let read_result = read_files(&resolved_paths).await;
+
+    // Report any file read failures to stderr so users are aware
+    for (path, error) in &read_result.failures {
+        eprintln!("warning: skipping {}: {error}", path.display());
+    }
 
     Ok(GatheredContext {
-        files: file_contexts,
+        files: read_result.files,
         git_diff: None,
         git_status: None,
         additional_context: issues.map(String::from),
@@ -247,10 +272,12 @@ mod tests {
 
         let paths = vec![file_path.clone(), PathBuf::from("/nonexistent/file.txt")];
 
-        let results = read_files(&paths).await;
-        // Should only contain the file that exists
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].path, file_path);
+        let result = read_files(&paths).await;
+        // Should have one success and one failure
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].path, file_path);
+        assert_eq!(result.failures.len(), 1);
+        assert_eq!(result.failures[0].0, PathBuf::from("/nonexistent/file.txt"));
     }
 
     #[tokio::test]

@@ -195,11 +195,12 @@ async fn run_chunked_fix(
         let partial_result = build_partial_fix_result(&chunked_result);
         let response =
             PartialFailureResponse::new(partial_result, crate::output::OutputMeta::minimal());
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&response)
-                .unwrap_or_else(|e| format!("{{\"error\": \"serialization failed: {e}\"}}"))
-        );
+        match serde_json::to_string_pretty(&response) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                anyhow::bail!("failed to serialize partial fix result: {e}");
+            }
+        }
         return Ok(ExitCode::IssuesFound);
     }
 
@@ -301,8 +302,11 @@ fn print_apply_results(results: &ApplyResults, output_mode: OutputMode) {
         }
     } else {
         // For JSON mode, print the apply results as JSON
-        if let Ok(json) = serde_json::to_string_pretty(results) {
-            println!("{json}");
+        match serde_json::to_string_pretty(results) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("error: failed to serialize apply results: {e}");
+            }
         }
     }
 }

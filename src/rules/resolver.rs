@@ -59,6 +59,20 @@ impl RulesConfig {
         files: &[PathBuf],
     ) -> CategoryResolvedRules {
         let mut category_rules = CategoryResolvedRules::default();
+        let available_categories: Vec<&str> = self.categories.keys().map(String::as_str).collect();
+
+        // Warn about checks that don't match any known category
+        for check in checks {
+            if !available_categories
+                .iter()
+                .any(|c| c.eq_ignore_ascii_case(check))
+            {
+                eprintln!(
+                    "warning: no category named '{check}' found (available: {})",
+                    available_categories.join(", ")
+                );
+            }
+        }
 
         for (category, rules) in &self.categories {
             // Skip if checks are specified and this category isn't in the list
@@ -89,6 +103,11 @@ impl RulesConfig {
 
             if !resolved.is_empty() {
                 category_rules.insert(category.clone(), ResolvedRules { rules: resolved });
+            } else if checks.iter().any(|c| c.eq_ignore_ascii_case(category)) {
+                // User explicitly requested this category but no rules matched the files
+                eprintln!(
+                    "warning: category '{category}' has no rules matching the specified files"
+                );
             }
         }
 
@@ -98,7 +117,9 @@ impl RulesConfig {
     /// Check if a glob pattern matches any of the given files.
     fn matches_any_file(pattern: &str, files: &[PathBuf]) -> bool {
         let Ok(glob_pattern) = glob::Pattern::new(pattern) else {
-            return true; // Invalid pattern matches everything
+            // Invalid pattern: warn and skip this rule rather than applying to everything
+            eprintln!("warning: invalid glob pattern '{pattern}', skipping rule");
+            return false;
         };
 
         files.iter().any(|file| {

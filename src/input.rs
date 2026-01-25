@@ -35,7 +35,8 @@ pub fn try_read_piped_stdin() -> Option<String> {
             None
         }
         Err(e) => {
-            tracing::warn!(error = %e, "failed to read piped stdin");
+            // Ensure user sees this error - don't silently ignore piped input failures
+            eprintln!("warning: failed to read piped stdin: {e}");
             None
         }
     }
