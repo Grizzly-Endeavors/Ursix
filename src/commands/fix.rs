@@ -11,8 +11,8 @@ use crate::config::Config;
 use crate::context::{GatheredContext, gather_fix_context};
 use crate::input::{read_from_source, stdin_is_piped, try_read_piped_stdin};
 use crate::output::{
-    AppliedFix, ApplyResults, ApplyStatus, CommandOutput, ExitCode, ExitStatus, Fix, FixResult,
-    OutputMode,
+    AppliedFix, ApplyResults, ApplyStatus, ChunkFailureInfo, CommandOutput, ExitCode, ExitStatus,
+    Fix, FixResult, OutputMode, PartialFailureResponse, PartialFixResult,
 };
 use crate::parsers::parse_fix_response;
 use crate::pipeline::PipelineError;
@@ -20,6 +20,7 @@ use crate::prompts::pipeline_prompt_for_command;
 use crate::tokens::{TokenCheck, TokenLimits, check_token_limits, count_context_tokens};
 
 /// Options for the fix command
+#[allow(clippy::struct_excessive_bools)]
 pub struct FixOptions {
     /// Fix lint/clippy issues
     pub lint: bool,
@@ -29,6 +30,8 @@ pub struct FixOptions {
     pub chunk: bool,
     /// Maximum concurrent chunk executions
     pub max_concurrency: usize,
+    /// Return partial results when some chunks fail
+    pub partial: bool,
 }
 
 pub async fn cmd_fix(
@@ -43,6 +46,7 @@ pub async fn cmd_fix(
         apply,
         chunk: chunk_mode,
         max_concurrency,
+        partial,
     } = options;
     // Check for piped stdin when no explicit --from is provided
     let piped_content = if from.is_some() {
@@ -96,6 +100,7 @@ pub async fn cmd_fix(
             &context,
             apply,
             max_concurrency,
+            partial,
             output_mode,
         )
         .await;
@@ -145,6 +150,7 @@ async fn run_chunked_fix(
     context: &GatheredContext,
     apply: bool,
     max_concurrency: usize,
+    partial: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let chunks = chunk_by_file(context, config.tokenizer_mode)?;
@@ -181,6 +187,22 @@ async fn run_chunked_fix(
     })
     .await;
 
+    let has_failures = !chunked_result.failures.is_empty();
+    let has_successes = !chunked_result.results.is_empty();
+
+    // If partial mode and we have both successes and failures, output partial result
+    if partial && has_failures && has_successes {
+        let partial_result = build_partial_fix_result(&chunked_result);
+        let response =
+            PartialFailureResponse::new(partial_result, crate::output::OutputMeta::minimal());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&response)
+                .unwrap_or_else(|e| format!("{{\"error\": \"serialization failed: {e}\"}}"))
+        );
+        return Ok(ExitCode::IssuesFound);
+    }
+
     let result = aggregate_fix_results(chunked_result);
 
     // Apply fixes if requested
@@ -200,6 +222,49 @@ async fn run_chunked_fix(
     }
 
     Ok(exit_code)
+}
+
+/// Build a partial fix result from chunked results
+fn build_partial_fix_result(chunked: &ChunkedResult<FixResult>) -> PartialFixResult {
+    let mut all_fixes: Vec<Fix> = Vec::new();
+    let mut chunks_processed: Vec<String> = Vec::new();
+    let mut diagnosis_parts: Vec<String> = Vec::new();
+
+    // Collect results from successful chunks
+    for (i, result) in chunked.results.iter().enumerate() {
+        all_fixes.extend(result.fixes.clone());
+        chunks_processed.push(format!("chunk-{i}"));
+        if !result.diagnosis.is_empty() {
+            diagnosis_parts.push(result.diagnosis.clone());
+        }
+    }
+
+    // Convert failures to ChunkFailureInfo
+    let chunks_failed: Vec<ChunkFailureInfo> = chunked
+        .failures
+        .iter()
+        .map(|f| ChunkFailureInfo {
+            chunk_id: f.chunk_id.clone(),
+            error: f.error.clone(),
+        })
+        .collect();
+
+    let diagnosis = if diagnosis_parts.is_empty() {
+        format!(
+            "Partial fix: {} chunks processed, {} failed",
+            chunks_processed.len(),
+            chunks_failed.len()
+        )
+    } else {
+        diagnosis_parts.join("\n")
+    };
+
+    PartialFixResult {
+        fixes: all_fixes,
+        chunks_processed,
+        chunks_failed,
+        diagnosis,
+    }
 }
 
 /// Determine exit code for fix result with optional apply results

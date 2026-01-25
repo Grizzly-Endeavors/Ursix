@@ -13,7 +13,10 @@ use crate::cli::run_pipeline;
 use crate::config::Config;
 use crate::context::{GatheredContext, gather_review_context};
 use crate::input::{read_from_source, stdin_is_piped, try_read_piped_stdin};
-use crate::output::{CommandOutput, ExitCode, ExitStatus, OutputMode, ReviewIssue, ReviewResult};
+use crate::output::{
+    ChunkFailureInfo, CommandOutput, ExitCode, ExitStatus, OutputMode, PartialFailureResponse,
+    PartialReviewResult, ReviewIssue, ReviewResult,
+};
 use crate::parsers::parse_review_response;
 use crate::pipeline::PipelineError;
 use crate::prompts::{build_category_review_prompt, build_review_prompt};
@@ -26,6 +29,8 @@ pub struct ReviewOptions {
     pub chunk: bool,
     /// Maximum concurrent chunk executions
     pub max_concurrency: usize,
+    /// Return partial results when some chunks fail
+    pub partial: bool,
 }
 
 pub async fn cmd_review(
@@ -40,6 +45,7 @@ pub async fn cmd_review(
     let ReviewOptions {
         chunk: chunk_mode,
         max_concurrency,
+        partial,
     } = options;
 
     let file_paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
@@ -77,7 +83,15 @@ pub async fn cmd_review(
                     .resolve(checks, &file_paths)
                     .to_prompt_section(),
             );
-            run_file_chunked_review(config, &context, &prompt, max_concurrency, output_mode).await
+            run_file_chunked_review(
+                config,
+                &context,
+                &prompt,
+                max_concurrency,
+                partial,
+                output_mode,
+            )
+            .await
         }
         (true, false) => {
             run_category_review_checked(
@@ -87,6 +101,7 @@ pub async fn cmd_review(
                 checks,
                 &file_paths,
                 max_concurrency,
+                partial,
                 output_mode,
             )
             .await
@@ -99,6 +114,7 @@ pub async fn cmd_review(
                 checks,
                 &file_paths,
                 max_concurrency,
+                partial,
                 output_mode,
             )
             .await
@@ -179,6 +195,7 @@ async fn run_single_review_with_limits(
 }
 
 /// Run category review, checking for empty rules first
+#[allow(clippy::too_many_arguments)]
 async fn run_category_review_checked(
     config: &Config,
     context: &GatheredContext,
@@ -186,6 +203,7 @@ async fn run_category_review_checked(
     checks: &[String],
     file_paths: &[PathBuf],
     max_concurrency: usize,
+    partial: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let category_rules = rules_config.resolve_by_category(checks, file_paths);
@@ -197,12 +215,14 @@ async fn run_category_review_checked(
         context,
         &category_rules,
         max_concurrency,
+        partial,
         output_mode,
     )
     .await
 }
 
 /// Run nested review, checking for empty rules first
+#[allow(clippy::too_many_arguments)]
 async fn run_nested_review_checked(
     config: &Config,
     context: &GatheredContext,
@@ -210,6 +230,7 @@ async fn run_nested_review_checked(
     checks: &[String],
     file_paths: &[PathBuf],
     max_concurrency: usize,
+    partial: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let category_rules = rules_config.resolve_by_category(checks, file_paths);
@@ -221,6 +242,7 @@ async fn run_nested_review_checked(
         context,
         &category_rules,
         max_concurrency,
+        partial,
         output_mode,
     )
     .await
@@ -267,6 +289,7 @@ async fn run_file_chunked_review(
     context: &GatheredContext,
     system_prompt: &str,
     max_concurrency: usize,
+    partial: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let chunks = chunk_by_file(context, config.tokenizer_mode)?;
@@ -300,10 +323,12 @@ async fn run_file_chunked_review(
     })
     .await;
 
-    let result = aggregate_review_results(chunked_result, false);
-    let exit_code = result.exit_code();
-    println!("{}", result.render(output_mode));
-    Ok(exit_code)
+    Ok(output_chunked_review_results(
+        chunked_result,
+        false,
+        partial,
+        output_mode,
+    ))
 }
 
 /// Run review with category-based chunking (one LLM call per category)
@@ -312,6 +337,7 @@ async fn run_category_review(
     context: &GatheredContext,
     category_rules: &crate::rules::CategoryResolvedRules,
     max_concurrency: usize,
+    partial: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let chunks = chunk_by_category(context, category_rules, config.tokenizer_mode)?;
@@ -343,10 +369,12 @@ async fn run_category_review(
         })
         .await;
 
-    let result = aggregate_review_results(chunked_result, true);
-    let exit_code = result.exit_code();
-    println!("{}", result.render(output_mode));
-    Ok(exit_code)
+    Ok(output_chunked_review_results(
+        chunked_result,
+        true,
+        partial,
+        output_mode,
+    ))
 }
 
 /// Run review with nested chunking (category × file)
@@ -355,6 +383,7 @@ async fn run_nested_review(
     context: &GatheredContext,
     category_rules: &crate::rules::CategoryResolvedRules,
     max_concurrency: usize,
+    partial: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let chunks = chunk_by_category_and_file(context, category_rules, config.tokenizer_mode)?;
@@ -386,10 +415,12 @@ async fn run_nested_review(
         })
         .await;
 
-    let result = aggregate_review_results(chunked_result, true);
-    let exit_code = result.exit_code();
-    println!("{}", result.render(output_mode));
-    Ok(exit_code)
+    Ok(output_chunked_review_results(
+        chunked_result,
+        true,
+        partial,
+        output_mode,
+    ))
 }
 
 /// Execute a review for a single file chunk
@@ -430,6 +461,82 @@ async fn execute_category_review_chunk(
     .context("failed to execute category review chunk")?;
 
     parse_review_response(&response).context("failed to parse category review response")
+}
+
+/// Output chunked review results, handling partial mode
+///
+/// When `partial` is true and there are failures, returns partial results.
+/// Otherwise, aggregates normally (failures become error issues).
+fn output_chunked_review_results(
+    chunked: ChunkedResult<ReviewResult>,
+    deduplicate: bool,
+    partial: bool,
+    output_mode: OutputMode,
+) -> ExitCode {
+    let has_failures = !chunked.failures.is_empty();
+    let has_successes = !chunked.results.is_empty();
+
+    // If partial mode and we have both successes and failures, output partial result
+    if partial && has_failures && has_successes {
+        let partial_result = build_partial_review_result(&chunked, deduplicate);
+        let response =
+            PartialFailureResponse::new(partial_result, crate::output::OutputMeta::minimal());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&response)
+                .unwrap_or_else(|e| format!("{{\"error\": \"serialization failed: {e}\"}}"))
+        );
+        return ExitCode::IssuesFound;
+    }
+
+    // Normal mode: aggregate results (failures become error issues)
+    let result = aggregate_review_results(chunked, deduplicate);
+    let exit_code = result.exit_code();
+    println!("{}", result.render(output_mode));
+    exit_code
+}
+
+/// Build a partial review result from chunked results
+fn build_partial_review_result(
+    chunked: &ChunkedResult<ReviewResult>,
+    deduplicate: bool,
+) -> PartialReviewResult {
+    let mut all_issues: Vec<ReviewIssue> = Vec::new();
+    let mut chunks_processed: Vec<String> = Vec::new();
+
+    // Collect results from successful chunks
+    for (i, result) in chunked.results.iter().enumerate() {
+        all_issues.extend(result.issues.clone());
+        chunks_processed.push(format!("chunk-{i}"));
+    }
+
+    // Deduplicate if requested
+    if deduplicate {
+        all_issues = deduplicate_issues(all_issues);
+    }
+
+    // Convert failures to ChunkFailureInfo
+    let chunks_failed: Vec<ChunkFailureInfo> = chunked
+        .failures
+        .iter()
+        .map(|f| ChunkFailureInfo {
+            chunk_id: f.chunk_id.clone(),
+            error: f.error.clone(),
+        })
+        .collect();
+
+    let summary = format!(
+        "Partial review: {} chunks processed, {} failed",
+        chunks_processed.len(),
+        chunks_failed.len()
+    );
+
+    PartialReviewResult {
+        issues: all_issues,
+        chunks_processed,
+        chunks_failed,
+        summary,
+    }
 }
 
 /// Aggregate results from chunked review execution

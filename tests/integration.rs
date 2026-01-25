@@ -307,3 +307,25 @@ fn cli_commit_empty_stdin_falls_back() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn cli_accepts_partial_flag() -> TestResult {
+    // Verify --partial flag is accepted by checking it doesn't error as unrecognized
+    let result = Command::cargo_bin("usx")?
+        .args(["--partial", "review", "--help"])
+        .output()?;
+
+    // Should show help for review command, not error about unrecognized flag
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(
+        stdout.contains("Review code changes"),
+        "review --help should show command description"
+    );
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "--partial flag should be accepted"
+    );
+    Ok(())
+}

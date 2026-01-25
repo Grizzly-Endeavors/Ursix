@@ -59,6 +59,7 @@ impl RetryOptions {
 #[command(name = "usx")]
 #[command(about = "Ursix - Unix utilities powered by LLMs")]
 #[command(version)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Cli {
     /// Output as plain text instead of JSON (default: JSON)
     #[arg(long, global = true)]
@@ -106,6 +107,10 @@ pub struct Cli {
     /// Maximum retry attempts for transient failures (default: 3)
     #[arg(long, global = true, default_value = "3")]
     pub max_retries: u32,
+
+    /// Return partial results when some chunks fail (instead of failing entirely)
+    #[arg(long, global = true)]
+    pub partial: bool,
 
     #[command(subcommand)]
     pub command: Command,
@@ -264,6 +269,7 @@ pub async fn run() -> Result<ExitCode> {
             let options = ReviewOptions {
                 chunk: cli.chunk,
                 max_concurrency: cli.max_concurrency,
+                partial: cli.partial,
             };
             cmd_review(&config, diff, files, options, from, &checks, output_mode).await
         }
@@ -278,6 +284,7 @@ pub async fn run() -> Result<ExitCode> {
                 apply,
                 chunk: cli.chunk,
                 max_concurrency: cli.max_concurrency,
+                partial: cli.partial,
             };
             cmd_fix(&config, &target, options, from, output_mode).await
         }

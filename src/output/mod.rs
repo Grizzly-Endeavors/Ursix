@@ -9,6 +9,7 @@ mod config;
 pub mod error;
 mod explain;
 mod fix;
+pub mod partial;
 mod review;
 
 pub use ask::AskResult;
@@ -17,6 +18,9 @@ pub use config::{ConfigEntry, ConfigResult};
 pub use error::{ErrorResponse, TypedError};
 pub use explain::ExplainResult;
 pub use fix::{AppliedFix, ApplyResults, ApplyStatus, Fix, FixResult};
+pub use partial::{
+    ChunkFailureInfo, PartialFailureResponse, PartialFixResult, PartialReviewResult,
+};
 pub use review::{ReviewIssue, ReviewResult};
 
 use serde::Serialize;

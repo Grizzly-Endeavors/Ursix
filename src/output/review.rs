@@ -16,7 +16,7 @@ pub struct ReviewResult {
 }
 
 /// An issue identified during code review
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ReviewIssue {
     /// Issue severity (error, warning, info)
     pub severity: String,
