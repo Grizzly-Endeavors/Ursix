@@ -1,12 +1,14 @@
 //! The `commit` command implementation
 
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
 use tokio::process::Command as TokioCommand;
 
 use crate::cli::{CliError, run_pipeline};
 use crate::config::Config;
-use crate::context::{GatheredContext, gather_commit_context};
-use crate::input::try_read_piped_stdin;
+use crate::context::InputContext;
+use crate::input::read_input;
 use crate::output::{ChunkPlan, CommandOutput, DryRunResult, ExitCode, ExitStatus, OutputMode};
 use crate::parsers::parse_commit_response;
 use crate::prompts::pipeline_prompt_for_command;
@@ -75,6 +77,7 @@ pub struct CommitOptions {
 pub async fn cmd_commit(
     config: &Config,
     options: CommitOptions,
+    from: Option<PathBuf>,
     style: &str,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
@@ -90,38 +93,16 @@ pub async fn cmd_commit(
         eprintln!("warning: --chunk is not supported for commit (requires full context)");
     }
 
-    // Check for piped stdin first - use as diff if present
-    let piped_content = try_read_piped_stdin();
+    // Read input (diff) from stdin or --from
+    let input = read_input(from.as_ref())
+        .await
+        .context("failed to read diff")?;
 
-    let context = if let Some(content) = piped_content {
-        // Use piped stdin as diff content
-        tracing::debug!("using piped stdin as commit diff");
-        GatheredContext {
-            files: Vec::new(),
-            git_diff: Some(content),
-            git_status: None,
-            additional_context: None,
-        }
-    } else {
-        let ctx = gather_commit_context(&config.working_dir)
-            .await
-            .context("failed to gather commit context")?;
-
-        // Check if there are staged changes (only when not using piped input)
-        if ctx
-            .git_diff
-            .as_ref()
-            .is_some_and(|diff| diff.trim().is_empty())
-        {
-            return Err(CliError::Git(anyhow::anyhow!("no staged changes to commit")).into());
-        }
-
-        ctx
-    };
+    let ctx = InputContext::new(input);
 
     // Dry-run mode: output token estimation without LLM calls
     if dry_run {
-        let token_count = count_context_tokens(&context, config.tokenizer_mode)?;
+        let token_count = count_context_tokens(&ctx, config.tokenizer_mode)?;
 
         let result = DryRunResult::new(
             "commit",
@@ -153,7 +134,7 @@ pub async fn cmd_commit(
     let response = run_pipeline(
         config,
         pipeline_prompt_for_command("commit"),
-        &context,
+        &ctx,
         &user_request,
         true, // enforce JSON output at API level
     )

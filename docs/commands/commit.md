@@ -1,17 +1,19 @@
 # commit
 
-Generate commit messages from staged changes.
+Generate commit messages from diff provided via stdin or file.
 
 ## Syntax
 
 ```bash
 usx commit [OPTIONS]
+git diff --staged | usx commit
 ```
 
 ## Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
+| `--from` | PATH | - | Read diff from file (use `-` for stdin) |
 | `--body` | boolean | false | Include body with detailed explanation |
 | `--style` | string | conventional | Commit style (`conventional`, `simple`) |
 | `--execute` | boolean | false | Auto-execute `git commit` with generated message |
@@ -22,8 +24,9 @@ Plus all [global flags](../cli-reference.md#global-flags).
 
 ### Input Sources
 
-1. Piped stdin - If stdin is piped, uses piped content as diff
-2. Default - Reads staged changes via `git diff --cached`
+1. Piped stdin - Default input method
+2. `--from FILE` - Read from specified file
+3. `--from -` - Explicitly read from stdin
 
 ### Commit Styles
 
@@ -52,12 +55,12 @@ Subject line describing the change
 Automatically runs `git commit -m "<message>"` with the generated message:
 
 ```bash
-usx commit --execute
+git diff --staged | usx commit --execute
 ```
 
 ### Chunked Mode
 
-Not supported. The `--chunk` flag is ignored as commit message generation requires full context of all staged changes.
+Not supported. The `--chunk` flag issues a warning as commit message generation requires full context of all changes.
 
 ## Output
 
@@ -83,28 +86,25 @@ feat(cli): add review command with configurable checks
 
 ```bash
 # Generate conventional commit message (JSON output by default)
-usx commit
+git diff --staged | usx commit
 
 # Human-readable output
-usx commit --text
+git diff --staged | usx commit --text
 
 # Include detailed body
-usx commit --body
+git diff --staged | usx commit --body
 
 # Use simple style
-usx commit --style simple
+git diff --staged | usx commit --style simple
 
 # Generate and execute commit
-usx commit --execute
+git diff --staged | usx commit --execute
 
 # Conventional with body and execute
-usx commit --body --execute
+git diff --staged | usx commit --body --execute
 
-# Simple style with execute
-usx commit --style simple --execute
-
-# Generate from piped diff
-cat staged.diff | usx commit --body
+# Read from file
+usx commit --from staged.diff
 ```
 
 ## Exit Codes
@@ -112,8 +112,8 @@ cat staged.diff | usx commit --body
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 5 | Git error (no staged changes, commit failed) |
-| 8 | Parse error |
+| 2 | User error (empty input) |
+| 4 | Permanent error (git commit failed, parse error) |
 
 ## Integration
 
@@ -123,8 +123,8 @@ Add to `.gitconfig`:
 
 ```gitconfig
 [alias]
-    ai = !usx commit --execute
-    aim = !usx commit --body --execute
+    ai = "!git diff --staged | usx commit --execute"
+    aim = "!git diff --staged | usx commit --body --execute"
 ```
 
 ### Pre-commit Workflow
@@ -134,16 +134,16 @@ Add to `.gitconfig`:
 git add -p
 
 # Generate and review message
-usx commit
+git diff --staged | usx commit
 
 # Execute if satisfied
-usx commit --execute
+git diff --staged | usx commit --execute
 ```
 
 ### CI Commit
 
 ```bash
 # Generate message for CI commits (JSON is default)
-MESSAGE=$(usx commit | jq -r '.message')
+MESSAGE=$(git diff HEAD~1 | usx commit | jq -r '.message')
 git commit -m "$MESSAGE"
 ```

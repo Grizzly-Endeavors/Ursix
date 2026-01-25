@@ -14,7 +14,7 @@ use crate::commands::{
     cmd_explain, cmd_fix, cmd_review,
 };
 use crate::config::{Config, Provider, TokenizerMode};
-use crate::context::GatheredContext;
+use crate::context::InputContext;
 use crate::llm::LlmClient;
 use crate::llm::RetryConfig;
 use crate::llm::ollama::OllamaClient;
@@ -86,7 +86,7 @@ pub struct Cli {
     #[arg(long, global = true, env = "URSIX_OPENAI_API_KEY")]
     pub openai_api_key: Option<String>,
 
-    /// Enable chunked processing for large inputs (parallel file-by-file processing)
+    /// Enable chunked processing for large inputs (parallel token-based processing)
     #[arg(long, global = true)]
     pub chunk: bool,
 
@@ -133,21 +133,15 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Explain code, files, or concepts
+    /// Explain code from stdin or --from
     Explain {
-        /// File path or concept to explain
-        target: String,
+        /// Read input from a file (use - for stdin)
+        #[arg(long, value_name = "FILE")]
+        from: Option<PathBuf>,
     },
 
-    /// Review code changes
+    /// Review code changes from stdin or --from
     Review {
-        /// Review specific git diff (e.g., HEAD~1, branch-name)
-        #[arg(long)]
-        diff: Option<String>,
-
-        /// Review specific files
-        files: Vec<String>,
-
         /// Read input from a file (use - for stdin)
         #[arg(long, value_name = "FILE")]
         from: Option<PathBuf>,
@@ -157,26 +151,19 @@ pub enum Command {
         checks: Vec<String>,
     },
 
-    /// Fix issues in code
+    /// Fix issues in code from stdin or --from
     Fix {
-        /// Target file or directory
-        target: String,
-
-        /// Fix lint/clippy issues
-        #[arg(long)]
-        lint: bool,
-
-        /// Apply fixes automatically (without confirmation)
-        #[arg(long)]
-        apply: bool,
-
-        /// Read issues from a file (use - for stdin, e.g., from review JSON output)
+        /// Read input from a file (use - for stdin)
         #[arg(long, value_name = "FILE")]
         from: Option<PathBuf>,
     },
 
-    /// Generate commit message from staged changes
+    /// Generate commit message from diff provided via stdin or --from
     Commit {
+        /// Read diff from a file (use - for stdin)
+        #[arg(long, value_name = "FILE")]
+        from: Option<PathBuf>,
+
         /// Include body with detailed explanation
         #[arg(long)]
         body: bool,
@@ -279,40 +266,29 @@ pub async fn run() -> Result<ExitCode> {
     }
 
     match cli.command {
-        Command::Explain { target } => {
-            cmd_explain(&config, &target, output_mode, cli.chunk, cli.dry_run).await
+        Command::Explain { from } => {
+            cmd_explain(&config, from, output_mode, cli.chunk, cli.dry_run).await
         }
-        Command::Review {
-            diff,
-            files,
-            from,
-            checks,
-        } => {
+        Command::Review { from, checks } => {
             let options = ReviewOptions {
                 chunk: cli.chunk,
                 max_concurrency: cli.max_concurrency,
                 partial: cli.partial,
                 dry_run: cli.dry_run,
             };
-            cmd_review(&config, diff, files, options, from, &checks, output_mode).await
+            cmd_review(&config, options, from, &checks, output_mode).await
         }
-        Command::Fix {
-            target,
-            lint,
-            apply,
-            from,
-        } => {
+        Command::Fix { from } => {
             let options = FixOptions {
-                lint,
-                apply,
                 chunk: cli.chunk,
                 max_concurrency: cli.max_concurrency,
                 partial: cli.partial,
                 dry_run: cli.dry_run,
             };
-            cmd_fix(&config, &target, options, from, output_mode).await
+            cmd_fix(&config, options, from, output_mode).await
         }
         Command::Commit {
+            from,
             body,
             style,
             execute,
@@ -323,7 +299,7 @@ pub async fn run() -> Result<ExitCode> {
                 chunk_mode: cli.chunk,
                 dry_run: cli.dry_run,
             };
-            cmd_commit(&config, options, &style, output_mode).await
+            cmd_commit(&config, options, from, &style, output_mode).await
         }
         Command::Config { key, list } => cmd_config(&config, key, list, output_mode),
     }
@@ -363,7 +339,7 @@ pub(crate) fn create_openai_client(config: &Config) -> Result<OpenAiClient> {
 pub(crate) async fn run_pipeline(
     config: &Config,
     system_prompt: &str,
-    context: &GatheredContext,
+    context: &InputContext,
     user_request: &str,
     json_mode: bool,
 ) -> Result<String> {
@@ -399,7 +375,7 @@ pub(crate) async fn run_pipeline(
 async fn run_pipeline_with_client<C: LlmClient + Clone + 'static>(
     client: C,
     system_prompt: &str,
-    context: &GatheredContext,
+    context: &InputContext,
     user_request: &str,
     json_mode: bool,
     retry_config: &RetryConfig,

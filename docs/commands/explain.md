@@ -1,41 +1,31 @@
 # explain
 
-Explain code, files, or concepts.
+Explain code from stdin or a file.
 
 ## Syntax
 
 ```bash
-usx explain <target> [OPTIONS]
+usx explain [OPTIONS]
+cat file.rs | usx explain
 ```
 
-## Arguments
-
-| Argument | Type | Required | Description |
-|----------|------|----------|-------------|
-| `target` | string | Yes | File path or concept to explain |
-
 ## Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--from` | PATH | - | Read input from file (use `-` for stdin) |
 
 Plus all [global flags](../cli-reference.md#global-flags).
 
 ## Behavior
 
-1. Reads target file content
-2. Gathers context (file metadata, structure)
-3. Single LLM call for explanation
-4. Returns structured explanation
-
-### Stdin Support
-
-If stdin is piped, uses piped content as file content instead of reading from filesystem:
-
-```bash
-cat file.rs | usx explain my_function
-```
+1. Reads code from stdin or `--from` file
+2. Single LLM call for explanation
+3. Returns structured explanation
 
 ### Chunked Mode
 
-Not supported. The `--chunk` flag is ignored as `explain` requires full context for coherent explanations.
+Not supported. The `--chunk` flag issues a warning as `explain` requires full context for coherent explanations.
 
 ## Output
 
@@ -58,17 +48,17 @@ Explanation:
 ## Examples
 
 ```bash
-# Explain a file (JSON output by default)
-usx explain src/main.rs
+# Explain a file via pipe (JSON output by default)
+cat src/main.rs | usx explain
+
+# Read from file directly
+usx explain --from src/main.rs
 
 # Human-readable output
-usx explain src/main.rs --text
-
-# Explain piped content
-cat complex_function.rs | usx explain the_function
+cat src/main.rs | usx explain --text
 
 # Use specific model
-usx explain src/main.rs --model gpt-4
+cat src/main.rs | usx explain --model gpt-4
 ```
 
 ## Exit Codes
@@ -76,5 +66,5 @@ usx explain src/main.rs --model gpt-4
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 4 | Input error (file not found) |
-| 8 | Parse error |
+| 2 | User error (empty input, file not found) |
+| 4 | Permanent error (parse error) |

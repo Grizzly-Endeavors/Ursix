@@ -1,48 +1,40 @@
 # review
 
-Review code changes.
+Review code changes from stdin or a file.
 
 ## Syntax
 
 ```bash
-usx review [FILES...] [OPTIONS]
+usx review [OPTIONS]
+git diff | usx review
 ```
-
-## Arguments
-
-| Argument | Type | Required | Description |
-|----------|------|----------|-------------|
-| `files` | string[] | No | Specific files to review |
 
 ## Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--diff` | string | None | Review specific git diff (e.g., `HEAD~1`, `branch-name`) |
-| `--from` | path | None | Read input from a file (use `-` for stdin) |
+| `--from` | PATH | - | Read input from file (use `-` for stdin) |
 | `--checks` | string[] | empty | Comma-separated checks to perform |
 
 Plus all [global flags](../cli-reference.md#global-flags).
 
 ## Behavior
 
-### Input Sources (by precedence)
+### Input Sources
 
-1. `--from FILE` - Read from specified file
-2. Piped stdin - If no explicit input and stdin is piped
-3. `--diff REF` - Review git diff against reference
-4. `files...` - Review specific files
-5. Default - Review staged changes (`git diff --cached`)
+1. Piped stdin - Default input method
+2. `--from FILE` - Read from specified file
+3. `--from -` - Explicitly read from stdin
 
 ### Execution
 
-1. Gathers diff or file content
+1. Reads code or diff from stdin or `--from`
 2. Single LLM call for review
 3. Returns issues and summary
 
 ### Checks (`--checks`)
 
-Filter review to specific check types. Checks are loaded from `.ursix-rules.toml` if present.
+Filter review to specific check types. Checks are loaded from `rules.yml` or `.ursix/rules.yml` if present.
 
 Common check types:
 - `style` - Code style and formatting
@@ -51,32 +43,9 @@ Common check types:
 - `correctness` - Potential bugs and logic errors
 - `tests` - Test coverage
 
-When `--checks` is specified, the review uses per-category LLM calls for more focused analysis.
-
 ### Chunked Mode (`--chunk`)
 
-Processes files in parallel for large codebases:
-
-```bash
-usx review --chunk --max-concurrency 8
-```
-
-### Behavior Matrix
-
-The combination of `--checks` and `--chunk` flags determines the execution mode:
-
-| `--checks` | `--chunk` | Behavior | Example (3 cats, 4 files) |
-|------------|-----------|----------|---------------------------|
-| No | No | Single call, all rules | 1 call |
-| No | Yes | File chunking only | 4 calls |
-| Yes | No | Category chunking | 3 calls |
-| Yes | Yes | Nested (categories × files) | 12 calls |
-
-This gives you control over the cost/detail tradeoff:
-- **No flags**: Broad review, single LLM call (cheapest)
-- **`--checks` only**: Focused review per category (more calls, better focus)
-- **`--chunk` only**: File-level parallelism for large codebases
-- **Both flags**: Maximum detail with nested parallelism (most calls, most thorough)
+Not supported in stdin mode. The `--chunk` flag issues a warning.
 
 ## Output
 
@@ -113,25 +82,19 @@ Issues:
 
 ```bash
 # Review staged changes (JSON output by default)
-usx review
+git diff --staged | usx review
 
 # Human-readable output
-usx review --text
+git diff --staged | usx review --text
 
-# Review specific files
-usx review src/main.rs src/cli.rs
-
-# Review against a git reference
-usx review --diff HEAD~1
+# Review a specific diff range
+git diff HEAD~3 | usx review
 
 # Review with specific checks
-usx review --checks style,security
+git diff | usx review --checks style,security
 
-# Review piped diff
-cat changes.diff | usx review
-
-# Parallel processing for large repos
-usx review --chunk --max-concurrency 8
+# Read from file
+usx review --from changes.diff
 ```
 
 ## Exit Codes
@@ -140,9 +103,8 @@ usx review --chunk --max-concurrency 8
 |------|---------|
 | 0 | Success (no issues) |
 | 1 | Issues found |
-| 4 | Input error |
-| 5 | Git error |
-| 8 | Parse error |
+| 2 | User error (empty input) |
+| 4 | Permanent error (parse error) |
 
 ## Integration
 
@@ -150,19 +112,12 @@ usx review --chunk --max-concurrency 8
 
 ```bash
 # Fail CI if issues found (JSON is default)
-usx review | jq -e '.passed'
+git diff origin/main...HEAD | usx review | jq -e '.passed'
 ```
 
 ### Pre-commit Hook
 
 ```bash
 #!/bin/bash
-usx review || exit 1
-```
-
-### Piping to Fix
-
-```bash
-# Review and fix in one pipeline (JSON is default)
-usx review | usx fix src/ --from -
+git diff --staged | usx review || exit 1
 ```

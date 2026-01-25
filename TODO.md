@@ -318,6 +318,18 @@ Change `[self-hosted, kubernetes]` to `ubuntu-latest` for public accessibility.
 
 Lower priority items to revisit later.
 
+### Revisit review→fix pipeline (dedicated apply command?)
+
+The `fix` command now only outputs suggested fixes - it no longer applies them automatically.
+Consider whether to add a dedicated `apply` command that reads fix suggestions and applies them:
+
+```bash
+cat src/main.rs | usx fix > fixes.json
+usx apply --from fixes.json  # New command?
+```
+
+Alternatively, the apply functionality could be a simple shell script since fixes are now JSON.
+
 ### Rate limiting handling
 
 HTTP 429 handling: specific messaging, exponential backoff, Retry-After parsing.

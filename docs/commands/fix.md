@@ -1,62 +1,39 @@
 # fix
 
-Fix issues in code.
+Suggest fixes for issues in code from stdin or a file.
 
 ## Syntax
 
 ```bash
-usx fix <target> [OPTIONS]
+usx fix [OPTIONS]
+cat file.rs | usx fix
 ```
-
-## Arguments
-
-| Argument | Type | Required | Description |
-|----------|------|----------|-------------|
-| `target` | string | Yes | Target file or directory |
 
 ## Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--lint` | boolean | false | Fix lint/clippy issues (runs `cargo clippy` first) |
-| `--apply` | boolean | false | Apply fixes automatically without confirmation |
-| `--from` | path | None | Read issues from a file (use `-` for stdin) |
+| `--from` | PATH | - | Read input from file (use `-` for stdin) |
 
 Plus all [global flags](../cli-reference.md#global-flags).
 
 ## Behavior
 
-### Issue Sources (by precedence)
+### Input Sources
 
-1. `--from FILE` - Read issues from specified file
-2. Piped stdin - If no explicit input and stdin is piped
-3. `--lint` - Run `cargo clippy` to identify issues
-4. Default - Code analysis only (no lint info)
+1. Piped stdin - Default input method
+2. `--from FILE` - Read from specified file
+3. `--from -` - Explicitly read from stdin
 
 ### Execution
 
-1. Gathers code context
-2. Identifies issues from configured source
-3. Single LLM call for fix suggestions
-4. Optionally applies fixes with `--apply`
-
-### Fix Application (`--apply`)
-
-Applies fixes automatically via string replacement:
-
-```bash
-usx fix src/main.rs --lint --apply
-```
-
-Each fix is applied by replacing the `original` code snippet with the `replacement`.
+1. Reads code (optionally with lint output) from stdin or `--from`
+2. Single LLM call for fix suggestions
+3. Returns suggested fixes
 
 ### Chunked Mode (`--chunk`)
 
-Processes files in parallel for large codebases:
-
-```bash
-usx fix src/ --lint --chunk --max-concurrency 8
-```
+Not supported in stdin mode. The `--chunk` flag issues a warning.
 
 ## Output
 
@@ -67,15 +44,13 @@ Diagnosis:
 [diagnosis text]
 
 Fixes:
-1. src/main.rs:42
+1. Line 42
    Original: [code snippet]
    Fix: [replacement code]
    Reason: [explanation]
 
-2. src/main.rs:67
+2. Line 67
    [...]
-
-Applied: 2/2 fixes
 ```
 
 ### JSON Format (default)
@@ -103,7 +78,7 @@ Each fix contains:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `file` | string | Path to file |
+| `file` | string | Path to file (if provided in input) |
 | `line` | number | Line number |
 | `original` | string | Code snippet to replace |
 | `replacement` | string | Replacement code |
@@ -112,52 +87,27 @@ Each fix contains:
 ## Examples
 
 ```bash
-# Analyze and suggest fixes
-usx fix src/main.rs
+# Analyze code and suggest fixes
+cat src/main.rs | usx fix
 
-# Fix clippy issues
-usx fix src/main.rs --lint
+# Read from file directly
+usx fix --from src/main.rs
 
-# Auto-apply fixes
-usx fix src/main.rs --apply
-
-# Run clippy and auto-apply
-usx fix src/main.rs --lint --apply
-
-# Fix issues from review output (JSON is default)
-usx review | usx fix src/main.rs --from -
-
-# Parallel processing
-usx fix src/ --lint --chunk --max-concurrency 8
+# Combine code with lint errors for smarter fixes
+{ cat src/lib.rs; echo "---"; cargo clippy 2>&1; } | usx fix
 
 # Human-readable output
-usx fix src/main.rs --text
+cat src/main.rs | usx fix --text
+
+# Use specific model
+cat src/main.rs | usx fix --model gpt-4
 ```
 
 ## Exit Codes
 
 | Code | Meaning |
 |------|---------|
-| 0 | Success (all fixes applied or no issues) |
-| 1 | Issues found (unfixable or apply failed) |
-| 4 | Input error |
-| 8 | Parse error |
-
-## Integration
-
-### Review to Fix Pipeline
-
-```bash
-# Find issues and fix them (JSON is default)
-usx review | usx fix src/ --from - --apply
-```
-
-### Lint Fix Workflow
-
-```bash
-# Fix all clippy issues
-usx fix . --lint --apply
-
-# Verify fixes
-cargo clippy
-```
+| 0 | Success (no issues found) |
+| 1 | Issues found |
+| 2 | User error (empty input) |
+| 4 | Permanent error (parse error) |

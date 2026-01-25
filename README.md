@@ -24,10 +24,10 @@ Ursix (`usx`) is a set of Unix utilities that happen to use an LLM under the hoo
 
 ```bash
 # These are commands, not conversations
-usx review                        # Like `lint`, but for code changes
-usx commit --execute              # Like `git commit`, but writes the message for you
-usx explain src/auth/jwt.rs       # Like `man`, but for your actual code
-usx fix src/lib.rs --lint --apply # Like `cargo fix`, but smarter
+git diff --staged | usx review            # Like `lint`, but for code changes
+git diff --staged | usx commit --execute  # Like `git commit`, but writes the message for you
+cat src/auth/jwt.rs | usx explain         # Like `man`, but for your actual code
+cat src/lib.rs | usx fix                  # Like `cargo fix`, but smarter
 ```
 
 Ursix commands read from stdin, write to stdout, return meaningful exit codes, and output JSON by default. They compose with `jq`, `xargs`, `find`, and everything else in your toolkit. No chat history. No memory. No magic—just predictable, scriptable tools.
@@ -49,8 +49,8 @@ Ursix takes a different approach:
 
 | Chat Wrapper | Ursix |
 |--------------|-------|
-| "Can you review my code?" | `usx review` |
-| Copy-paste diff into chat | Reads git diff automatically |
+| "Can you review my code?" | `git diff | usx review` |
+| Copy-paste diff into chat | Pipe diff directly to stdin |
 | Parse prose response manually | JSON output, structured fields |
 | Hope it remembers context | Stateless—same input, same output |
 | Can't automate | Exit codes, stdin/stdout, CI-native |
@@ -95,36 +95,34 @@ usx config --list
 ollama serve
 
 # Explain a file
-usx explain src/main.rs --text
+cat src/main.rs | usx explain --text
 
 # Review staged changes
-git add -p
-usx review --text
+git diff --staged | usx review --text
 
 # Generate and apply a commit message
-usx commit --execute
+git diff --staged | usx commit --execute
 ```
 
 ## Commands
 
 ### `usx explain` — Code Explanation
 
-Reads a file and explains what it does.
+Reads code from stdin and explains what it does.
 
 ```bash
-usx explain src/auth/middleware.rs          # Explain a file
-usx explain src/database/schema.rs          # Explain another file
+cat src/auth/middleware.rs | usx explain    # Explain a file
+usx explain --from src/schema.rs            # Read from file directly
 ```
 
 ### `usx review` — Code Review
 
-Reviews code changes and outputs structured feedback.
+Reviews code or diffs from stdin and outputs structured feedback.
 
 ```bash
-usx review                                  # Review staged changes
-usx review src/api.rs src/handlers.rs       # Review specific files
-usx review --diff HEAD~3                    # Review a specific diff range
-usx review --checks security,performance    # Focus on specific rule categories
+git diff --staged | usx review              # Review staged changes
+git diff HEAD~3 | usx review                # Review a specific diff range
+cat src/api.rs | usx review --checks security  # Focus on specific rule categories
 ```
 
 **Output (JSON by default):**
@@ -140,25 +138,25 @@ usx review --checks security,performance    # Focus on specific rule categories
 
 ### `usx fix` — Code Fixes
 
-Identifies and fixes issues in code.
+Identifies and suggests fixes for issues in code from stdin.
 
 ```bash
-usx fix src/lib.rs                          # Suggest fixes
-usx fix src/main.rs --lint                  # Fix clippy/lint issues
-usx fix src/lib.rs --lint --apply           # Apply fixes automatically
-usx fix src/lib.rs --from review.json       # Fix issues from a previous review
+cat src/lib.rs | usx fix                    # Suggest fixes
+usx fix --from src/main.rs                  # Read from file directly
+# Combine code with lint errors for smarter fixes:
+{ cat src/lib.rs; echo "---"; cargo clippy 2>&1; } | usx fix
 ```
 
 ### `usx commit` — Commit Messages
 
-Generates conventional commit messages from staged changes.
+Generates conventional commit messages from diff provided via stdin.
 
 ```bash
-usx commit                                  # Generate message (JSON)
-usx commit --text                           # Human-readable output
-usx commit --body                           # Include detailed body
-usx commit --execute                        # Generate and run `git commit`
-usx commit --style simple                   # Non-conventional format
+git diff --staged | usx commit              # Generate message (JSON)
+git diff --staged | usx commit --text       # Human-readable output
+git diff --staged | usx commit --body       # Include detailed body
+git diff --staged | usx commit --execute    # Generate and run `git commit`
+git diff --staged | usx commit --style simple  # Non-conventional format
 ```
 
 ### `usx config` — Configuration
@@ -172,12 +170,12 @@ usx config model                            # Show specific value
 
 ## Execution Mode
 
-Single LLM call with pre-gathered context. No tools, no iteration, deterministic.
+Single LLM call with piped input. No tools, no iteration, deterministic.
 
 ```bash
-usx review              # Gathers diff → single LLM call → JSON output
-usx commit              # Gathers staged changes → generates message
-usx explain src/lib.rs  # Reads file → explains in one pass
+git diff | usx review           # Pipe diff → single LLM call → JSON output
+git diff --staged | usx commit  # Pipe staged changes → generates message
+cat src/lib.rs | usx explain    # Pipe file → explains in one pass
 ```
 
 Designed for CI/CD, git hooks, scripts, and any automation.
@@ -230,21 +228,20 @@ Each chunk stays within token limits. Results are aggregated. Failures are track
 ### Composing with Unix Tools
 
 ```bash
-# Review only changed files
-git diff --name-only HEAD~1 | xargs usx review
+# Review a specific diff
+git diff HEAD~1 | usx review
 
-# Batch process modules
-find src -name "*.rs" -exec usx explain {} \; | jq -s '.'
+# Explain multiple files
+for f in src/*.rs; do cat "$f" | usx explain --text; done
 
 # Filter review issues
-usx review | jq '.issues[] | select(.severity == "error")'
+git diff | usx review | jq '.issues[] | select(.severity == "error")'
 
 # Count issues by rule
-usx review | jq '[.issues[].rule] | group_by(.) | map({rule: .[0], count: length})'
+git diff | usx review | jq '[.issues[].rule] | group_by(.) | map({rule: .[0], count: length})'
 
-# Chain review and fix
-usx review > review.json
-usx fix src/ --from review.json --apply
+# Fix with lint context
+{ cat src/lib.rs; echo "---"; cargo clippy 2>&1; } | usx fix
 ```
 
 ### GitHub Actions
@@ -266,7 +263,7 @@ jobs:
 
       - name: Review Changes
         run: |
-          usx review --diff origin/${{ github.base_ref }}...HEAD > review.json
+          git diff origin/${{ github.base_ref }}...HEAD | usx review > review.json
           jq -r '.summary' review.json
           if [ $(jq '.passed' review.json) = "false" ]; then
             jq -r '.issues[] | "[\(.severity)] \(.file):\(.line // "?") - \(.message)"' review.json
@@ -286,13 +283,13 @@ jobs:
 **prepare-commit-msg:**
 ```bash
 #!/bin/bash
-usx commit --text > "$1"
+git diff --staged | usx commit --text > "$1"
 ```
 
 **pre-commit:**
 ```bash
 #!/bin/bash
-usx review --checks security > /tmp/review.json
+git diff --staged | usx review --checks security > /tmp/review.json
 if [ $(jq '.passed' /tmp/review.json) = "false" ]; then
   echo "Security issues found:"
   jq -r '.issues[] | "\(.file):\(.line) - \(.message)"' /tmp/review.json
@@ -400,7 +397,7 @@ src/
 ├── main.rs              # Entry point, tokio runtime
 ├── cli.rs               # Argument parsing, command dispatch
 ├── config.rs            # Layered configuration (files, env, CLI)
-├── context.rs           # Pre-LLM context gathering (files, git state)
+├── context.rs           # Input context wrapper for LLM calls
 ├── input.rs             # Input source handling (stdin, files)
 ├── pipeline.rs          # Stateless single-pass executor
 ├── chunk.rs             # Token-aware parallel chunking

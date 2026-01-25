@@ -106,50 +106,7 @@ fn cli_fix_shows_help() -> TestResult {
         .assert()
         .success()
         .stdout(predicate::str::contains("Fix issues in code"))
-        .stdout(predicate::str::contains("--lint"))
-        .stdout(predicate::str::contains("--apply"))
         .stdout(predicate::str::contains("--from"));
-    Ok(())
-}
-
-#[test]
-fn cli_fix_requires_target() -> TestResult {
-    Command::cargo_bin("usx")?
-        .arg("fix")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("required"));
-    Ok(())
-}
-
-#[test]
-fn cli_fix_accepts_lint_flag() -> TestResult {
-    // Verify --lint flag is accepted (will fail without LLM but shouldn't error on arg parsing)
-    let result = Command::cargo_bin("usx")?
-        .args(["fix", "--lint", "nonexistent.rs"])
-        .output()?;
-
-    // Should not fail due to unrecognized flag
-    let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(
-        !stderr.contains("unexpected argument"),
-        "fix command should accept --lint flag"
-    );
-    Ok(())
-}
-
-#[test]
-fn cli_fix_accepts_apply_flag() -> TestResult {
-    // Verify --apply flag is accepted
-    let result = Command::cargo_bin("usx")?
-        .args(["fix", "--apply", "nonexistent.rs"])
-        .output()?;
-
-    let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(
-        !stderr.contains("unexpected argument"),
-        "fix command should accept --apply flag"
-    );
     Ok(())
 }
 
@@ -157,10 +114,11 @@ fn cli_fix_accepts_apply_flag() -> TestResult {
 fn cli_fix_accepts_from_flag() -> TestResult {
     // Verify --from flag is accepted
     let result = Command::cargo_bin("usx")?
-        .args(["fix", "--from", "issues.json", "src/main.rs"])
+        .args(["fix", "--from", "issues.txt"])
         .output()?;
 
     let stderr = String::from_utf8_lossy(&result.stderr);
+    // Will fail on file not found, but shouldn't error on arg parsing
     assert!(
         !stderr.contains("unexpected argument"),
         "fix command should accept --from flag"
@@ -169,7 +127,7 @@ fn cli_fix_accepts_from_flag() -> TestResult {
 }
 
 // --- Piped stdin tests ---
-// These test that commands properly detect and accept piped stdin.
+// These test that commands properly accept piped stdin.
 // They may fail later in the pipeline (LLM calls), but should not error on stdin handling.
 
 use std::io::Write;
@@ -179,7 +137,7 @@ use std::process::Stdio;
 fn cli_explain_accepts_piped_stdin() -> TestResult {
     // Pipe content to explain command - verifies stdin detection works
     let mut child = Command::cargo_bin("usx")?
-        .args(["explain", "test.rs"])
+        .args(["explain"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -197,8 +155,8 @@ fn cli_explain_accepts_piped_stdin() -> TestResult {
 
     // Should not error on stdin handling - may fail on LLM call, but not on stdin
     assert!(
-        !stderr.contains("stdin") || stderr.contains("failed"),
-        "explain should accept piped stdin without stdin-specific errors"
+        !stderr.contains("unexpected argument"),
+        "explain should accept piped stdin without argument errors"
     );
     Ok(())
 }
@@ -256,16 +214,16 @@ fn cli_commit_accepts_piped_stdin() -> TestResult {
 
 #[test]
 fn cli_fix_accepts_piped_stdin() -> TestResult {
-    // Pipe issues content to fix command
+    // Pipe code content to fix command
     let mut child = Command::cargo_bin("usx")?
-        .args(["fix", "src/main.rs"])
+        .args(["fix"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
 
     if let Some(ref mut stdin) = child.stdin {
-        stdin.write_all(b"{\"issues\": [{\"message\": \"unused variable\"}]}")?;
+        stdin.write_all(b"fn main() { let unused = 42; }")?;
     }
     drop(child.stdin.take());
 
@@ -280,9 +238,8 @@ fn cli_fix_accepts_piped_stdin() -> TestResult {
 }
 
 #[test]
-fn cli_commit_empty_stdin_falls_back() -> TestResult {
-    // Empty stdin should fall back to git gather, then fail with an error
-    // (either "no staged changes" or network/API error if no LLM available)
+fn cli_commit_empty_stdin_errors() -> TestResult {
+    // Empty stdin should error with "input is empty" message
     let mut child = Command::cargo_bin("usx")?
         .args(["commit"])
         .stdin(Stdio::piped())
@@ -299,11 +256,10 @@ fn cli_commit_empty_stdin_falls_back() -> TestResult {
     let output = child.wait_with_output()?;
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    // Should fail with structured JSON error output
-    // This verifies empty stdin is properly ignored and error handling works
+    // Should fail with empty input error
     assert!(
-        stderr.contains("\"error\"") || stderr.contains("no staged changes"),
-        "empty stdin should fall back to internal gathering and produce error output"
+        stderr.contains("input is empty") || stderr.contains("provide content"),
+        "empty stdin should produce 'input is empty' error"
     );
     Ok(())
 }

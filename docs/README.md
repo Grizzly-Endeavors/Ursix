@@ -6,10 +6,10 @@ Comprehensive documentation for the Ursix CLI tool.
 
 - [CLI Reference](cli-reference.md) - Complete command and flag reference
 - [Commands](commands/) - Detailed documentation for each command:
-  - [explain](commands/explain.md) - Explain code and concepts
-  - [review](commands/review.md) - Review code changes
-  - [fix](commands/fix.md) - Fix issues in code
-  - [commit](commands/commit.md) - Generate commit messages
+  - [explain](commands/explain.md) - Explain code from stdin or file
+  - [review](commands/review.md) - Review code changes from stdin or file
+  - [fix](commands/fix.md) - Suggest fixes for code from stdin or file
+  - [commit](commands/commit.md) - Generate commit messages from diff
   - [config](commands/config.md) - View configuration
 
 ## Overview
@@ -18,7 +18,7 @@ Ursix is a CLI tool providing Unix utilities powered by LLMs. It uses a stateles
 
 ### Execution
 
-Single LLM call with pre-gathered context. No tools, no iteration, no message history. Same input always produces consistent output.
+Single LLM call with piped input. No tools, no iteration, no message history. Same input always produces consistent output.
 
 ### Installation
 
@@ -30,16 +30,16 @@ cargo install ursix
 
 ```bash
 # Explain code
-usx explain src/main.rs
+cat src/main.rs | usx explain
 
 # Review staged changes
-usx review
+git diff --staged | usx review
 
 # Fix issues
-usx fix src/lib.rs --lint
+cat src/lib.rs | usx fix
 
 # Generate commit message
-usx commit --execute
+git diff --staged | usx commit --execute
 ```
 
 ## Configuration

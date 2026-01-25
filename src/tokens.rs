@@ -14,7 +14,7 @@ use anyhow::Result;
 use tokenizers::Tokenizer;
 
 use crate::config::TokenizerMode;
-use crate::context::GatheredContext;
+use crate::context::InputContext;
 
 /// Track whether we've shown the full tokenizer warning
 static FULL_TOKENIZER_WARNING_SHOWN: AtomicBool = AtomicBool::new(false);
@@ -154,62 +154,12 @@ pub fn count_tokens(content: &str, mode: TokenizerMode) -> Result<TokenCount> {
     }
 }
 
-/// Format gathered context into a string for token counting
-///
-/// This replicates the formatting logic from pipeline.rs to ensure
-/// accurate token counts for what will actually be sent to the LLM.
-fn format_context_for_counting(context: &GatheredContext) -> String {
-    let mut output = String::new();
-
-    // Format file contents
-    if !context.files.is_empty() {
-        output.push_str("## Files\n\n");
-        for file in &context.files {
-            output.push_str("### ");
-            output.push_str(&file.path.display().to_string());
-            output.push_str("\n\n```\n");
-            output.push_str(&file.content);
-            output.push_str("\n```\n\n");
-        }
-    }
-
-    // Format git diff
-    if let Some(ref diff) = context.git_diff
-        && !diff.is_empty()
-    {
-        output.push_str("## Git Diff\n\n```diff\n");
-        output.push_str(diff);
-        output.push_str("\n```\n\n");
-    }
-
-    // Format git status
-    if let Some(ref status) = context.git_status
-        && !status.is_empty()
-    {
-        output.push_str("## Git Status\n\n```\n");
-        output.push_str(status);
-        output.push_str("\n```\n\n");
-    }
-
-    // Format additional context
-    if let Some(ref additional) = context.additional_context
-        && !additional.is_empty()
-    {
-        output.push_str("## Additional Context\n\n");
-        output.push_str(additional);
-        output.push_str("\n\n");
-    }
-
-    output
-}
-
-/// Count tokens for gathered context
+/// Count tokens for input context
 ///
 /// # Errors
 /// Returns error if full tokenizer mode is used and the tokenizer cannot be loaded.
-pub fn count_context_tokens(context: &GatheredContext, mode: TokenizerMode) -> Result<TokenCount> {
-    let formatted = format_context_for_counting(context);
-    count_tokens(&formatted, mode)
+pub fn count_context_tokens(context: &InputContext, mode: TokenizerMode) -> Result<TokenCount> {
+    count_tokens(&context.content, mode)
 }
 
 /// Check token count against limits
@@ -240,8 +190,6 @@ pub fn check_token_limits(count: TokenCount, limits: &TokenLimits) -> TokenCheck
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
-    use crate::context::FileContext;
-    use std::path::PathBuf;
 
     #[test]
     fn test_count_tokens_heuristic_empty() {
@@ -359,49 +307,21 @@ mod tests {
 
     #[test]
     fn test_count_context_tokens_empty() {
-        let context = GatheredContext::default();
+        let context = InputContext::default();
         let count = count_context_tokens(&context, TokenizerMode::Heuristic).unwrap();
         assert_eq!(count.count, 0);
     }
 
     #[test]
-    fn test_count_context_tokens_with_files() {
-        let context = GatheredContext {
-            files: vec![FileContext {
-                path: PathBuf::from("test.rs"),
-                content: "fn main() {}".to_string(),
-            }],
-            git_diff: None,
-            git_status: None,
-            additional_context: None,
-        };
-        let count = count_context_tokens(&context, TokenizerMode::Heuristic).unwrap();
-        assert!(count.count > 0);
-    }
-
-    #[test]
-    fn test_count_context_tokens_with_diff() {
-        let context = GatheredContext {
-            files: vec![],
-            git_diff: Some("+fn new() {}".to_string()),
-            git_status: None,
-            additional_context: None,
-        };
+    fn test_count_context_tokens_with_content() {
+        let context = InputContext::new("fn main() {}");
         let count = count_context_tokens(&context, TokenizerMode::Heuristic).unwrap();
         assert!(count.count > 0);
     }
 
     #[test]
     fn test_count_context_tokens_full_mode() {
-        let context = GatheredContext {
-            files: vec![FileContext {
-                path: PathBuf::from("test.rs"),
-                content: "fn main() {}".to_string(),
-            }],
-            git_diff: None,
-            git_status: None,
-            additional_context: None,
-        };
+        let context = InputContext::new("fn main() {}");
         let count = count_context_tokens(&context, TokenizerMode::Full).unwrap();
         assert!(count.count > 0);
     }

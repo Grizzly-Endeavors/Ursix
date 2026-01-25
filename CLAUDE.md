@@ -4,7 +4,7 @@ Unix utilities powered by LLMs. Stateless, composable, automation-first.
 
 ## Architecture
 
-The CLI uses a stateless pipeline model: single-pass LLM calls with pre-gathered context.
+The CLI uses a stateless pipeline model: single-pass LLM calls with piped input.
 
 ```
 src/
@@ -12,7 +12,7 @@ src/
 ├── cli.rs               # clap argument parsing, command dispatch
 ├── config.rs            # Runtime configuration (layered: files, env, CLI)
 ├── input.rs             # Input source handling (--from, stdin)
-├── context.rs           # Pre-LLM context gathering (files, git state)
+├── context.rs           # Input context wrapper for LLM calls
 ├── pipeline.rs          # Stateless single-pass executor
 ├── chunk.rs             # Token-aware parallel chunking
 ├── tokens.rs            # Token counting (heuristic and full modes)
@@ -45,24 +45,24 @@ src/
 
 ## Usage
 
-Single LLM call with pre-gathered context. No tools, no message history.
+Single LLM call with piped input. No tools, no message history.
 ```bash
-usx explain src/main.rs           # Gather file, single LLM call
-usx commit                        # Gather staged diff, generate message
-usx review --checks style,security
-usx fix src/main.rs --lint        # Fix clippy issues
+cat src/main.rs | usx explain           # Explain code
+git diff --staged | usx review          # Review staged changes
+git diff --staged | usx commit          # Generate commit message
+cat src/main.rs | usx fix               # Suggest fixes
 ```
 
 ## Key CLI Flags
 
 | Flag | Description |
 |------|-------------|
-| `--from FILE` | Read context from file (use `-` for stdin) |
+| `--from FILE` | Read input from file (use `-` for stdin) |
 | `--execute` | Auto-execute git commit (commit command) |
 | `--checks LIST` | Comma-separated checks to focus on (review command) |
 | `--text` | Output as plain text instead of JSON (default: JSON) |
-| `--chunk` | Enable chunked processing for large inputs |
-| `--max-concurrency N` | Parallel chunk limit (default: 4) |
+| `--dry-run` | Show token estimation without making LLM calls |
+| `--timeout N` | Timeout for LLM requests in seconds (default: 60) |
 | `--tokenizer MODE` | Token counting: heuristic (fast) or full (accurate) |
 
 # Commit Requirements, Linting, and Formatting.

@@ -6,7 +6,7 @@
 
 use thiserror::Error;
 
-use crate::context::GatheredContext;
+use crate::context::InputContext;
 use crate::llm::{ChatOptions, LlmClient, LlmError, Message, RetryConfig, Role, with_retry};
 use crate::output::{ExitCode, ToExitCode};
 
@@ -26,52 +26,6 @@ impl ToExitCode for PipelineError {
             Self::TokenLimit(_) => ExitCode::UserError,
         }
     }
-}
-
-/// Format gathered context into a string suitable for inclusion in a prompt
-fn format_context(context: &GatheredContext) -> String {
-    let mut output = String::new();
-
-    // Format file contents
-    if !context.files.is_empty() {
-        output.push_str("## Files\n\n");
-        for file in &context.files {
-            output.push_str("### ");
-            output.push_str(&file.path.display().to_string());
-            output.push_str("\n\n```\n");
-            output.push_str(&file.content);
-            output.push_str("\n```\n\n");
-        }
-    }
-
-    // Format git diff
-    if let Some(ref diff) = context.git_diff
-        && !diff.is_empty()
-    {
-        output.push_str("## Git Diff\n\n```diff\n");
-        output.push_str(diff);
-        output.push_str("\n```\n\n");
-    }
-
-    // Format git status
-    if let Some(ref status) = context.git_status
-        && !status.is_empty()
-    {
-        output.push_str("## Git Status\n\n```\n");
-        output.push_str(status);
-        output.push_str("\n```\n\n");
-    }
-
-    // Format additional context
-    if let Some(ref additional) = context.additional_context
-        && !additional.is_empty()
-    {
-        output.push_str("## Additional Context\n\n");
-        output.push_str(additional);
-        output.push_str("\n\n");
-    }
-
-    output
 }
 
 /// Stateless single-pass execution pipeline
@@ -97,7 +51,7 @@ impl<L: LlmClient + Clone + 'static> Pipeline<L> {
     ///
     /// # Arguments
     /// * `system_prompt` - The system prompt defining the LLM's behavior
-    /// * `context` - Gathered context to include in the prompt
+    /// * `context` - Input context to include in the prompt
     /// * `user_request` - The user's request
     /// * `json_mode` - If true, enforce JSON output at the API level
     /// * `retry_config` - Configuration for retry behavior on transient failures
@@ -107,17 +61,15 @@ impl<L: LlmClient + Clone + 'static> Pipeline<L> {
     pub async fn execute(
         &self,
         system_prompt: &str,
-        context: &GatheredContext,
+        context: &InputContext,
         user_request: &str,
         json_mode: bool,
         retry_config: &RetryConfig,
     ) -> Result<String, PipelineError> {
-        let formatted_context = format_context(context);
-
-        let user_content = if formatted_context.is_empty() {
+        let user_content = if context.is_empty() {
             user_request.to_string()
         } else {
-            format!("{formatted_context}{user_request}")
+            format!("{}\n\n{}", context.content, user_request)
         };
 
         let messages = vec![
@@ -143,8 +95,7 @@ impl<L: LlmClient + Clone + 'static> Pipeline<L> {
 
         tracing::info!(
             model = %self.client.model_name(),
-            files = context.files.len(),
-            has_diff = context.git_diff.is_some(),
+            content_len = context.content.len(),
             json_mode,
             max_retries = retry_config.max_retries,
             "executing pipeline"
@@ -172,10 +123,8 @@ impl<L: LlmClient + Clone + 'static> Pipeline<L> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::context::FileContext;
     use crate::llm::{LlmResponse, ToolDefinition};
     use async_trait::async_trait;
-    use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -221,7 +170,7 @@ mod tests {
         let pipeline = Pipeline::new(client);
         let retry_config = RetryConfig::no_retry();
 
-        let context = GatheredContext::default();
+        let context = InputContext::default();
         let result = pipeline
             .execute(
                 "You are helpful.",
@@ -237,26 +186,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_with_files() {
+    async fn test_execute_with_content() {
         let client = MockClient::new("Analyzed!");
         let pipeline = Pipeline::new(client);
         let retry_config = RetryConfig::no_retry();
 
-        let context = GatheredContext {
-            files: vec![
-                FileContext {
-                    path: PathBuf::from("src/main.rs"),
-                    content: "fn main() {}".to_string(),
-                },
-                FileContext {
-                    path: PathBuf::from("src/lib.rs"),
-                    content: "pub mod foo;".to_string(),
-                },
-            ],
-            git_diff: None,
-            git_status: None,
-            additional_context: None,
-        };
+        let context = InputContext::new("fn main() {}");
 
         let result = pipeline
             .execute(
@@ -273,39 +208,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_with_git_diff() {
-        let client = MockClient::new("Reviewed!");
-        let pipeline = Pipeline::new(client);
-        let retry_config = RetryConfig::no_retry();
-
-        let context = GatheredContext {
-            files: Vec::new(),
-            git_diff: Some("+fn new_function() {}".to_string()),
-            git_status: Some("M src/lib.rs".to_string()),
-            additional_context: None,
-        };
-
-        let result = pipeline
-            .execute(
-                "You are a code reviewer.",
-                &context,
-                "Review this change",
-                false,
-                &retry_config,
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(result, "Reviewed!");
-    }
-
-    #[tokio::test]
     async fn test_single_llm_call() {
         let client = MockClient::new("Response");
         let pipeline = Pipeline::new(client);
         let retry_config = RetryConfig::no_retry();
 
-        let context = GatheredContext::default();
+        let context = InputContext::default();
         pipeline
             .execute("System", &context, "User", false, &retry_config)
             .await
@@ -321,7 +229,7 @@ mod tests {
         let pipeline = Pipeline::new(client);
         let retry_config = RetryConfig::no_retry();
 
-        let context = GatheredContext::default();
+        let context = InputContext::default();
         let result = pipeline
             .execute(
                 "Return JSON",
@@ -334,81 +242,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, "{\"status\": \"ok\"}");
-    }
-
-    #[test]
-    fn test_format_context_empty() {
-        let context = GatheredContext::default();
-        let formatted = format_context(&context);
-        assert!(formatted.is_empty());
-    }
-
-    #[test]
-    fn test_format_context_with_files() {
-        let context = GatheredContext {
-            files: vec![FileContext {
-                path: PathBuf::from("test.rs"),
-                content: "fn test() {}".to_string(),
-            }],
-            git_diff: None,
-            git_status: None,
-            additional_context: None,
-        };
-
-        let formatted = format_context(&context);
-
-        assert!(formatted.contains("## Files"));
-        assert!(formatted.contains("test.rs"));
-        assert!(formatted.contains("fn test() {}"));
-    }
-
-    #[test]
-    fn test_format_context_with_git_diff() {
-        let context = GatheredContext {
-            files: Vec::new(),
-            git_diff: Some("+added line".to_string()),
-            git_status: None,
-            additional_context: None,
-        };
-
-        let formatted = format_context(&context);
-
-        assert!(formatted.contains("## Git Diff"));
-        assert!(formatted.contains("+added line"));
-    }
-
-    #[test]
-    fn test_format_context_with_all_fields() {
-        let context = GatheredContext {
-            files: vec![FileContext {
-                path: PathBuf::from("code.rs"),
-                content: "fn main() {}".to_string(),
-            }],
-            git_diff: Some("+new line".to_string()),
-            git_status: Some("M code.rs".to_string()),
-            additional_context: Some("Lint errors here".to_string()),
-        };
-
-        let formatted = format_context(&context);
-
-        assert!(formatted.contains("## Files"));
-        assert!(formatted.contains("## Git Diff"));
-        assert!(formatted.contains("## Git Status"));
-        assert!(formatted.contains("## Additional Context"));
-        assert!(formatted.contains("Lint errors here"));
-    }
-
-    #[test]
-    fn test_format_context_skips_empty_diff() {
-        let context = GatheredContext {
-            files: Vec::new(),
-            git_diff: Some(String::new()),
-            git_status: None,
-            additional_context: None,
-        };
-
-        let formatted = format_context(&context);
-        assert!(!formatted.contains("## Git Diff"));
     }
 
     #[test]

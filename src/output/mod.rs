@@ -10,19 +10,15 @@ mod dry_run;
 pub mod error;
 mod explain;
 mod fix;
-pub mod partial;
 mod review;
 
 pub use ask::AskResult;
 pub use commit::CommitResult;
 pub use config::{ConfigEntry, ConfigResult};
-pub use dry_run::{ChunkInfo, ChunkPlan, DryRunResult};
+pub use dry_run::{ChunkPlan, DryRunResult};
 pub use error::{ErrorResponse, TypedError};
 pub use explain::ExplainResult;
-pub use fix::{AppliedFix, ApplyResults, ApplyStatus, Fix, FixResult};
-pub use partial::{
-    ChunkFailureInfo, PartialFailureResponse, PartialFixResult, PartialReviewResult,
-};
+pub use fix::{Fix, FixResult};
 pub use review::{ReviewIssue, ReviewResult};
 
 use serde::Serialize;
