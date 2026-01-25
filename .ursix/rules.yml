@@ -1,0 +1,6 @@
+categories:
+  style:
+    - name: why-not-what-comments
+      description: "Comments should explain WHY, not WHAT. The code shows what it does; comments should explain non-obvious reasoning, edge cases, or design decisions. Flag comments that merely restate what the code does (e.g., '// increment counter' above 'counter += 1')."
+      severity: warning
+      files: "*.rs"
