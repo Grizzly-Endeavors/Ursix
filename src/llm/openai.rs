@@ -2,6 +2,8 @@
 //!
 //! Supports various providers including Azure, vLLM, LM Studio, and other compatible endpoints.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -26,11 +28,23 @@ pub struct OpenAiClient {
     base_url: String,
     api_key: Option<String>,
     model: String,
+    timeout_secs: u64,
 }
 
 impl OpenAiClient {
+    /// Build a reqwest client with the specified timeout
+    fn build_client(timeout_secs: u64) -> Client {
+        Client::builder()
+            .timeout(Duration::from_secs(timeout_secs))
+            .build()
+            .unwrap_or_else(|e| {
+                tracing::error!(error = %e, "failed to build HTTP client with timeout, using default");
+                Client::new()
+            })
+    }
+
     /// Create a new client without authentication (for local servers)
-    pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Self {
+    pub fn new(base_url: impl Into<String>, model: impl Into<String>, timeout_secs: u64) -> Self {
         let base_url = base_url.into();
 
         if is_insecure_remote_url(&base_url) {
@@ -41,10 +55,11 @@ impl OpenAiClient {
         }
 
         Self {
-            client: Client::new(),
+            client: Self::build_client(timeout_secs),
             base_url,
             api_key: None,
             model: model.into(),
+            timeout_secs,
         }
     }
 
@@ -53,6 +68,7 @@ impl OpenAiClient {
         base_url: impl Into<String>,
         model: impl Into<String>,
         api_key: impl Into<String>,
+        timeout_secs: u64,
     ) -> Self {
         let base_url = base_url.into();
 
@@ -64,10 +80,11 @@ impl OpenAiClient {
         }
 
         Self {
-            client: Client::new(),
+            client: Self::build_client(timeout_secs),
             base_url,
             api_key: Some(api_key.into()),
             model: model.into(),
+            timeout_secs,
         }
     }
 }
@@ -122,7 +139,13 @@ impl LlmClient for OpenAiClient {
             req_builder = req_builder.header("Authorization", format!("Bearer {key}"));
         }
 
-        let response = req_builder.send().await?;
+        let response = req_builder.send().await.map_err(|e| {
+            if e.is_timeout() {
+                LlmError::Timeout(self.timeout_secs)
+            } else {
+                LlmError::Request(e)
+            }
+        })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -387,7 +410,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 60);
         let messages = vec![Message {
             role: Role::User,
             content: "Hello".to_string(),
@@ -422,7 +445,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OpenAiClient::with_api_key(mock_server.uri(), "gpt-4", "sk-test-key");
+        let client = OpenAiClient::with_api_key(mock_server.uri(), "gpt-4", "sk-test-key", 60);
         let messages = vec![Message {
             role: Role::User,
             content: "Hello".to_string(),
@@ -462,7 +485,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 60);
         let messages = vec![Message {
             role: Role::User,
             content: "List files".to_string(),
@@ -500,7 +523,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 60);
         let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
@@ -525,7 +548,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 60);
         let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
@@ -549,7 +572,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 60);
         let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
@@ -568,7 +591,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 60);
         let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
@@ -603,7 +626,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 60);
         let response = client
             .chat(&[], &[], &ChatOptions::default())
             .await
@@ -634,7 +657,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OpenAiClient::new(mock_server.uri(), "gpt-4");
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 60);
         let messages = vec![Message {
             role: Role::User,
             content: "Return JSON with status".to_string(),
@@ -647,5 +670,26 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.content, "{\"status\": \"ok\"}");
+    }
+
+    #[tokio::test]
+    async fn test_chat_timeout() {
+        let mock_server = MockServer::start().await;
+
+        // Mock server that delays response beyond timeout
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(3)))
+            .mount(&mock_server)
+            .await;
+
+        // Client with 1 second timeout
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 1);
+        let result = client.chat(&[], &[], &ChatOptions::default()).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, LlmError::Timeout(1)));
+        assert_eq!(err.to_string(), "request timed out after 1 seconds");
     }
 }

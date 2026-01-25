@@ -73,10 +73,6 @@ Removed `parse_warning` and `raw_response` from result types. Parse failures now
 - Exit with code 4 (PermanentError) instead of 0
 - All commands properly propagate parse failures
 
-### [ ] Add --verbose flag for error details
-
-Output full error chain (anyhow context layers), relevant state, and suggestions. Include in JSON `error.details` field.
-
 ### [x] Refactor exit codes to semantic categories
 
 **Status: COMPLETE** (Commit 4650519)
@@ -98,15 +94,24 @@ Updated `ExitCode` enum in `src/output/mod.rs`. Specific error source exposed vi
 
 These improve robustness of LLM interactions. Can be done in parallel after Phase 1.
 
-### [ ] Configurable timeouts
+### [x] Configurable timeouts
 
-LLM calls can hang indefinitely. Add:
-- Default timeout (60s or 120s)
-- `--timeout` CLI flag
-- Config file option
-- Clear timeout error message
+**Status: COMPLETE**
 
-Locations: `src/llm/ollama.rs`, `src/llm/openai.rs`
+LLM calls now have configurable timeouts with:
+- Default 60-second timeout (constant `DEFAULT_TIMEOUT_SECS` in `config.rs`)
+- `--timeout` CLI flag for per-invocation override
+- `timeout_secs` config file option
+- `URSIX_TIMEOUT` environment variable
+- `LlmError::Timeout` variant with clear error message ("request timed out after N seconds")
+- Timeout errors are classified as transient (retryable)
+
+Configuration layers (highest to lowest priority):
+1. `--timeout` CLI flag
+2. `URSIX_TIMEOUT` environment variable
+3. `timeout_secs` in project config (`.ursix.toml`)
+4. `timeout_secs` in global config (`~/.config/ursix/config.toml`)
+5. Default: 60 seconds
 
 ### [x] Parse retry logic
 
@@ -331,6 +336,7 @@ When category has 10+ rules, sub-chunk to avoid overwhelming LLM.
 - [x] Phase 1: Refactor exit codes to 5 semantic categories
 - [x] Phase 2: Parse retry logic with exponential backoff
 - [x] Phase 2: Structural output guarantee for partial failures via --partial flag
+- [x] Phase 2: Configurable timeouts - 60s default, --timeout flag, config file, env var support
 - [x] Add warnings for silent failure fallbacks in error paths
 
 ### Earlier

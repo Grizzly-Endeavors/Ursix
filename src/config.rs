@@ -25,6 +25,13 @@ pub const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
 /// Default URL for OpenAI-compatible API
 pub const DEFAULT_OPENAI_URL: &str = "https://api.openai.com/v1";
 
+/// Default timeout for LLM requests in seconds
+///
+/// This timeout applies to individual LLM API calls. For chunked operations,
+/// each chunk has its own timeout. A 60-second timeout provides reasonable
+/// protection against hung connections while allowing time for complex queries.
+pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
+
 /// Tokenizer mode for token counting
 ///
 /// Controls how tokens are counted for input validation and chunking decisions.
@@ -164,6 +171,9 @@ pub struct Config {
     /// Retry configuration for transient failures
     #[allow(clippy::struct_field_names)]
     pub retry_config: RetryConfig,
+
+    /// Timeout for LLM requests in seconds (default: 60)
+    pub timeout_secs: u64,
 }
 
 impl Config {
@@ -232,6 +242,9 @@ impl Config {
         if let Some(mode) = file.tokenizer_mode {
             self.tokenizer_mode = mode;
         }
+        if let Some(timeout) = file.timeout_secs {
+            self.timeout_secs = timeout;
+        }
     }
 
     /// Apply environment variable overrides
@@ -261,6 +274,11 @@ impl Config {
         {
             self.tokenizer_mode = m;
         }
+        if let Ok(timeout) = std::env::var("URSIX_TIMEOUT")
+            && let Ok(t) = timeout.parse()
+        {
+            self.timeout_secs = t;
+        }
     }
 }
 
@@ -278,6 +296,7 @@ impl Default for Config {
             }),
             tokenizer_mode: TokenizerMode::default(),
             retry_config: RetryConfig::default(),
+            timeout_secs: DEFAULT_TIMEOUT_SECS,
         }
     }
 }
@@ -304,6 +323,10 @@ pub struct ConfigFile {
     /// Tokenizer mode (heuristic or full)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tokenizer_mode: Option<TokenizerMode>,
+
+    /// Timeout for LLM requests in seconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
     // Note: API keys are NOT stored in config files for security
 }
 
@@ -333,6 +356,7 @@ mod tests {
         assert_eq!(config.ollama_url, DEFAULT_OLLAMA_URL);
         assert_eq!(config.openai_url, DEFAULT_OPENAI_URL);
         assert!(config.openai_api_key.is_none());
+        assert_eq!(config.timeout_secs, DEFAULT_TIMEOUT_SECS);
     }
 
     #[test]
@@ -370,6 +394,7 @@ mod tests {
             ollama_url: None,
             openai_url: Some("http://custom:8000/v1".to_string()),
             tokenizer_mode: None,
+            timeout_secs: None,
         };
 
         config.merge_file(&file);
@@ -378,6 +403,24 @@ mod tests {
         assert_eq!(config.model, "custom-model");
         assert_eq!(config.ollama_url, DEFAULT_OLLAMA_URL); // Unchanged
         assert_eq!(config.openai_url, "http://custom:8000/v1");
+    }
+
+    #[test]
+    fn test_merge_file_with_timeout() {
+        let mut config = Config::default();
+        assert_eq!(config.timeout_secs, DEFAULT_TIMEOUT_SECS);
+
+        let file = ConfigFile {
+            provider: None,
+            model: None,
+            ollama_url: None,
+            openai_url: None,
+            tokenizer_mode: None,
+            timeout_secs: Some(120),
+        };
+
+        config.merge_file(&file);
+        assert_eq!(config.timeout_secs, 120);
     }
 
     // Note: Environment variable override tests removed because std::env::set_var
@@ -470,6 +513,7 @@ mod tests {
             ollama_url: None,
             openai_url: None,
             tokenizer_mode: Some(TokenizerMode::Full),
+            timeout_secs: None,
         };
 
         config.merge_file(&file);
@@ -485,5 +529,16 @@ mod tests {
 
         let loaded = ConfigFile::load(&path).unwrap();
         assert_eq!(loaded.tokenizer_mode, Some(TokenizerMode::Full));
+    }
+
+    #[test]
+    fn test_config_file_with_timeout() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("timeout.toml");
+
+        std::fs::write(&path, "timeout_secs = 120\n").unwrap();
+
+        let loaded = ConfigFile::load(&path).unwrap();
+        assert_eq!(loaded.timeout_secs, Some(120));
     }
 }

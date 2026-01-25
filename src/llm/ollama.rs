@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -21,10 +23,15 @@ pub struct OllamaClient {
     client: Client,
     base_url: String,
     model: String,
+    timeout_secs: u64,
 }
 
 impl OllamaClient {
-    pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Self {
+    /// Create a new Ollama client with the specified timeout
+    ///
+    /// # Panics
+    /// Panics if the reqwest client cannot be built (should not happen with valid timeout)
+    pub fn new(base_url: impl Into<String>, model: impl Into<String>, timeout_secs: u64) -> Self {
         let base_url = base_url.into();
 
         if is_insecure_remote_url(&base_url) {
@@ -34,10 +41,19 @@ impl OllamaClient {
             );
         }
 
+        let client = Client::builder()
+            .timeout(Duration::from_secs(timeout_secs))
+            .build()
+            .unwrap_or_else(|e| {
+                tracing::error!(error = %e, "failed to build HTTP client with timeout, using default");
+                Client::new()
+            });
+
         Self {
-            client: Client::new(),
+            client,
             base_url,
             model: model.into(),
+            timeout_secs,
         }
     }
 
@@ -47,7 +63,13 @@ impl OllamaClient {
     /// Returns error if the API request fails or response cannot be parsed
     pub async fn list_models(&self) -> Result<Vec<String>, LlmError> {
         let url = format!("{}/api/tags", self.base_url);
-        let response = self.client.get(&url).send().await?;
+        let response = self.client.get(&url).send().await.map_err(|e| {
+            if e.is_timeout() {
+                LlmError::Timeout(self.timeout_secs)
+            } else {
+                LlmError::Request(e)
+            }
+        })?;
 
         if !response.status().is_success() {
             let error_body = response
@@ -102,7 +124,19 @@ impl LlmClient for OllamaClient {
             },
         };
 
-        let response = self.client.post(&url).json(&request).send().await?;
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    LlmError::Timeout(self.timeout_secs)
+                } else {
+                    LlmError::Request(e)
+                }
+            })?;
 
         if !response.status().is_success() {
             let error_body = response
@@ -285,7 +319,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OllamaClient::new(mock_server.uri(), "test-model");
+        let client = OllamaClient::new(mock_server.uri(), "test-model", 60);
         let messages = vec![Message {
             role: Role::User,
             content: "Hello".to_string(),
@@ -314,7 +348,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OllamaClient::new(mock_server.uri(), "nonexistent");
+        let client = OllamaClient::new(mock_server.uri(), "nonexistent", 60);
         let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
@@ -344,7 +378,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OllamaClient::new(mock_server.uri(), "test-model");
+        let client = OllamaClient::new(mock_server.uri(), "test-model", 60);
         let messages = vec![Message {
             role: Role::User,
             content: "List files".to_string(),
@@ -374,7 +408,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OllamaClient::new(mock_server.uri(), "test-model");
+        let client = OllamaClient::new(mock_server.uri(), "test-model", 60);
         let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         assert!(result.is_err());
@@ -391,7 +425,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OllamaClient::new(mock_server.uri(), "test-model");
+        let client = OllamaClient::new(mock_server.uri(), "test-model", 60);
         let result = client.chat(&[], &[], &ChatOptions::default()).await;
 
         // Should fail to parse
@@ -414,7 +448,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = OllamaClient::new(mock_server.uri(), "test-model");
+        let client = OllamaClient::new(mock_server.uri(), "test-model", 60);
         let messages = vec![Message {
             role: Role::User,
             content: "Return JSON".to_string(),
@@ -427,5 +461,26 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.content, "{\"key\": \"value\"}");
+    }
+
+    #[tokio::test]
+    async fn test_chat_timeout() {
+        let mock_server = MockServer::start().await;
+
+        // Mock server that delays response beyond timeout
+        Mock::given(method("POST"))
+            .and(path("/api/chat"))
+            .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(3)))
+            .mount(&mock_server)
+            .await;
+
+        // Client with 1 second timeout
+        let client = OllamaClient::new(mock_server.uri(), "test-model", 1);
+        let result = client.chat(&[], &[], &ChatOptions::default()).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, LlmError::Timeout(1)));
+        assert_eq!(err.to_string(), "request timed out after 1 seconds");
     }
 }

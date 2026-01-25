@@ -112,6 +112,13 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub partial: bool,
 
+    /// Timeout for LLM requests in seconds (default: 60)
+    ///
+    /// Each LLM API call will fail with a timeout error if it exceeds this duration.
+    /// For chunked operations, this timeout applies to each individual chunk.
+    #[arg(long, global = true)]
+    pub timeout: Option<u64>,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -258,6 +265,11 @@ pub async fn run() -> Result<ExitCode> {
     // Apply retry config from CLI
     config.retry_config = RetryOptions::from_cli(cli.no_retry, cli.max_retries).to_config();
 
+    // Apply timeout from CLI if provided
+    if let Some(timeout) = cli.timeout {
+        config.timeout_secs = timeout;
+    }
+
     match cli.command {
         Command::Explain { target } => cmd_explain(&config, &target, output_mode, cli.chunk).await,
         Command::Review {
@@ -310,9 +322,14 @@ pub(crate) fn create_openai_client(config: &Config) -> Result<OpenAiClient> {
             &config.openai_url,
             &config.model,
             key,
+            config.timeout_secs,
         ))
     } else if is_local_url(&config.openai_url) {
-        Ok(OpenAiClient::new(&config.openai_url, &config.model))
+        Ok(OpenAiClient::new(
+            &config.openai_url,
+            &config.model,
+            config.timeout_secs,
+        ))
     } else {
         Err(CliError::Config(anyhow::anyhow!(
             "OpenAI API key required for remote endpoints. \
@@ -332,7 +349,7 @@ pub(crate) async fn run_pipeline(
 ) -> Result<String> {
     match config.provider {
         Provider::Ollama => {
-            let client = OllamaClient::new(&config.ollama_url, &config.model);
+            let client = OllamaClient::new(&config.ollama_url, &config.model, config.timeout_secs);
             run_pipeline_with_client(
                 client,
                 system_prompt,

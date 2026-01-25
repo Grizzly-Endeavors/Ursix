@@ -20,12 +20,15 @@ pub enum LlmError {
 
     #[error("API error: {0}")]
     Api(String),
+
+    #[error("request timed out after {0} seconds")]
+    Timeout(u64),
 }
 
 impl ToExitCode for LlmError {
     fn to_exit_code(&self) -> ExitCode {
         match self {
-            Self::Request(_) => ExitCode::TransientError,
+            Self::Request(_) | Self::Timeout(_) => ExitCode::TransientError,
             Self::Parse(_) | Self::Api(_) => ExitCode::PermanentError,
         }
     }
@@ -36,8 +39,9 @@ impl LlmError {
     #[must_use]
     pub fn is_retryable(&self) -> bool {
         match self {
-            Self::Request(_) => true, // Network errors are usually transient
-            Self::Parse(_) => false,  // Parse errors won't change on retry
+            // Network errors and timeouts are usually transient
+            Self::Request(_) | Self::Timeout(_) => true,
+            Self::Parse(_) => false, // Parse errors won't change on retry
             Self::Api(msg) => {
                 // Check for rate limit or overload messages
                 let lower = msg.to_lowercase();
@@ -184,5 +188,21 @@ mod tests {
         // Auth errors are not retryable
         let auth_err = LlmError::Api("invalid api key".to_string());
         assert!(!auth_err.is_retryable());
+
+        // Timeout errors are retryable
+        let timeout_err = LlmError::Timeout(60);
+        assert!(timeout_err.is_retryable());
+    }
+
+    #[test]
+    fn test_llm_error_to_exit_code_timeout() {
+        let err = LlmError::Timeout(60);
+        assert_eq!(err.to_exit_code(), ExitCode::TransientError);
+    }
+
+    #[test]
+    fn test_llm_error_timeout_display() {
+        let err = LlmError::Timeout(60);
+        assert_eq!(err.to_string(), "request timed out after 60 seconds");
     }
 }

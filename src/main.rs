@@ -98,6 +98,11 @@ fn llm_error_to_typed(e: &llm::LlmError) -> TypedError {
                 retryable,
             }
         }
+        llm::LlmError::Timeout(secs) => TypedError::NetworkError {
+            message: format!("request timed out after {secs} seconds"),
+            url: None,
+            retryable: true,
+        },
     }
 }
 
