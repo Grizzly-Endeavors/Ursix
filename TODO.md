@@ -8,7 +8,7 @@ These block implementation work. Resolve before starting the related phase.
 
 ### JSON output schema standardization
 
-Blocks: Phase 1 (error structure), Phase 5 (documentation)
+[x] Blocks: Phase 1 (error structure), Phase 5 (documentation)
 
 Questions to resolve:
 - **Error object structure**: Is `{"error": {"code", "message", "details", "retryable"}}` the right shape? Should `details` be typed per error code or freeform?
@@ -16,16 +16,16 @@ Questions to resolve:
 - **Metadata fields**: Should all commands include common fields like `tokens_used`, `duration_ms`, `model`? Where do these live in the structure?
 - **Consistency audit**: Current output types (`ExplainResult`, `ReviewResult`, `FixResult`, `CommitResult`) may have inconsistent patterns - review before standardizing
 
-### Commit chunking strategy
+### ~~Commit chunking strategy~~ RESOLVED
 
-Blocks: Phase 2 (commit command chunking)
+**Decision: Token-based chunking with synthesis**
 
-Options:
-1. **Chunk by file** → generate per-file summaries → synthesize into final message (most accurate, multiple LLM calls)
-2. **Truncate diff** with "and N more files changed" summary (single call, loses detail)
-3. **Fail fast** with "staged changes too large, consider splitting commit" (simplest, punts to user)
+The `derive` command now supports `--chunk-recursive` which:
+1. Splits input into ~4k token chunks at logical boundaries
+2. Processes each chunk independently
+3. Synthesizes results into final output
 
-Considerations: What's the typical large-commit use case? Is accuracy or speed more important?
+Future enhancement: Add `--chunk-mode` argument to support file-based splitting (Option 1 above) as an alternative to token-based splitting.
 
 ---
 
@@ -141,11 +141,22 @@ All four commands (`explain`, `review`, `fix`, `commit`) support `--dry-run`.
 
 Enables cost prediction, early "too large" detection, and CI validation without API cost.
 
-### [ ] Commit command chunking
+### [x] Commit/explain consolidated into derive command
 
-**Blocked by: Commit chunking strategy decision**
+**Status: COMPLETE**
 
-`commit` fails on large staged diffs. Implement chosen strategy. Must produce coherent single commit message.
+Replaced `commit` and `explain` commands with unified `derive` command:
+- `usx derive commit-msg` - generate commit messages from diffs
+- `usx derive explanation` - explain code
+- `usx derive summary` - summarize content
+
+Supports `--chunk-recursive` for large inputs with token-based splitting and synthesis.
+
+### [ ] Add --chunk-mode argument for derive command
+
+Allow file-based splitting as alternative to token-based splitting:
+- `--chunk-mode tokens` (default) - current behavior, split at ~4k token boundaries
+- `--chunk-mode files` - split by file (for diffs), generate per-file summaries then synthesize
 
 ### [x] Structural output guarantee for partial failures
 
@@ -217,7 +228,6 @@ Currently supports Ollama and OpenAI-compatible APIs. Expand to major providers.
 Native Claude API integration via `src/llm/anthropic.rs`.
 
 - Messages API with proper role formatting
-- Streaming support (optional, aligns with future streaming work)
 - Token counting via API response
 - Handle Anthropic-specific errors (overloaded, rate limits)
 
@@ -346,7 +356,13 @@ When category has 10+ rules, sub-chunk to avoid overwhelming LLM.
 
 ## Completed
 
-### Recent (2026-01-24)
+### Recent (2026-01-25)
+- [x] Phase 2: Consolidated commit/explain into unified derive command
+- [x] Phase 2: Added --chunk-recursive support for large inputs
+- [x] Phase 2: Removed global --chunk and --partial flags (derive-specific now)
+- [x] Updated documentation for new derive command
+
+### Earlier (2026-01-24)
 - [x] Phase 1: Define standard error JSON structure with typed errors
 - [x] Phase 1: Silent failure audit - all errors now visible to users
 - [x] Phase 1: Make parse failures hard errors - removed parse_warning fallbacks

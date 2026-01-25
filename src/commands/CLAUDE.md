@@ -41,9 +41,8 @@ Before committing command changes, verify:
 
 | File | Command | Description |
 |------|---------|-------------|
-| `commit.rs` | `usx commit` | Generate commit messages |
+| `derive.rs` | `usx derive` | Derive content (commit-msg, explanation, summary) |
 | `config.rs` | `usx config` | View configuration |
-| `explain.rs` | `usx explain` | Explain code and concepts |
 | `fix.rs` | `usx fix` | Fix code issues |
 | `review.rs` | `usx review` | Review code changes |
 | `mod.rs` | - | Module exports |

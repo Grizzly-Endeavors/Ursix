@@ -6,10 +6,9 @@ Comprehensive documentation for the Ursix CLI tool.
 
 - [CLI Reference](cli-reference.md) - Complete command and flag reference
 - [Commands](commands/) - Detailed documentation for each command:
-  - [explain](commands/explain.md) - Explain code from stdin or file
+  - [derive](commands/derive.md) - Derive content from input (commit-msg, explanation, summary)
   - [review](commands/review.md) - Review code changes from stdin or file
   - [fix](commands/fix.md) - Suggest fixes for code from stdin or file
-  - [commit](commands/commit.md) - Generate commit messages from diff
   - [config](commands/config.md) - View configuration
 
 ## Overview
@@ -29,17 +28,32 @@ cargo install ursix
 ### Basic Usage
 
 ```bash
+# Generate commit message from diff
+git diff --staged | usx derive commit-msg
+
 # Explain code
-cat src/main.rs | usx explain
+cat src/main.rs | usx derive explanation
+
+# Summarize content
+cat doc.md | usx derive summary
 
 # Review staged changes
 git diff --staged | usx review
 
 # Fix issues
 cat src/lib.rs | usx fix
+```
 
-# Generate commit message
-git diff --staged | usx commit --execute
+### Large Input Handling
+
+For large inputs that exceed token limits, use `--chunk-recursive`:
+
+```bash
+# Process large codebase
+cat src/**/*.rs | usx derive summary --chunk-recursive
+
+# Generate commit for large diff
+git diff | usx derive commit-msg --chunk-recursive
 ```
 
 ## Configuration

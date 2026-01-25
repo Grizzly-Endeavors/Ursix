@@ -14,12 +14,9 @@ These flags apply to all commands:
 | `--ollama-url` | string | config | Ollama API base URL |
 | `--openai-url` | string | config | OpenAI-compatible API base URL |
 | `--openai-api-key` | string | config | API key for OpenAI-compatible endpoints |
-| `--chunk` | boolean | false | Enable chunked processing (warns if not supported) |
-| `--max-concurrency` | usize | 4 | Maximum concurrent chunk executions |
 | `--tokenizer` | enum | heuristic | Tokenizer mode (`heuristic`, `full`) |
 | `--no-retry` | boolean | false | Disable automatic retry on transient failures |
 | `--max-retries` | u32 | 3 | Maximum retry attempts for transient failures |
-| `--partial` | boolean | false | Return partial results when some chunks fail |
 | `--timeout` | u64 | 60 | Timeout for LLM requests in seconds |
 | `--dry-run` | boolean | false | Show token estimation without making LLM calls |
 
@@ -31,10 +28,9 @@ These flags apply to all commands:
 
 ## Commands
 
-- [`explain`](commands/explain.md) - Explain code from stdin or file
+- [`derive`](commands/derive.md) - Derive content from input (commit-msg, explanation, summary)
 - [`review`](commands/review.md) - Review code changes from stdin or file
 - [`fix`](commands/fix.md) - Suggest fixes for code from stdin or file
-- [`commit`](commands/commit.md) - Generate commit messages from diff
 - [`config`](commands/config.md) - View configuration
 
 ## Input Handling
@@ -43,15 +39,15 @@ All commands read from stdin by default or from a file via `--from`:
 
 ```bash
 # Pipe input via stdin
-cat src/main.rs | usx explain
+cat src/main.rs | usx derive explanation
 git diff --staged | usx review
 
 # Read from file directly
-usx explain --from src/main.rs
+usx derive explanation --from src/main.rs
 usx review --from changes.diff
 
 # Explicit stdin (same as piped)
-usx explain --from -
+usx derive explanation --from -
 ```
 
 If no input is provided, commands will block waiting for stdin.
@@ -66,7 +62,22 @@ Single LLM call with piped input. No tools, no message history.
 
 ## Chunked Processing
 
-The `--chunk` flag is currently not supported in stdin mode and will issue a warning. All commands process their entire input in a single LLM call.
+The `derive` command supports `--chunk-recursive` for processing large inputs:
+
+```bash
+# Process large input with automatic chunking
+cat src/**/*.rs | usx derive summary --chunk-recursive
+
+# Estimate token usage
+cat src/**/*.rs | usx derive summary --chunk-recursive --dry-run
+```
+
+When chunked processing is enabled:
+1. Input is split into ~4k token chunks
+2. Each chunk is processed independently
+3. Results are synthesized into final output
+
+Note: `review` and `fix` commands do not currently support chunking.
 
 ## Exit Codes
 
