@@ -151,8 +151,18 @@ impl LlmClient for OpenAiClient {
             .into_iter()
             .map(|tc| {
                 // OpenAI returns arguments as a JSON string, need to parse it
-                let arguments = serde_json::from_str(&tc.function.arguments)
-                    .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
+                let arguments = match serde_json::from_str(&tc.function.arguments) {
+                    Ok(args) => args,
+                    Err(e) => {
+                        tracing::warn!(
+                            tool = %tc.function.name,
+                            raw_arguments = %tc.function.arguments,
+                            error = %e,
+                            "failed to parse tool arguments, using empty object"
+                        );
+                        serde_json::Value::Object(serde_json::Map::new())
+                    }
+                };
                 ToolCall {
                     id: tc.id,
                     name: tc.function.name,

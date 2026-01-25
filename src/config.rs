@@ -272,7 +272,10 @@ impl Default for Config {
             ollama_url: String::from(DEFAULT_OLLAMA_URL),
             openai_url: String::from(DEFAULT_OPENAI_URL),
             openai_api_key: None,
-            working_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            working_dir: std::env::current_dir().unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "failed to get current directory, using '.'");
+                PathBuf::from(".")
+            }),
             tokenizer_mode: TokenizerMode::default(),
             retry_config: RetryConfig::default(),
         }
