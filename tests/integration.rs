@@ -281,7 +281,8 @@ fn cli_fix_accepts_piped_stdin() -> TestResult {
 
 #[test]
 fn cli_commit_empty_stdin_falls_back() -> TestResult {
-    // Empty stdin should fall back to git gather, then fail with "no staged changes"
+    // Empty stdin should fall back to git gather, then fail with an error
+    // (either "no staged changes" or network/API error if no LLM available)
     let mut child = Command::cargo_bin("usx")?
         .args(["commit"])
         .stdin(Stdio::piped())
@@ -298,11 +299,11 @@ fn cli_commit_empty_stdin_falls_back() -> TestResult {
     let output = child.wait_with_output()?;
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    // Should fall back to gathering commit context, which may fail with "no staged changes"
-    // This verifies empty stdin is properly ignored
+    // Should fail with structured JSON error output
+    // This verifies empty stdin is properly ignored and error handling works
     assert!(
-        stderr.contains("no staged changes") || stderr.contains("failed"),
-        "empty stdin should fall back to internal gathering"
+        stderr.contains("\"error\"") || stderr.contains("no staged changes"),
+        "empty stdin should fall back to internal gathering and produce error output"
     );
     Ok(())
 }

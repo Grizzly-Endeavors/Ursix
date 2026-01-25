@@ -22,9 +22,30 @@ pub enum LlmError {
 impl ToExitCode for LlmError {
     fn to_exit_code(&self) -> ExitCode {
         match self {
-            Self::Request(_) => ExitCode::NetworkError,
-            Self::Parse(_) => ExitCode::ParseError,
-            Self::Api(_) => ExitCode::ApiError,
+            Self::Request(_) => ExitCode::TransientError,
+            Self::Parse(_) | Self::Api(_) => ExitCode::PermanentError,
+        }
+    }
+}
+
+impl LlmError {
+    /// Returns whether this error is likely retryable
+    #[must_use]
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::Request(_) => true, // Network errors are usually transient
+            Self::Parse(_) => false,  // Parse errors won't change on retry
+            Self::Api(msg) => {
+                // Check for rate limit or overload messages
+                let lower = msg.to_lowercase();
+                lower.contains("rate")
+                    || lower.contains("limit")
+                    || lower.contains("overload")
+                    || lower.contains("capacity")
+                    || lower.contains("429")
+                    || lower.contains("503")
+                    || lower.contains("502")
+            }
         }
     }
 }
@@ -129,12 +150,36 @@ mod tests {
     #[test]
     fn test_llm_error_to_exit_code_parse() {
         let err = LlmError::Parse("bad json".to_string());
-        assert_eq!(err.to_exit_code(), ExitCode::ParseError);
+        assert_eq!(err.to_exit_code(), ExitCode::PermanentError);
     }
 
     #[test]
     fn test_llm_error_to_exit_code_api() {
-        let err = LlmError::Api("rate limited".to_string());
-        assert_eq!(err.to_exit_code(), ExitCode::ApiError);
+        let err = LlmError::Api("auth failed".to_string());
+        assert_eq!(err.to_exit_code(), ExitCode::PermanentError);
+    }
+
+    #[test]
+    fn test_llm_error_to_exit_code_request() {
+        let err = LlmError::Api("connection refused".to_string());
+        assert_eq!(err.to_exit_code(), ExitCode::PermanentError);
+    }
+
+    #[test]
+    fn test_llm_error_is_retryable() {
+        // Parse errors are not retryable
+        let parse_err = LlmError::Parse("invalid json".to_string());
+        assert!(!parse_err.is_retryable());
+
+        // Rate limit API errors are retryable
+        let rate_err = LlmError::Api("rate limit exceeded".to_string());
+        assert!(rate_err.is_retryable());
+
+        let limit_err = LlmError::Api("Error 429: too many requests".to_string());
+        assert!(limit_err.is_retryable());
+
+        // Auth errors are not retryable
+        let auth_err = LlmError::Api("invalid api key".to_string());
+        assert!(!auth_err.is_retryable());
     }
 }

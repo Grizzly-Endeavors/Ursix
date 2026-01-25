@@ -161,10 +161,8 @@ pub enum CliError {
 impl ToExitCode for CliError {
     fn to_exit_code(&self) -> ExitCode {
         match self {
-            Self::Config(_) => ExitCode::ConfigError,
-            Self::Input(_) => ExitCode::InputError,
-            Self::Git(_) => ExitCode::GitError,
-            Self::Parse(_) => ExitCode::ParseError,
+            Self::Config(_) | Self::Input(_) | Self::Git(_) => ExitCode::UserError,
+            Self::Parse(_) => ExitCode::PermanentError,
             Self::Pipeline(e) => e.to_exit_code(),
         }
     }
@@ -315,24 +313,24 @@ mod tests {
     #[test]
     fn test_cli_error_to_exit_code_config() {
         let err = CliError::Config(anyhow::anyhow!("invalid config"));
-        assert_eq!(err.to_exit_code(), ExitCode::ConfigError);
+        assert_eq!(err.to_exit_code(), ExitCode::UserError);
     }
 
     #[test]
     fn test_cli_error_to_exit_code_input() {
         let err = CliError::Input(anyhow::anyhow!("file not found"));
-        assert_eq!(err.to_exit_code(), ExitCode::InputError);
+        assert_eq!(err.to_exit_code(), ExitCode::UserError);
     }
 
     #[test]
     fn test_cli_error_to_exit_code_git() {
         let err = CliError::Git(anyhow::anyhow!("not a git repo"));
-        assert_eq!(err.to_exit_code(), ExitCode::GitError);
+        assert_eq!(err.to_exit_code(), ExitCode::UserError);
     }
 
     #[test]
     fn test_cli_error_to_exit_code_parse() {
         let err = CliError::Parse(anyhow::anyhow!("invalid json"));
-        assert_eq!(err.to_exit_code(), ExitCode::ParseError);
+        assert_eq!(err.to_exit_code(), ExitCode::PermanentError);
     }
 }
