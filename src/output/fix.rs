@@ -12,12 +12,6 @@ pub struct FixResult {
     pub fixes: Vec<Fix>,
     /// Number of issues that could not be fixed
     pub unfixable_count: usize,
-    /// Warning message if the LLM response could not be parsed
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parse_warning: Option<String>,
-    /// Raw LLM response (included when parsing fails)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_response: Option<String>,
 }
 
 /// A suggested fix from the fix command
@@ -83,19 +77,14 @@ impl CommandOutput for FixResult {
         use std::fmt::Write;
         let mut output = String::new();
 
-        // Show parse warning if present
-        if let Some(ref warning) = self.parse_warning {
-            let _ = writeln!(output, "Warning: {warning}\n");
-        }
-
         // Show diagnosis
         if !self.diagnosis.is_empty() {
             let _ = writeln!(output, "Diagnosis: {}\n", self.diagnosis);
         }
 
-        if self.fixes.is_empty() && self.parse_warning.is_none() {
+        if self.fixes.is_empty() {
             output.push_str("No fixes suggested.");
-        } else if !self.fixes.is_empty() {
+        } else {
             let _ = writeln!(output, "Suggested fixes ({}):", self.fixes.len());
             for (i, fix) in self.fixes.iter().enumerate() {
                 let location = fix
@@ -113,11 +102,6 @@ impl CommandOutput for FixResult {
                 "\n{} issues could not be fixed automatically.",
                 self.unfixable_count
             );
-        }
-
-        // Show raw response if parsing failed
-        if let Some(ref raw) = self.raw_response {
-            let _ = writeln!(output, "\nRaw LLM response:\n{raw}");
         }
 
         output
@@ -151,8 +135,6 @@ mod tests {
                 explanation: "prefix unused variable with underscore".to_string(),
             }],
             unfixable_count: 0,
-            parse_warning: None,
-            raw_response: None,
         };
         assert_eq!(result.exit_code(), ExitCode::Success);
     }
@@ -163,8 +145,6 @@ mod tests {
             diagnosis: "multiple issues".to_string(),
             fixes: vec![],
             unfixable_count: 2,
-            parse_warning: None,
-            raw_response: None,
         };
         assert_eq!(result.exit_code(), ExitCode::IssuesFound);
     }
@@ -190,8 +170,6 @@ mod tests {
                 },
             ],
             unfixable_count: 0,
-            parse_warning: None,
-            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("Diagnosis: found linting issues"));
@@ -208,8 +186,6 @@ mod tests {
             diagnosis: "no issues found".to_string(),
             fixes: vec![],
             unfixable_count: 0,
-            parse_warning: None,
-            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("No fixes suggested."));
@@ -221,8 +197,6 @@ mod tests {
             diagnosis: "complex issues".to_string(),
             fixes: vec![],
             unfixable_count: 3,
-            parse_warning: None,
-            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("3 issues could not be fixed automatically."));

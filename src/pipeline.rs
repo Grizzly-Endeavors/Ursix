@@ -7,7 +7,7 @@
 use thiserror::Error;
 
 use crate::context::GatheredContext;
-use crate::llm::{ChatOptions, LlmClient, LlmError, Message, Role};
+use crate::llm::{ChatOptions, LlmClient, LlmError, Message, RetryConfig, Role, with_retry};
 use crate::output::{ExitCode, ToExitCode};
 
 /// Error type for pipeline execution
@@ -82,7 +82,7 @@ pub struct Pipeline<L: LlmClient> {
     client: L,
 }
 
-impl<L: LlmClient> Pipeline<L> {
+impl<L: LlmClient + Clone + 'static> Pipeline<L> {
     /// Create a new pipeline with the given LLM client
     #[must_use]
     pub fn new(client: L) -> Self {
@@ -92,22 +92,25 @@ impl<L: LlmClient> Pipeline<L> {
     /// Execute a single-pass LLM call
     ///
     /// Builds messages from the system prompt, context, and user request,
-    /// then makes a single LLM call with no tools.
+    /// then makes a single LLM call with no tools. Automatically retries
+    /// on transient failures according to the retry config.
     ///
     /// # Arguments
     /// * `system_prompt` - The system prompt defining the LLM's behavior
     /// * `context` - Gathered context to include in the prompt
     /// * `user_request` - The user's request
     /// * `json_mode` - If true, enforce JSON output at the API level
+    /// * `retry_config` - Configuration for retry behavior on transient failures
     ///
     /// # Errors
-    /// Returns error if the LLM call fails
+    /// Returns error if the LLM call fails after all retry attempts
     pub async fn execute(
         &self,
         system_prompt: &str,
         context: &GatheredContext,
         user_request: &str,
         json_mode: bool,
+        retry_config: &RetryConfig,
     ) -> Result<String, PipelineError> {
         let formatted_context = format_context(context);
 
@@ -143,10 +146,18 @@ impl<L: LlmClient> Pipeline<L> {
             files = context.files.len(),
             has_diff = context.git_diff.is_some(),
             json_mode,
+            max_retries = retry_config.max_retries,
             "executing pipeline"
         );
 
-        let response = self.client.chat(&messages, &[], &options).await?;
+        let client = self.client.clone();
+        let response = with_retry(retry_config, || {
+            let msgs = messages.clone();
+            let opts = options.clone();
+            let c = client.clone();
+            async move { c.chat(&msgs, &[], &opts).await }
+        })
+        .await?;
 
         tracing::debug!(
             content_len = response.content.len(),
@@ -168,6 +179,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    #[derive(Clone)]
     struct MockClient {
         response: String,
         call_count: Arc<AtomicUsize>,
@@ -207,10 +219,17 @@ mod tests {
     async fn test_execute_simple() {
         let client = MockClient::new("Test response");
         let pipeline = Pipeline::new(client);
+        let retry_config = RetryConfig::no_retry();
 
         let context = GatheredContext::default();
         let result = pipeline
-            .execute("You are helpful.", &context, "Say hello", false)
+            .execute(
+                "You are helpful.",
+                &context,
+                "Say hello",
+                false,
+                &retry_config,
+            )
             .await
             .unwrap();
 
@@ -221,6 +240,7 @@ mod tests {
     async fn test_execute_with_files() {
         let client = MockClient::new("Analyzed!");
         let pipeline = Pipeline::new(client);
+        let retry_config = RetryConfig::no_retry();
 
         let context = GatheredContext {
             files: vec![
@@ -244,6 +264,7 @@ mod tests {
                 &context,
                 "Explain this code",
                 false,
+                &retry_config,
             )
             .await
             .unwrap();
@@ -255,6 +276,7 @@ mod tests {
     async fn test_execute_with_git_diff() {
         let client = MockClient::new("Reviewed!");
         let pipeline = Pipeline::new(client);
+        let retry_config = RetryConfig::no_retry();
 
         let context = GatheredContext {
             files: Vec::new(),
@@ -269,6 +291,7 @@ mod tests {
                 &context,
                 "Review this change",
                 false,
+                &retry_config,
             )
             .await
             .unwrap();
@@ -280,10 +303,11 @@ mod tests {
     async fn test_single_llm_call() {
         let client = MockClient::new("Response");
         let pipeline = Pipeline::new(client);
+        let retry_config = RetryConfig::no_retry();
 
         let context = GatheredContext::default();
         pipeline
-            .execute("System", &context, "User", false)
+            .execute("System", &context, "User", false, &retry_config)
             .await
             .unwrap();
 
@@ -295,10 +319,17 @@ mod tests {
     async fn test_execute_with_json_mode() {
         let client = MockClient::new("{\"status\": \"ok\"}");
         let pipeline = Pipeline::new(client);
+        let retry_config = RetryConfig::no_retry();
 
         let context = GatheredContext::default();
         let result = pipeline
-            .execute("Return JSON", &context, "Give me status", true)
+            .execute(
+                "Return JSON",
+                &context,
+                "Give me status",
+                true,
+                &retry_config,
+            )
             .await
             .unwrap();
 

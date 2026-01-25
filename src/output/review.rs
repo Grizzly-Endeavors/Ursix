@@ -13,12 +13,6 @@ pub struct ReviewResult {
     pub issues: Vec<ReviewIssue>,
     /// Whether the review passed (no issues or only warnings)
     pub passed: bool,
-    /// Warning message if the LLM response could not be parsed
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parse_warning: Option<String>,
-    /// Raw LLM response (included when parsing fails)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_response: Option<String>,
 }
 
 /// An issue identified during code review
@@ -44,20 +38,15 @@ impl CommandOutput for ReviewResult {
         use std::fmt::Write;
         let mut output = String::new();
 
-        // Show parse warning if present
-        if let Some(ref warning) = self.parse_warning {
-            let _ = writeln!(output, "Warning: {warning}\n");
-        }
-
         // Show summary
         if !self.summary.is_empty() {
             let _ = writeln!(output, "{}\n", self.summary);
         }
 
         // Show issues
-        if self.issues.is_empty() && self.parse_warning.is_none() {
+        if self.issues.is_empty() {
             output.push_str("No issues found.");
-        } else if !self.issues.is_empty() {
+        } else {
             let _ = writeln!(output, "Issues ({}):", self.issues.len());
             for issue in &self.issues {
                 // Build location string (file:line format)
@@ -79,11 +68,6 @@ impl CommandOutput for ReviewResult {
                     );
                 }
             }
-        }
-
-        // Show raw response if parsing failed
-        if let Some(ref raw) = self.raw_response {
-            let _ = writeln!(output, "\nRaw LLM response:\n{raw}");
         }
 
         output
@@ -111,8 +95,6 @@ mod tests {
             summary: "All good".to_string(),
             issues: vec![],
             passed: true,
-            parse_warning: None,
-            raw_response: None,
         };
         assert_eq!(result.exit_code(), ExitCode::Success);
     }
@@ -129,8 +111,6 @@ mod tests {
                 rule: None,
             }],
             passed: false,
-            parse_warning: None,
-            raw_response: None,
         };
         assert_eq!(result.exit_code(), ExitCode::IssuesFound);
     }
@@ -141,8 +121,6 @@ mod tests {
             summary: "Code looks great".to_string(),
             issues: vec![],
             passed: true,
-            parse_warning: None,
-            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("Code looks great"));
@@ -161,8 +139,6 @@ mod tests {
                 rule: None,
             }],
             passed: false,
-            parse_warning: None,
-            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("Issues (1):"));
@@ -181,8 +157,6 @@ mod tests {
                 rule: None,
             }],
             passed: false,
-            parse_warning: None,
-            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("[warning] lib.rs: missing docs"));
@@ -200,8 +174,6 @@ mod tests {
                 rule: None,
             }],
             passed: true,
-            parse_warning: None,
-            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("[info] line 100: consider refactoring"));
@@ -219,8 +191,6 @@ mod tests {
                 rule: None,
             }],
             passed: false,
-            parse_warning: None,
-            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("[error] global issue"));
@@ -247,27 +217,10 @@ mod tests {
                 },
             ],
             passed: false,
-            parse_warning: None,
-            raw_response: None,
         };
         let output = result.render_human();
         assert!(output.contains("Issues (2):"));
         assert!(output.contains("[error] a.rs:1: first issue"));
         assert!(output.contains("[warning] b.rs:2: second issue"));
-    }
-
-    #[test]
-    fn test_review_result_render_human_with_parse_warning() {
-        let result = ReviewResult {
-            summary: "Fallback summary".to_string(),
-            issues: vec![],
-            passed: true,
-            parse_warning: Some("could not parse structured response".to_string()),
-            raw_response: Some("raw llm output here".to_string()),
-        };
-        let output = result.render_human();
-        assert!(output.contains("Warning: could not parse structured response"));
-        assert!(output.contains("Raw LLM response:"));
-        assert!(output.contains("raw llm output here"));
     }
 }

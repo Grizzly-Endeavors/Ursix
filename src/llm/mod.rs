@@ -1,5 +1,8 @@
 pub mod ollama;
 pub mod openai;
+pub mod retry;
+
+pub use retry::{RetryConfig, with_retry};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

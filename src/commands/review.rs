@@ -233,8 +233,6 @@ fn output_no_rules_matched(output_mode: OutputMode) -> ExitCode {
         summary: "No rules matched the specified checks".to_string(),
         issues: Vec::new(),
         passed: true,
-        parse_warning: None,
-        raw_response: None,
     };
     println!("{}", result.render(output_mode));
     ExitCode::Success
@@ -256,13 +254,7 @@ async fn run_single_review(
     )
     .await?;
 
-    let result = parse_review_response(&response).unwrap_or_else(|e| ReviewResult {
-        summary: String::new(),
-        issues: Vec::new(),
-        passed: false,
-        parse_warning: Some(format!("could not parse structured response: {e}")),
-        raw_response: Some(response.clone()),
-    });
+    let result = parse_review_response(&response)?;
 
     let exit_code = result.exit_code();
     println!("{}", result.render(output_mode));
@@ -285,8 +277,6 @@ async fn run_file_chunked_review(
             summary: "No content to review".to_string(),
             issues: Vec::new(),
             passed: true,
-            parse_warning: None,
-            raw_response: None,
         };
         println!("{}", result.render(output_mode));
         return Ok(ExitCode::Success);
@@ -331,8 +321,6 @@ async fn run_category_review(
             summary: "No categories to review".to_string(),
             issues: Vec::new(),
             passed: true,
-            parse_warning: None,
-            raw_response: None,
         };
         println!("{}", result.render(output_mode));
         return Ok(ExitCode::Success);
@@ -376,8 +364,6 @@ async fn run_nested_review(
             summary: "No content to review".to_string(),
             issues: Vec::new(),
             passed: true,
-            parse_warning: None,
-            raw_response: None,
         };
         println!("{}", result.render(output_mode));
         return Ok(ExitCode::Success);
@@ -422,15 +408,7 @@ async fn execute_review_chunk(
     .await
     .context("failed to execute review chunk")?;
 
-    let result = parse_review_response(&response).unwrap_or_else(|e| ReviewResult {
-        summary: String::new(),
-        issues: Vec::new(),
-        passed: false,
-        parse_warning: Some(format!("could not parse structured response: {e}")),
-        raw_response: Some(response.clone()),
-    });
-
-    Ok(result)
+    parse_review_response(&response).context("failed to parse review response")
 }
 
 /// Execute a review for a single category chunk
@@ -451,15 +429,7 @@ async fn execute_category_review_chunk(
     .await
     .context("failed to execute category review chunk")?;
 
-    let result = parse_review_response(&response).unwrap_or_else(|e| ReviewResult {
-        summary: String::new(),
-        issues: Vec::new(),
-        passed: false,
-        parse_warning: Some(format!("could not parse structured response: {e}")),
-        raw_response: Some(response.clone()),
-    });
-
-    Ok(result)
+    parse_review_response(&response).context("failed to parse category review response")
 }
 
 /// Aggregate results from chunked review execution
@@ -472,7 +442,6 @@ fn aggregate_review_results(
 ) -> ReviewResult {
     let mut all_issues: Vec<ReviewIssue> = Vec::new();
     let mut summaries: Vec<String> = Vec::new();
-    let mut has_parse_warnings = false;
     let results_count = chunked.results.len();
     let failures_count = chunked.failures.len();
 
@@ -482,9 +451,6 @@ fn aggregate_review_results(
             summaries.push(result.summary);
         }
         all_issues.extend(result.issues);
-        if result.parse_warning.is_some() {
-            has_parse_warnings = true;
-        }
     }
 
     // Add failures as error issues
@@ -527,12 +493,6 @@ fn aggregate_review_results(
         summary,
         issues: all_issues,
         passed,
-        parse_warning: if has_parse_warnings {
-            Some("some chunks had parse warnings".to_string())
-        } else {
-            None
-        },
-        raw_response: None,
     }
 }
 

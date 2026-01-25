@@ -16,6 +16,7 @@ fn is_insecure_remote_url(url: &str) -> bool {
 }
 
 /// Ollama API client
+#[derive(Clone)]
 pub struct OllamaClient {
     client: Client,
     base_url: String,

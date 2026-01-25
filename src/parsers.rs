@@ -80,8 +80,6 @@ pub fn parse_review_response(response: &str) -> Result<ReviewResult> {
         summary: parsed.summary,
         issues,
         passed: review_passed,
-        parse_warning: None,
-        raw_response: None,
     })
 }
 
@@ -98,7 +96,6 @@ pub fn parse_explain_response(response: &str) -> Result<ExplainResult> {
 
     Ok(ExplainResult {
         explanation: parsed.explanation,
-        parse_warning: None,
     })
 }
 
@@ -141,8 +138,6 @@ pub fn parse_fix_response(response: &str) -> Result<FixResult> {
         diagnosis: parsed.diagnosis,
         fixes,
         unfixable_count: parsed.unfixable_count,
-        parse_warning: None,
-        raw_response: None,
     })
 }
 

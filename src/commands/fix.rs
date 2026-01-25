@@ -116,16 +116,7 @@ pub async fn cmd_fix(
     )
     .await?;
 
-    let result = parse_fix_response(&response).unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "failed to parse fix response, returning empty result");
-        FixResult {
-            diagnosis: String::new(),
-            fixes: Vec::new(),
-            unfixable_count: 0,
-            parse_warning: Some(format!("could not parse structured response: {e}")),
-            raw_response: Some(response.clone()),
-        }
-    });
+    let result = parse_fix_response(&response)?;
 
     // Apply fixes if requested and track results
     let apply_results = if apply && !result.fixes.is_empty() {
@@ -164,8 +155,6 @@ async fn run_chunked_fix(
             diagnosis: "No content to fix".to_string(),
             fixes: Vec::new(),
             unfixable_count: 0,
-            parse_warning: None,
-            raw_response: None,
         };
         println!("{}", result.render(output_mode));
         return Ok(ExitCode::Success);
@@ -390,18 +379,7 @@ async fn execute_fix_chunk(
         .await
         .context("failed to execute fix chunk")?;
 
-    let result = parse_fix_response(&response).unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "failed to parse fix chunk response");
-        FixResult {
-            diagnosis: String::new(),
-            fixes: Vec::new(),
-            unfixable_count: 0,
-            parse_warning: Some(format!("could not parse structured response: {e}")),
-            raw_response: Some(response.clone()),
-        }
-    });
-
-    Ok(result)
+    parse_fix_response(&response).context("failed to parse fix response")
 }
 
 /// Aggregate results from chunked fix execution
@@ -409,7 +387,6 @@ fn aggregate_fix_results(chunked: ChunkedResult<FixResult>) -> FixResult {
     let mut all_fixes: Vec<Fix> = Vec::new();
     let mut diagnosis_parts: Vec<String> = Vec::new();
     let mut total_unfixable = 0;
-    let mut has_parse_warnings = false;
     let results_count = chunked.results.len();
     let failure_count = chunked.failures.len();
 
@@ -420,9 +397,6 @@ fn aggregate_fix_results(chunked: ChunkedResult<FixResult>) -> FixResult {
         }
         all_fixes.extend(result.fixes);
         total_unfixable += result.unfixable_count;
-        if result.parse_warning.is_some() {
-            has_parse_warnings = true;
-        }
     }
 
     // Add failures to unfixable count
@@ -442,22 +416,9 @@ fn aggregate_fix_results(chunked: ChunkedResult<FixResult>) -> FixResult {
         diagnosis_parts.join("\n")
     };
 
-    let parse_warning = if has_parse_warnings || failure_count > 0 {
-        let issues_desc = if has_parse_warnings {
-            "some".to_string()
-        } else {
-            failure_count.to_string()
-        };
-        Some(format!("{issues_desc} chunks had issues"))
-    } else {
-        None
-    };
-
     FixResult {
         diagnosis,
         fixes: all_fixes,
         unfixable_count: total_unfixable,
-        parse_warning,
-        raw_response: None,
     }
 }

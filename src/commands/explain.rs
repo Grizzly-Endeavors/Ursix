@@ -8,7 +8,7 @@ use crate::cli::run_pipeline;
 use crate::config::Config;
 use crate::context::{GatheredContext, gather_explain_context};
 use crate::input::try_read_piped_stdin;
-use crate::output::{CommandOutput, ExitCode, ExplainResult, OutputMode};
+use crate::output::{CommandOutput, ExitCode, OutputMode};
 use crate::parsers::parse_explain_response;
 use crate::prompts::pipeline_prompt_for_command;
 
@@ -56,10 +56,7 @@ pub async fn cmd_explain(
     )
     .await?;
 
-    let result = parse_explain_response(&response).unwrap_or_else(|e| ExplainResult {
-        explanation: response,
-        parse_warning: Some(format!("could not parse structured response: {e}")),
-    });
+    let result = parse_explain_response(&response)?;
 
     println!("{}", result.render(output_mode));
 

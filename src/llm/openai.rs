@@ -20,6 +20,7 @@ fn is_insecure_remote_url(url: &str) -> bool {
 }
 
 /// OpenAI-compatible API client
+#[derive(Clone)]
 pub struct OpenAiClient {
     client: Client,
     base_url: String,

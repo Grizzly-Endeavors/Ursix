@@ -14,6 +14,8 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::llm::RetryConfig;
+
 /// Default model to use
 pub const DEFAULT_MODEL: &str = "llama3.2";
 
@@ -158,6 +160,10 @@ pub struct Config {
 
     /// Tokenizer mode for token counting
     pub tokenizer_mode: TokenizerMode,
+
+    /// Retry configuration for transient failures
+    #[allow(clippy::struct_field_names)]
+    pub retry_config: RetryConfig,
 }
 
 impl Config {
@@ -268,6 +274,7 @@ impl Default for Config {
             openai_api_key: None,
             working_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             tokenizer_mode: TokenizerMode::default(),
+            retry_config: RetryConfig::default(),
         }
     }
 }

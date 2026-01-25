@@ -15,11 +15,45 @@ use crate::commands::{
 use crate::config::{Config, Provider, TokenizerMode};
 use crate::context::GatheredContext;
 use crate::llm::LlmClient;
+use crate::llm::RetryConfig;
 use crate::llm::ollama::OllamaClient;
 use crate::llm::openai::OpenAiClient;
 use crate::output::{ExitCode, OutputMode, ToExitCode};
 use crate::pipeline::Pipeline;
 use crate::pipeline::PipelineError;
+
+/// Options for retry behavior
+#[derive(Debug, Clone)]
+pub struct RetryOptions {
+    /// Whether retries are enabled
+    pub enabled: bool,
+    /// Maximum retry attempts
+    pub max_retries: u32,
+}
+
+impl RetryOptions {
+    /// Create retry options from CLI flags
+    #[must_use]
+    pub fn from_cli(no_retry: bool, max_retries: u32) -> Self {
+        Self {
+            enabled: !no_retry,
+            max_retries,
+        }
+    }
+
+    /// Convert to [`RetryConfig`] for the retry infrastructure
+    #[must_use]
+    pub fn to_config(&self) -> RetryConfig {
+        if self.enabled {
+            RetryConfig {
+                max_retries: self.max_retries,
+                ..RetryConfig::default()
+            }
+        } else {
+            RetryConfig::no_retry()
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "usx")]
@@ -64,6 +98,14 @@ pub struct Cli {
     /// 'full': Accurate `HuggingFace` tokenizer (has network/CPU overhead)
     #[arg(long, global = true)]
     pub tokenizer: Option<TokenizerMode>,
+
+    /// Disable automatic retry on transient failures
+    #[arg(long, global = true)]
+    pub no_retry: bool,
+
+    /// Maximum retry attempts for transient failures (default: 3)
+    #[arg(long, global = true, default_value = "3")]
+    pub max_retries: u32,
 
     #[command(subcommand)]
     pub command: Command,
@@ -208,6 +250,9 @@ pub async fn run() -> Result<ExitCode> {
         config.tokenizer_mode = mode;
     }
 
+    // Apply retry config from CLI
+    config.retry_config = RetryOptions::from_cli(cli.no_retry, cli.max_retries).to_config();
+
     match cli.command {
         Command::Explain { target } => cmd_explain(&config, &target, output_mode, cli.chunk).await,
         Command::Review {
@@ -281,26 +326,49 @@ pub(crate) async fn run_pipeline(
     match config.provider {
         Provider::Ollama => {
             let client = OllamaClient::new(&config.ollama_url, &config.model);
-            run_pipeline_with_client(client, system_prompt, context, user_request, json_mode).await
+            run_pipeline_with_client(
+                client,
+                system_prompt,
+                context,
+                user_request,
+                json_mode,
+                &config.retry_config,
+            )
+            .await
         }
         Provider::OpenAi => {
             let client = create_openai_client(config)?;
-            run_pipeline_with_client(client, system_prompt, context, user_request, json_mode).await
+            run_pipeline_with_client(
+                client,
+                system_prompt,
+                context,
+                user_request,
+                json_mode,
+                &config.retry_config,
+            )
+            .await
         }
     }
 }
 
 /// Run the pipeline with a specific LLM client
-async fn run_pipeline_with_client<C: LlmClient>(
+async fn run_pipeline_with_client<C: LlmClient + Clone + 'static>(
     client: C,
     system_prompt: &str,
     context: &GatheredContext,
     user_request: &str,
     json_mode: bool,
+    retry_config: &RetryConfig,
 ) -> Result<String> {
     let pipeline = Pipeline::new(client);
     pipeline
-        .execute(system_prompt, context, user_request, json_mode)
+        .execute(
+            system_prompt,
+            context,
+            user_request,
+            json_mode,
+            retry_config,
+        )
         .await
         .map_err(Into::into)
 }
