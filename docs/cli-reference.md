@@ -17,6 +17,9 @@ These flags apply to all commands:
 | `--chunk` | boolean | false | Enable chunked processing for large inputs |
 | `--max-concurrency` | usize | 4 | Maximum concurrent chunk executions |
 | `--tokenizer` | enum | heuristic | Tokenizer mode (`heuristic`, `full`) |
+| `--no-retry` | boolean | false | Disable automatic retry on transient failures |
+| `--max-retries` | u32 | 3 | Maximum retry attempts for transient failures |
+| `--partial` | boolean | false | Return partial results when some chunks fail |
 
 ### Environment Variables
 
@@ -67,19 +70,77 @@ This allows you to control the cost/detail tradeoff. See [review command docs](c
 
 ## Exit Codes
 
+Simplified 5-category system for reliable automation:
+
 | Code | Name | Meaning |
 |------|------|---------|
-| 0 | Success | Command completed successfully |
-| 1 | IssuesFound | Review found issues or fix had failures |
-| 2 | UsageError | Invalid CLI arguments |
-| 3 | ConfigError | Configuration loading/validation failed |
-| 4 | InputError | Input file/stdin reading failed |
-| 5 | GitError | Git operation failed |
-| 6 | NetworkError | HTTP request failures |
-| 7 | ApiError | LLM API errors (auth, rate limits) |
-| 8 | ParseError | Response parsing failed |
-| 9 | InternalError | Unexpected internal errors |
-| 10 | TokenLimitError | Input exceeds token limit |
+| 0 | Success | Command completed successfully with no issues |
+| 1 | IssuesFound | Command completed but found issues (review problems, partial failures) |
+| 2 | UserError | User-fixable errors: bad arguments, config, missing files |
+| 3 | TransientError | Transient errors: network issues, rate limits (retry may help) |
+| 4 | PermanentError | Permanent errors: auth failures, parse errors (retry won't help) |
+
+Scripts can use these to make retry decisions:
+```bash
+usx review
+case $? in
+  0) echo "Clean" ;;
+  1) echo "Issues found" ;;
+  2) echo "Check your arguments" ;;
+  3) echo "Retry later" ;;
+  4) echo "Fix configuration" ;;
+esac
+```
+
+## Error Handling & Retry
+
+### Automatic Retry
+
+By default, Ursix automatically retries LLM calls on transient failures (network errors, rate limits). This improves reliability without user intervention.
+
+```bash
+# Default: retries up to 3 times with exponential backoff
+usx review
+
+# Disable retry (for debugging or when you want fast failures)
+usx review --no-retry
+
+# Custom retry count
+usx review --max-retries 5
+```
+
+### Partial Results
+
+When using chunked processing (`--chunk`), some chunks may fail while others succeed. By default, failures cause the entire command to fail. Use `--partial` to get partial results:
+
+```bash
+# Default: fail if any chunk fails
+usx review --chunk
+
+# Return successful results even if some chunks failed
+usx review --chunk --partial
+```
+
+With `--partial`, the output includes:
+- `partial_results` — data from successful chunks
+- `chunks_processed` — list of successfully processed chunks
+- `chunks_failed` — list of failed chunks with error details
+- `partial: true` — flag indicating this is a partial result
+
+### JSON Error Output
+
+Errors are output as JSON to stderr, keeping stdout clean for piping:
+
+```json
+{
+  "_meta": { "schema_version": "1" },
+  "error": {
+    "code": "network_error",
+    "message": "connection timeout",
+    "retryable": true
+  }
+}
+```
 
 ## Configuration
 

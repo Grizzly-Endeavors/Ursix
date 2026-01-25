@@ -59,7 +59,7 @@ Ursix takes a different approach:
 
 - **Stateless by default** — Each command is a pure function: input → LLM → output. No session, no memory, no surprises.
 - **JSON-first** — Machine-readable output by default. Use `--text` when you want human-readable.
-- **Meaningful exit codes** — 12 distinct codes for precise error handling in scripts.
+- **Meaningful exit codes** — 5 distinct codes for reliable automation (success, issues found, user error, transient error, permanent error).
 - **Offline-capable** — First-class Ollama support. Your code never leaves your machine.
 - **Predictable** — Pipeline mode (default) makes a single LLM call with pre-gathered context. No tool loops, no iteration, no runaway agents.
 - **Composable** — Works with `jq`, `xargs`, `find`, `parallel`, `watch`, and the rest of your Unix toolkit.
@@ -190,20 +190,30 @@ Ursix is designed for automation first.
 
 | Code | Meaning |
 |------|---------|
-| `0` | Success |
-| `1` | Issues found (review failed, problems detected) |
-| `2` | Usage error (invalid arguments) |
-| `3` | Configuration error |
-| `4` | Input error (file not found) |
-| `5` | Git error |
-| `6` | Network error |
-| `7` | API error (auth, rate limit) |
-| `8` | Parse error |
-| `9` | Internal error |
-| `10` | Token limit exceeded |
+| `0` | Success (command completed, no issues) |
+| `1` | Issues found (review problems, partial failures) |
+| `2` | User error (bad args, config, missing files) |
+| `3` | Transient error (network, rate limit—retry may help) |
+| `4` | Permanent error (auth, parse—retry won't help) |
 
 ```bash
 usx review && echo "Clean" || echo "Issues found (exit: $?)"
+```
+
+### Retry & Partial Results
+
+LLM calls automatically retry on transient failures:
+
+```bash
+usx review                    # Default: up to 3 retries
+usx review --no-retry         # Fail immediately on errors
+usx review --max-retries 5    # Custom retry count
+```
+
+When using chunked processing, get partial results even if some chunks fail:
+
+```bash
+usx review --chunk --partial  # Return successful results from processed chunks
 ```
 
 ### Token-Aware Chunking
@@ -378,6 +388,9 @@ Global Flags:
     --chunk                Enable chunked processing for large inputs
     --max-concurrency <N>  Parallel chunk limit (default: 4)
     --tokenizer <MODE>     Token counting: heuristic (fast) or full (accurate)
+    --no-retry             Disable automatic retry on transient failures
+    --max-retries <N>      Maximum retry attempts (default: 3)
+    --partial              Return partial results when some chunks fail
 ```
 
 ## Architecture
