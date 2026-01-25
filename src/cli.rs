@@ -10,8 +10,8 @@ use clap::{Parser, Subcommand};
 use thiserror::Error;
 
 use crate::commands::{
-    CommitOptions, DeriveOptions, DeriveType, FixOptions, MessageFormat, PostAction, ReviewOptions,
-    cmd_commit, cmd_config, cmd_derive, cmd_explain, cmd_fix, cmd_review,
+    DeriveOptions, DeriveType, FixOptions, ReviewOptions, cmd_config, cmd_derive, cmd_fix,
+    cmd_review,
 };
 use crate::config::{Config, Provider, TokenizerMode};
 use crate::context::InputContext;
@@ -121,60 +121,6 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Explain code from stdin or --from
-    Explain {
-        /// Read input from a file (use - for stdin)
-        #[arg(long, value_name = "FILE")]
-        from: Option<PathBuf>,
-    },
-
-    /// Review code changes from stdin or --from
-    Review {
-        /// Read input from a file (use - for stdin)
-        #[arg(long, value_name = "FILE")]
-        from: Option<PathBuf>,
-
-        /// Checks to perform (e.g., style, security, performance)
-        #[arg(long, value_delimiter = ',')]
-        checks: Vec<String>,
-    },
-
-    /// Fix issues in code from stdin or --from
-    Fix {
-        /// Read input from a file (use - for stdin)
-        #[arg(long, value_name = "FILE")]
-        from: Option<PathBuf>,
-    },
-
-    /// Generate commit message from diff provided via stdin or --from
-    Commit {
-        /// Read diff from a file (use - for stdin)
-        #[arg(long, value_name = "FILE")]
-        from: Option<PathBuf>,
-
-        /// Include body with detailed explanation
-        #[arg(long)]
-        body: bool,
-
-        /// Commit style (conventional, simple)
-        #[arg(long, default_value = "conventional")]
-        style: String,
-
-        /// Auto-execute git commit with the generated message
-        #[arg(long)]
-        execute: bool,
-    },
-
-    /// View configuration values (edit .ursix.toml to change settings)
-    Config {
-        /// Configuration key to display
-        key: Option<String>,
-
-        /// List all configuration values
-        #[arg(long)]
-        list: bool,
-    },
-
     /// Derive content from input (commit-msg, explanation, summary)
     Derive {
         /// Type of content to derive: commit-msg, explanation, summary
@@ -196,6 +142,34 @@ pub enum Command {
         /// Maximum concurrent chunk executions (default: 4)
         #[arg(long, default_value = "4")]
         max_concurrency: usize,
+    },
+
+    /// Review code changes from stdin or --from
+    Review {
+        /// Read input from a file (use - for stdin)
+        #[arg(long, value_name = "FILE")]
+        from: Option<PathBuf>,
+
+        /// Checks to perform (e.g., style, security, performance)
+        #[arg(long, value_delimiter = ',')]
+        checks: Vec<String>,
+    },
+
+    /// Fix issues in code from stdin or --from
+    Fix {
+        /// Read input from a file (use - for stdin)
+        #[arg(long, value_name = "FILE")]
+        from: Option<PathBuf>,
+    },
+
+    /// View configuration values (edit .ursix.toml to change settings)
+    Config {
+        /// Configuration key to display
+        key: Option<String>,
+
+        /// List all configuration values
+        #[arg(long)]
+        list: bool,
     },
 }
 
@@ -277,8 +251,22 @@ pub async fn run() -> Result<ExitCode> {
     }
 
     match cli.command {
-        Command::Explain { from } => {
-            cmd_explain(&config, from, output_mode, false, cli.dry_run).await
+        Command::Derive {
+            derive_type,
+            from,
+            style,
+            chunk_recursive,
+            max_concurrency,
+        } => {
+            let derive_type = DeriveType::from_str(&derive_type).map_err(CliError::Config)?;
+            let options = DeriveOptions {
+                derive_type,
+                style: Some(style),
+                chunk_recursive,
+                max_concurrency,
+                dry_run: cli.dry_run,
+            };
+            cmd_derive(&config, options, from, output_mode).await
         }
         Command::Review { from, checks } => {
             let options = ReviewOptions {
@@ -298,38 +286,7 @@ pub async fn run() -> Result<ExitCode> {
             };
             cmd_fix(&config, options, from, output_mode).await
         }
-        Command::Commit {
-            from,
-            body,
-            style,
-            execute,
-        } => {
-            let options = CommitOptions {
-                format: MessageFormat::from_body_flag(body),
-                post_action: PostAction::from_execute_flag(execute),
-                chunk_mode: false,
-                dry_run: cli.dry_run,
-            };
-            cmd_commit(&config, options, from, &style, output_mode).await
-        }
         Command::Config { key, list } => cmd_config(&config, key, list, output_mode),
-        Command::Derive {
-            derive_type,
-            from,
-            style,
-            chunk_recursive,
-            max_concurrency,
-        } => {
-            let derive_type = DeriveType::from_str(&derive_type).map_err(CliError::Config)?;
-            let options = DeriveOptions {
-                derive_type,
-                style: Some(style),
-                chunk_recursive,
-                max_concurrency,
-                dry_run: cli.dry_run,
-            };
-            cmd_derive(&config, options, from, output_mode).await
-        }
     }
 }
 

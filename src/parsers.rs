@@ -8,9 +8,19 @@ use anyhow::{Context, Result};
 
 use crate::commands::DeriveType;
 use crate::json_repair::{RepairError, repair_json};
-use crate::output::{
-    CommitResult, DeriveResult, ExplainResult, Fix, FixResult, ReviewIssue, ReviewResult,
-};
+use crate::output::{DeriveResult, Fix, FixResult, ReviewIssue, ReviewResult};
+
+/// Intermediate commit message result from parsing
+pub(crate) struct ParsedCommit {
+    pub message: String,
+    pub title: String,
+    pub body: Option<String>,
+}
+
+/// Intermediate explanation result from parsing
+pub(crate) struct ParsedExplanation {
+    pub explanation: String,
+}
 
 /// Extract and repair JSON from an LLM response
 ///
@@ -41,8 +51,8 @@ fn extract_and_repair_json(response: &str) -> Result<String> {
     }
 }
 
-/// Parse the LLM JSON response into a [`CommitResult`]
-pub fn parse_commit_response(response: &str) -> Result<CommitResult> {
+/// Parse the LLM JSON response into commit message components
+pub fn parse_commit_response(response: &str) -> Result<ParsedCommit> {
     #[derive(serde::Deserialize)]
     struct CommitJson {
         message: String,
@@ -54,7 +64,7 @@ pub fn parse_commit_response(response: &str) -> Result<CommitResult> {
     let parsed: CommitJson = serde_json::from_str(&json_str)
         .with_context(|| format!("failed to parse commit message JSON: {json_str}"))?;
 
-    Ok(CommitResult {
+    Ok(ParsedCommit {
         message: parsed.message,
         title: parsed.title,
         body: parsed.body,
@@ -106,8 +116,8 @@ pub fn parse_review_response(response: &str) -> Result<ReviewResult> {
     })
 }
 
-/// Parse the LLM JSON response into an [`ExplainResult`]
-pub fn parse_explain_response(response: &str) -> Result<ExplainResult> {
+/// Parse the LLM JSON response into explanation components
+pub fn parse_explain_response(response: &str) -> Result<ParsedExplanation> {
     #[derive(serde::Deserialize)]
     struct ExplainJson {
         explanation: String,
@@ -117,7 +127,7 @@ pub fn parse_explain_response(response: &str) -> Result<ExplainResult> {
     let parsed: ExplainJson = serde_json::from_str(&json_str)
         .with_context(|| format!("failed to parse explain JSON: {json_str}"))?;
 
-    Ok(ExplainResult {
+    Ok(ParsedExplanation {
         explanation: parsed.explanation,
     })
 }

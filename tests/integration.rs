@@ -134,10 +134,10 @@ use std::io::Write;
 use std::process::Stdio;
 
 #[test]
-fn cli_explain_accepts_piped_stdin() -> TestResult {
-    // Pipe content to explain command - verifies stdin detection works
+fn cli_derive_accepts_piped_stdin() -> TestResult {
+    // Pipe content to derive explanation command - verifies stdin detection works
     let mut child = Command::cargo_bin("usx")?
-        .args(["explain"])
+        .args(["derive", "explanation"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -156,7 +156,7 @@ fn cli_explain_accepts_piped_stdin() -> TestResult {
     // Should not error on stdin handling - may fail on LLM call, but not on stdin
     assert!(
         !stderr.contains("unexpected argument"),
-        "explain should accept piped stdin without argument errors"
+        "derive should accept piped stdin without argument errors"
     );
     Ok(())
 }
@@ -187,10 +187,10 @@ fn cli_review_accepts_piped_stdin() -> TestResult {
 }
 
 #[test]
-fn cli_commit_accepts_piped_stdin() -> TestResult {
-    // Pipe diff content to commit command
+fn cli_derive_commit_msg_accepts_piped_stdin() -> TestResult {
+    // Pipe diff content to derive commit-msg command
     let mut child = Command::cargo_bin("usx")?
-        .args(["commit"])
+        .args(["derive", "commit-msg"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -207,7 +207,7 @@ fn cli_commit_accepts_piped_stdin() -> TestResult {
     // Should not error on stdin - may fail on LLM, but stdin should be accepted
     assert!(
         !stderr.contains("unexpected argument"),
-        "commit should accept piped stdin"
+        "derive commit-msg should accept piped stdin"
     );
     Ok(())
 }
@@ -238,10 +238,10 @@ fn cli_fix_accepts_piped_stdin() -> TestResult {
 }
 
 #[test]
-fn cli_commit_empty_stdin_errors() -> TestResult {
+fn cli_derive_empty_stdin_errors() -> TestResult {
     // Empty stdin should error with "input is empty" message
     let mut child = Command::cargo_bin("usx")?
-        .args(["commit"])
+        .args(["derive", "commit-msg"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
