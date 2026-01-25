@@ -10,7 +10,8 @@ use clap::{Parser, Subcommand};
 use thiserror::Error;
 
 use crate::commands::{
-    FixOptions, ReviewOptions, cmd_commit, cmd_config, cmd_explain, cmd_fix, cmd_review,
+    CommitOptions, FixOptions, MessageFormat, PostAction, ReviewOptions, cmd_commit, cmd_config,
+    cmd_explain, cmd_fix, cmd_review,
 };
 use crate::config::{Config, Provider, TokenizerMode};
 use crate::context::GatheredContext;
@@ -118,6 +119,13 @@ pub struct Cli {
     /// For chunked operations, this timeout applies to each individual chunk.
     #[arg(long, global = true)]
     pub timeout: Option<u64>,
+
+    /// Show token estimation and chunking plan without making LLM calls
+    ///
+    /// Enables cost prediction, early "too large" detection, and CI validation without API cost.
+    /// Output includes estimated tokens, chunking plan (if --chunk is enabled), and configuration.
+    #[arg(long, global = true)]
+    pub dry_run: bool,
 
     #[command(subcommand)]
     pub command: Command,
@@ -271,7 +279,9 @@ pub async fn run() -> Result<ExitCode> {
     }
 
     match cli.command {
-        Command::Explain { target } => cmd_explain(&config, &target, output_mode, cli.chunk).await,
+        Command::Explain { target } => {
+            cmd_explain(&config, &target, output_mode, cli.chunk, cli.dry_run).await
+        }
         Command::Review {
             diff,
             files,
@@ -282,6 +292,7 @@ pub async fn run() -> Result<ExitCode> {
                 chunk: cli.chunk,
                 max_concurrency: cli.max_concurrency,
                 partial: cli.partial,
+                dry_run: cli.dry_run,
             };
             cmd_review(&config, diff, files, options, from, &checks, output_mode).await
         }
@@ -297,6 +308,7 @@ pub async fn run() -> Result<ExitCode> {
                 chunk: cli.chunk,
                 max_concurrency: cli.max_concurrency,
                 partial: cli.partial,
+                dry_run: cli.dry_run,
             };
             cmd_fix(&config, &target, options, from, output_mode).await
         }
@@ -304,7 +316,15 @@ pub async fn run() -> Result<ExitCode> {
             body,
             style,
             execute,
-        } => cmd_commit(&config, body, &style, execute, output_mode, cli.chunk).await,
+        } => {
+            let options = CommitOptions {
+                format: MessageFormat::from_body_flag(body),
+                post_action: PostAction::from_execute_flag(execute),
+                chunk_mode: cli.chunk,
+                dry_run: cli.dry_run,
+            };
+            cmd_commit(&config, options, &style, output_mode).await
+        }
         Command::Config { key, list } => cmd_config(&config, key, list, output_mode),
     }
 }

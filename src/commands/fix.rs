@@ -11,8 +11,9 @@ use crate::config::Config;
 use crate::context::{GatheredContext, gather_fix_context};
 use crate::input::{read_from_source, stdin_is_piped, try_read_piped_stdin};
 use crate::output::{
-    AppliedFix, ApplyResults, ApplyStatus, ChunkFailureInfo, CommandOutput, ExitCode, ExitStatus,
-    Fix, FixResult, OutputMode, PartialFailureResponse, PartialFixResult,
+    AppliedFix, ApplyResults, ApplyStatus, ChunkFailureInfo, ChunkInfo, ChunkPlan, CommandOutput,
+    DryRunResult, ExitCode, ExitStatus, Fix, FixResult, OutputMode, PartialFailureResponse,
+    PartialFixResult,
 };
 use crate::parsers::parse_fix_response;
 use crate::pipeline::PipelineError;
@@ -32,6 +33,8 @@ pub struct FixOptions {
     pub max_concurrency: usize,
     /// Return partial results when some chunks fail
     pub partial: bool,
+    /// Show dry-run information without LLM calls
+    pub dry_run: bool,
 }
 
 pub async fn cmd_fix(
@@ -47,6 +50,7 @@ pub async fn cmd_fix(
         chunk: chunk_mode,
         max_concurrency,
         partial,
+        dry_run,
     } = options;
     // Check for piped stdin when no explicit --from is provided
     let piped_content = if from.is_some() {
@@ -77,6 +81,11 @@ pub async fn cmd_fix(
     let context = gather_fix_context(&config.working_dir, &files, issues.as_deref())
         .await
         .context("failed to gather fix context")?;
+
+    // Dry-run mode: output token estimation without LLM calls
+    if dry_run {
+        return handle_fix_dry_run(config, &context, chunk_mode, output_mode);
+    }
 
     // Check token limits (non-chunked mode)
     if !chunk_mode {
@@ -490,4 +499,59 @@ fn aggregate_fix_results(chunked: ChunkedResult<FixResult>) -> FixResult {
         fixes: all_fixes,
         unfixable_count: total_unfixable,
     }
+}
+
+/// Handle dry-run mode for fix command
+fn handle_fix_dry_run(
+    config: &Config,
+    context: &GatheredContext,
+    chunk_mode: bool,
+    output_mode: OutputMode,
+) -> Result<ExitCode> {
+    let token_count = count_context_tokens(context, config.tokenizer_mode)?;
+    let files: Vec<String> = context
+        .files
+        .iter()
+        .map(|f| f.path.display().to_string())
+        .collect();
+
+    let chunking = if chunk_mode {
+        // File-based chunking
+        let chunk_infos: Vec<ChunkInfo> = context
+            .files
+            .iter()
+            .map(|f| {
+                let file_tokens = f.content.len() / 4; // Heuristic
+                ChunkInfo {
+                    id: f.path.display().to_string(),
+                    tokens_estimated: file_tokens,
+                    files: vec![f.path.display().to_string()],
+                }
+            })
+            .collect();
+        ChunkPlan {
+            enabled: true,
+            chunk_count: Some(chunk_infos.len()),
+            chunks: chunk_infos,
+        }
+    } else {
+        ChunkPlan {
+            enabled: false,
+            chunk_count: None,
+            chunks: vec![],
+        }
+    };
+
+    let result = DryRunResult::new(
+        "fix",
+        token_count.count,
+        config.provider.to_string(),
+        &config.model,
+        config.timeout_secs,
+    )
+    .with_files(files)
+    .with_chunking(chunking);
+
+    println!("{}", result.render(output_mode));
+    Ok(result.exit_code())
 }

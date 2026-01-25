@@ -10,7 +10,7 @@ mod explain;
 mod fix;
 mod review;
 
-pub use commit::cmd_commit;
+pub use commit::{CommitOptions, MessageFormat, PostAction, cmd_commit};
 pub use config::cmd_config;
 pub use explain::cmd_explain;
 pub use fix::{FixOptions, cmd_fix};

@@ -14,8 +14,8 @@ use crate::config::Config;
 use crate::context::{GatheredContext, gather_review_context};
 use crate::input::{read_from_source, stdin_is_piped, try_read_piped_stdin};
 use crate::output::{
-    ChunkFailureInfo, CommandOutput, ExitCode, ExitStatus, OutputMode, PartialFailureResponse,
-    PartialReviewResult, ReviewIssue, ReviewResult,
+    ChunkFailureInfo, ChunkInfo, ChunkPlan, CommandOutput, DryRunResult, ExitCode, ExitStatus,
+    OutputMode, PartialFailureResponse, PartialReviewResult, ReviewIssue, ReviewResult,
 };
 use crate::parsers::parse_review_response;
 use crate::pipeline::PipelineError;
@@ -31,6 +31,8 @@ pub struct ReviewOptions {
     pub max_concurrency: usize,
     /// Return partial results when some chunks fail
     pub partial: bool,
+    /// Show dry-run information without LLM calls
+    pub dry_run: bool,
 }
 
 pub async fn cmd_review(
@@ -46,6 +48,7 @@ pub async fn cmd_review(
         chunk: chunk_mode,
         max_concurrency,
         partial,
+        dry_run,
     } = options;
 
     let file_paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
@@ -63,6 +66,20 @@ pub async fn cmd_review(
         piped_content,
     )
     .await?;
+
+    // Dry-run mode: output token estimation without LLM calls
+    if dry_run {
+        return handle_review_dry_run(
+            config,
+            &context,
+            &rules_config,
+            checks,
+            &file_paths,
+            chunk_mode,
+            output_mode,
+        );
+    }
+
     let has_checks = !checks.is_empty();
 
     match (has_checks, chunk_mode) {
@@ -605,4 +622,86 @@ fn deduplicate_issues(issues: Vec<ReviewIssue>) -> Vec<ReviewIssue> {
     }
 
     unique_issues
+}
+
+/// Handle dry-run mode for review command
+fn handle_review_dry_run(
+    config: &Config,
+    context: &GatheredContext,
+    rules_config: &RulesConfig,
+    checks: &[String],
+    file_paths: &[PathBuf],
+    chunk_mode: bool,
+    output_mode: OutputMode,
+) -> Result<ExitCode> {
+    let token_count = count_context_tokens(context, config.tokenizer_mode)?;
+    let files: Vec<String> = context
+        .files
+        .iter()
+        .map(|f| f.path.display().to_string())
+        .collect();
+
+    let chunking = if chunk_mode {
+        // Estimate chunking plan
+        let has_checks = !checks.is_empty();
+        if has_checks {
+            // Category-based chunking
+            let category_rules = rules_config.resolve_by_category(checks, file_paths);
+            let chunk_infos: Vec<ChunkInfo> = category_rules
+                .iter()
+                .map(|(category, rules)| {
+                    // Rough estimate: rules add overhead
+                    let overhead = rules.len() * 50;
+                    ChunkInfo {
+                        id: category.clone(),
+                        tokens_estimated: token_count.count + overhead,
+                        files: files.clone(),
+                    }
+                })
+                .collect();
+            ChunkPlan {
+                enabled: true,
+                chunk_count: Some(chunk_infos.len()),
+                chunks: chunk_infos,
+            }
+        } else {
+            // File-based chunking
+            let chunk_infos: Vec<ChunkInfo> = context
+                .files
+                .iter()
+                .map(|f| {
+                    let file_tokens = f.content.len() / 4; // Heuristic
+                    ChunkInfo {
+                        id: f.path.display().to_string(),
+                        tokens_estimated: file_tokens,
+                        files: vec![f.path.display().to_string()],
+                    }
+                })
+                .collect();
+            ChunkPlan {
+                enabled: true,
+                chunk_count: Some(chunk_infos.len()),
+                chunks: chunk_infos,
+            }
+        }
+    } else {
+        ChunkPlan {
+            enabled: false,
+            chunk_count: None,
+            chunks: vec![],
+        }
+    };
+
+    let result = DryRunResult::new(
+        "review",
+        token_count.count,
+        config.provider.to_string(),
+        &config.model,
+        config.timeout_secs,
+    )
+    .with_files(files)
+    .with_chunking(chunking);
+
+    println!("{}", result.render(output_mode));
+    Ok(result.exit_code())
 }

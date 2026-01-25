@@ -126,15 +126,20 @@ Added `src/llm/retry.rs` with:
 
 Completed as part of "add retry infrastructure" commit.
 
-### [ ] Token estimation and --dry-run
+### [x] Token estimation and --dry-run
 
-Every LLM command must:
-1. Include `tokens_estimated` in JSON output
-2. Support `--dry-run` showing token count and chunking plan without LLM call
+**Status: COMPLETE**
 
-Enables cost prediction, early "too large" detection, CI validation without cost.
+Added `--dry-run` global flag to all commands:
+- `DryRunResult` output type showing token estimation without LLM calls
+- `tokens_estimated` field in dry-run JSON output
+- Chunking plan preview when `--chunk` is enabled
+- Token threshold warnings (8k warn, 16k error)
+- Provider, model, and timeout configuration display
 
-Affected: `explain`, `review`, `fix`, `commit` commands.
+All four commands (`explain`, `review`, `fix`, `commit`) support `--dry-run`.
+
+Enables cost prediction, early "too large" detection, and CI validation without API cost.
 
 ### [ ] Commit command chunking
 
@@ -337,6 +342,7 @@ When category has 10+ rules, sub-chunk to avoid overwhelming LLM.
 - [x] Phase 2: Parse retry logic with exponential backoff
 - [x] Phase 2: Structural output guarantee for partial failures via --partial flag
 - [x] Phase 2: Configurable timeouts - 60s default, --timeout flag, config file, env var support
+- [x] Phase 2: Token estimation and --dry-run flag for all commands
 - [x] Add warnings for silent failure fallbacks in error paths
 
 ### Earlier

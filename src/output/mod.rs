@@ -6,6 +6,7 @@
 mod ask;
 mod commit;
 mod config;
+mod dry_run;
 pub mod error;
 mod explain;
 mod fix;
@@ -15,6 +16,7 @@ mod review;
 pub use ask::AskResult;
 pub use commit::CommitResult;
 pub use config::{ConfigEntry, ConfigResult};
+pub use dry_run::{ChunkInfo, ChunkPlan, DryRunResult};
 pub use error::{ErrorResponse, TypedError};
 pub use explain::ExplainResult;
 pub use fix::{AppliedFix, ApplyResults, ApplyStatus, Fix, FixResult};
