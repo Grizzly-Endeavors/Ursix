@@ -1,21 +1,41 @@
 //! Response parsing utilities for LLM JSON output
 //!
 //! This module provides functions for parsing structured JSON responses
-//! from the LLM into typed result structures.
+//! from the LLM into typed result structures. Uses [`json_repair`] to handle
+//! common LLM output issues like markdown fences, Python-style booleans, etc.
 
 use anyhow::{Context, Result};
 
+use crate::json_repair::{RepairError, repair_json};
 use crate::output::{CommitResult, ExplainResult, Fix, FixResult, ReviewIssue, ReviewResult};
 
-/// Extract JSON from a response that may contain additional text
-pub fn extract_json(response: &str) -> &str {
-    if let Some(start) = response.find('{')
-        && let Some(end) = response.rfind('}')
-        && end > start
-    {
-        return &response[start..=end];
+/// Extract and repair JSON from an LLM response
+///
+/// Handles common LLM issues like code fences, preamble text, Python booleans, etc.
+/// Logs a warning if repairs were needed.
+fn extract_and_repair_json(response: &str) -> Result<String> {
+    match repair_json(response) {
+        Ok(result) => {
+            if result.was_repaired {
+                tracing::warn!(
+                    repairs = ?result.repairs_applied,
+                    "applied JSON repairs to LLM response"
+                );
+            }
+            Ok(result.json)
+        }
+        Err(RepairError::NoJsonFound) => Err(anyhow::anyhow!("no JSON object found in response")),
+        Err(RepairError::Truncated { context }) => {
+            Err(anyhow::anyhow!("JSON appears truncated: {context}"))
+        }
+        Err(RepairError::Unrecoverable {
+            original_error,
+            attempts,
+        }) => Err(anyhow::anyhow!(
+            "failed to repair JSON: {original_error}; tried: {}",
+            attempts.join(", ")
+        )),
     }
-    response
 }
 
 /// Parse the LLM JSON response into a [`CommitResult`]
@@ -27,8 +47,8 @@ pub fn parse_commit_response(response: &str) -> Result<CommitResult> {
         body: Option<String>,
     }
 
-    let json_str = extract_json(response);
-    let parsed: CommitJson = serde_json::from_str(json_str)
+    let json_str = extract_and_repair_json(response)?;
+    let parsed: CommitJson = serde_json::from_str(&json_str)
         .with_context(|| format!("failed to parse commit message JSON: {json_str}"))?;
 
     Ok(CommitResult {
@@ -55,8 +75,8 @@ pub fn parse_review_response(response: &str) -> Result<ReviewResult> {
         rule: Option<String>,
     }
 
-    let json_str = extract_json(response);
-    let parsed: ReviewJson = serde_json::from_str(json_str)
+    let json_str = extract_and_repair_json(response)?;
+    let parsed: ReviewJson = serde_json::from_str(&json_str)
         .with_context(|| format!("failed to parse review JSON: {json_str}"))?;
 
     let issues: Vec<ReviewIssue> = parsed
@@ -90,8 +110,8 @@ pub fn parse_explain_response(response: &str) -> Result<ExplainResult> {
         explanation: String,
     }
 
-    let json_str = extract_json(response);
-    let parsed: ExplainJson = serde_json::from_str(json_str)
+    let json_str = extract_and_repair_json(response)?;
+    let parsed: ExplainJson = serde_json::from_str(&json_str)
         .with_context(|| format!("failed to parse explain JSON: {json_str}"))?;
 
     Ok(ExplainResult {
@@ -118,8 +138,8 @@ pub fn parse_fix_response(response: &str) -> Result<FixResult> {
         explanation: String,
     }
 
-    let json_str = extract_json(response);
-    let parsed: FixJson = serde_json::from_str(json_str)
+    let json_str = extract_and_repair_json(response)?;
+    let parsed: FixJson = serde_json::from_str(&json_str)
         .with_context(|| format!("failed to parse fix JSON: {json_str}"))?;
 
     let fixes: Vec<Fix> = parsed
@@ -146,26 +166,7 @@ pub fn parse_fix_response(response: &str) -> Result<FixResult> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_extract_json_simple() {
-        let input = r#"{"message": "test", "title": "test", "body": null}"#;
-        assert_eq!(extract_json(input), input);
-    }
-
-    #[test]
-    fn test_extract_json_with_surrounding_text() {
-        let input = r#"Here is the commit message:
-{"message": "test", "title": "test", "body": null}
-That's the JSON."#;
-        let expected = r#"{"message": "test", "title": "test", "body": null}"#;
-        assert_eq!(extract_json(input), expected);
-    }
-
-    #[test]
-    fn test_extract_json_no_json() {
-        let input = "No JSON here";
-        assert_eq!(extract_json(input), input);
-    }
+    // === Valid JSON Tests ===
 
     #[test]
     fn test_parse_commit_response_valid() {
@@ -244,5 +245,63 @@ That's the JSON."#;
         let result = parse_fix_response(input).unwrap();
         assert!(result.fixes.is_empty());
         assert_eq!(result.diagnosis, "no issues found");
+    }
+
+    // === JSON Repair Integration Tests ===
+
+    #[test]
+    fn test_parse_commit_with_code_fence() {
+        let input =
+            "```json\n{\"message\": \"fix: typo\", \"title\": \"fix: typo\", \"body\": null}\n```";
+        let result = parse_commit_response(input).unwrap();
+        assert_eq!(result.title, "fix: typo");
+    }
+
+    #[test]
+    fn test_parse_commit_with_preamble() {
+        let input = "Sure! Here's the commit message:\n{\"message\": \"fix: typo\", \"title\": \"fix: typo\", \"body\": null}";
+        let result = parse_commit_response(input).unwrap();
+        assert_eq!(result.title, "fix: typo");
+    }
+
+    #[test]
+    fn test_parse_review_with_python_booleans() {
+        // LLMs sometimes output Python-style booleans
+        let input = r#"{"summary": "Code looks good", "issues": []}"#;
+        let result = parse_review_response(input).unwrap();
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_parse_explain_with_single_quotes() {
+        let input = r"{'explanation': 'This function does something'}";
+        let result = parse_explain_response(input).unwrap();
+        assert_eq!(result.explanation, "This function does something");
+    }
+
+    #[test]
+    fn test_parse_fix_with_trailing_comma() {
+        let input = r#"{"diagnosis": "no issues", "fixes": [], "unfixable_count": 0,}"#;
+        let result = parse_fix_response(input).unwrap();
+        assert_eq!(result.diagnosis, "no issues");
+    }
+
+    #[test]
+    fn test_parse_commit_real_world_llm_response() {
+        // Simulates a typical messy LLM response
+        let input = r"Here's your commit message:
+
+```json
+{
+    'message': 'feat: add new feature',
+    'title': 'feat: add new feature',
+    'body': None,
+}
+```
+
+Let me know if you need changes!";
+        let result = parse_commit_response(input).unwrap();
+        assert_eq!(result.title, "feat: add new feature");
+        assert_eq!(result.body, None);
     }
 }

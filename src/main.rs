@@ -4,6 +4,7 @@ mod commands;
 mod config;
 mod context;
 mod input;
+mod json_repair;
 mod llm;
 mod output;
 mod parsers;
