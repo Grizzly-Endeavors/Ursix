@@ -43,48 +43,54 @@ Considerations: What's the typical large-commit use case? Is accuracy or speed m
 
 These establish patterns used by later phases. Do in order.
 
-### [ ] Define standard error JSON structure
+### [x] Define standard error JSON structure
 
-**Blocked by: JSON output schema standardization decision**
+**Status: COMPLETE** (Commit 4650519)
 
-Create shared error types in `src/output/mod.rs` based on decided schema. This unblocks "parse failures should fail" and "structural output guarantee."
+Created `src/output/error.rs` with:
+- `TypedError` enum with serde(tag = "code") for flat JSON structure
+- `ErrorResponse` for structured error output
+- `OutputMeta` struct with schema_version, model, provider, duration, tokens, chunks
+- 5-category exit codes (Success, IssuesFound, UserError, TransientError, PermanentError)
 
-### [ ] Silent failure audit
+### [x] Silent failure audit
 
-Eliminate all silent failures. Known locations:
-- `src/input.rs:34` - empty stdin silently ignored → warn or fail
-- `src/context.rs:73` - partial file read logged at debug → fail the command
+**Status: COMPLETE** (Commit 5d0e253)
 
-Audit for any other swallowed errors. Every failure must be visible without `RUST_LOG`.
+Eliminated silent failures across:
+- `context.rs` - Track file read failures explicitly, warn to stderr
+- `fix.rs` - Handle JSON serialization errors explicitly
+- `review.rs` - Make output_chunked_review_results return Result
+- `resolver.rs` - Warn about invalid glob patterns and unknown --checks
+- `input.rs` - Warn to stderr on stdin read failure
 
-### [ ] Make parse failures hard errors
+### [x] Make parse failures hard errors
 
-Remove `parse_warning` fallback pattern. Parse failures should fail the command, not return raw response.
+**Status: COMPLETE** (Commit 62217c3)
 
-Affected:
-- `src/commands/explain.rs:59-62`
-- `src/commands/fix.rs:119-128`
-- `src/commands/review.rs`
-
-Depends on: standard error structure (for consistent error response).
+Removed `parse_warning` and `raw_response` from result types. Parse failures now:
+- Return errors instead of partial success
+- Exit with code 4 (PermanentError) instead of 0
+- All commands properly propagate parse failures
 
 ### [ ] Add --verbose flag for error details
 
 Output full error chain (anyhow context layers), relevant state, and suggestions. Include in JSON `error.details` field.
 
-### [ ] Refactor exit codes to semantic categories
+### [x] Refactor exit codes to semantic categories
 
-Simplify from 11 granular codes to 5 actionable categories:
+**Status: COMPLETE** (Commit 4650519)
+
+Simplified from 11 granular codes to 5 categories:
 ```
 0 = Success
 1 = IssuesFound (review found issues - not an error)
 2 = UserError (config, input, usage - user must fix)
 3 = TransientError (network, parse, rate limit - retry may help)
 4 = PermanentError (auth failure, API rejection - won't work without changes)
-5 = InternalError (bug)
 ```
 
-Update `ExitCode` enum in `src/output/mod.rs` and `ToExitCode` implementations. Specific error source exposed via JSON `error.code` for scripts needing granularity.
+Updated `ExitCode` enum in `src/output/mod.rs`. Specific error source exposed via JSON `error.code` for scripts needing granularity.
 
 ---
 
@@ -102,17 +108,18 @@ LLM calls can hang indefinitely. Add:
 
 Locations: `src/llm/ollama.rs`, `src/llm/openai.rs`
 
-### [ ] Parse retry logic
+### [x] Parse retry logic
 
-Retry malformed JSON responses before failing. Especially valuable for local LLMs.
+**Status: COMPLETE** (Commit 62217c3)
 
-Considerations:
-- 1-2 retries for remote APIs, more for local
-- Prompt adjustment on retry ("respond with valid JSON only")
-- Immediate retry for local, exponential backoff for remote
-- Provider detection for strategy selection
+Added `src/llm/retry.rs` with:
+- `RetryConfig` for configurable retry behavior
+- Exponential backoff with jitter (using rand crate)
+- `--no-retry` and `--max-retries` CLI flags
+- `is_retryable()` to distinguish transient vs permanent errors
+- Retry logic integrated into pipeline LLM calls
 
-Depends on: parse failures as hard errors (Phase 1).
+Completed as part of "add retry infrastructure" commit.
 
 ### [ ] Token estimation and --dry-run
 
@@ -130,27 +137,22 @@ Affected: `explain`, `review`, `fix`, `commit` commands.
 
 `commit` fails on large staged diffs. Implement chosen strategy. Must produce coherent single commit message.
 
-### [ ] Structural output guarantee for partial failures
+### [x] Structural output guarantee for partial failures
 
-When chunk N of M fails:
-- Exit non-zero
-- Return valid error JSON with `partial_results` for recovery
+**Status: COMPLETE** (Commit 1baf361)
 
-```json
-{
-  "error": {
-    "code": "partial_failure",
-    "message": "2 of 5 chunks failed",
-    "retryable": true,
-    "failed_chunks": ["src/large.rs", "src/complex.rs"],
-    "partial_results": { ... }
-  }
-}
-```
+Implemented via `--partial` global flag:
+- Created `PartialReviewResult` and `PartialFixResult` types
+- Created `PartialFailureResponse` wrapper with metadata
+- Created `ChunkFailureInfo` for tracking failed chunks
+- When `--partial` enabled and chunked processing has failures, returns partial results with:
+  - Details about which chunks succeeded vs failed
+  - `partial_results` field for recovery
+  - Proper exit codes (non-zero for failures)
 
-Affected: `src/chunk.rs`, all command output types.
+Affected: `src/commands/fix.rs`, `src/commands/review.rs`, `src/output/partial.rs` (new).
 
-Depends on: standard error structure (above).
+See: integration test in `tests/integration.rs` for --partial flag acceptance.
 
 ---
 
@@ -322,6 +324,16 @@ When category has 10+ rules, sub-chunk to avoid overwhelming LLM.
 
 ## Completed
 
+### Recent (2026-01-24)
+- [x] Phase 1: Define standard error JSON structure with typed errors
+- [x] Phase 1: Silent failure audit - all errors now visible to users
+- [x] Phase 1: Make parse failures hard errors - removed parse_warning fallbacks
+- [x] Phase 1: Refactor exit codes to 5 semantic categories
+- [x] Phase 2: Parse retry logic with exponential backoff
+- [x] Phase 2: Structural output guarantee for partial failures via --partial flag
+- [x] Add warnings for silent failure fallbacks in error paths
+
+### Earlier
 - [x] Remove config command setter (was stub printing "not yet implemented")
 - [x] Remove unused `--context` flag from explain command
 - [x] Add signal handling for graceful Ctrl+C interruption
