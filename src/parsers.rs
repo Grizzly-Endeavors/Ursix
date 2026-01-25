@@ -6,8 +6,11 @@
 
 use anyhow::{Context, Result};
 
+use crate::commands::DeriveType;
 use crate::json_repair::{RepairError, repair_json};
-use crate::output::{CommitResult, ExplainResult, Fix, FixResult, ReviewIssue, ReviewResult};
+use crate::output::{
+    CommitResult, DeriveResult, ExplainResult, Fix, FixResult, ReviewIssue, ReviewResult,
+};
 
 /// Extract and repair JSON from an LLM response
 ///
@@ -117,6 +120,54 @@ pub fn parse_explain_response(response: &str) -> Result<ExplainResult> {
     Ok(ExplainResult {
         explanation: parsed.explanation,
     })
+}
+
+/// Parse the LLM JSON response into a [`DeriveResult`] based on derive type
+pub fn parse_derive_response(derive_type: DeriveType, response: &str) -> Result<DeriveResult> {
+    match derive_type {
+        DeriveType::CommitMsg => {
+            let commit = parse_commit_response(response)?;
+            Ok(DeriveResult::CommitMsg {
+                message: commit.message,
+                title: commit.title,
+                body: commit.body,
+            })
+        }
+        DeriveType::Explanation => {
+            let explain = parse_explain_response(response)?;
+            Ok(DeriveResult::Explanation {
+                explanation: explain.explanation,
+            })
+        }
+        DeriveType::Summary => {
+            #[derive(serde::Deserialize)]
+            struct SummaryJson {
+                summary: String,
+            }
+
+            let json_str = extract_and_repair_json(response)?;
+            let parsed: SummaryJson = serde_json::from_str(&json_str)
+                .with_context(|| format!("failed to parse summary JSON: {json_str}"))?;
+
+            Ok(DeriveResult::Summary {
+                summary: parsed.summary,
+            })
+        }
+    }
+}
+
+/// Parse a summary JSON response (used by chunked processing)
+pub fn parse_summary_response(response: &str) -> Result<String> {
+    #[derive(serde::Deserialize)]
+    struct SummaryJson {
+        summary: String,
+    }
+
+    let json_str = extract_and_repair_json(response)?;
+    let parsed: SummaryJson = serde_json::from_str(&json_str)
+        .with_context(|| format!("failed to parse summary JSON: {json_str}"))?;
+
+    Ok(parsed.summary)
 }
 
 /// Parse the LLM JSON response into a [`FixResult`]

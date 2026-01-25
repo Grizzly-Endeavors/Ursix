@@ -10,8 +10,8 @@ use clap::{Parser, Subcommand};
 use thiserror::Error;
 
 use crate::commands::{
-    CommitOptions, FixOptions, MessageFormat, PostAction, ReviewOptions, cmd_commit, cmd_config,
-    cmd_explain, cmd_fix, cmd_review,
+    CommitOptions, DeriveOptions, DeriveType, FixOptions, MessageFormat, PostAction, ReviewOptions,
+    cmd_commit, cmd_config, cmd_derive, cmd_explain, cmd_fix, cmd_review,
 };
 use crate::config::{Config, Provider, TokenizerMode};
 use crate::context::InputContext;
@@ -86,14 +86,6 @@ pub struct Cli {
     #[arg(long, global = true, env = "URSIX_OPENAI_API_KEY")]
     pub openai_api_key: Option<String>,
 
-    /// Enable chunked processing for large inputs (parallel token-based processing)
-    #[arg(long, global = true)]
-    pub chunk: bool,
-
-    /// Maximum concurrent chunk executions (default: 4)
-    #[arg(long, global = true, default_value = "4")]
-    pub max_concurrency: usize,
-
     /// Tokenizer mode for token counting (heuristic or full)
     ///
     /// 'heuristic' (default): Fast character-based approximation
@@ -108,10 +100,6 @@ pub struct Cli {
     /// Maximum retry attempts for transient failures (default: 3)
     #[arg(long, global = true, default_value = "3")]
     pub max_retries: u32,
-
-    /// Return partial results when some chunks fail (instead of failing entirely)
-    #[arg(long, global = true)]
-    pub partial: bool,
 
     /// Timeout for LLM requests in seconds (default: 60)
     ///
@@ -185,6 +173,29 @@ pub enum Command {
         /// List all configuration values
         #[arg(long)]
         list: bool,
+    },
+
+    /// Derive content from input (commit-msg, explanation, summary)
+    Derive {
+        /// Type of content to derive: commit-msg, explanation, summary
+        #[arg(value_name = "TYPE")]
+        derive_type: String,
+
+        /// Read input from a file (use - for stdin)
+        #[arg(long, value_name = "FILE")]
+        from: Option<PathBuf>,
+
+        /// Commit style (only for commit-msg type: conventional, simple)
+        #[arg(long, default_value = "conventional")]
+        style: String,
+
+        /// Process large inputs by splitting into chunks and synthesizing results
+        #[arg(long)]
+        chunk_recursive: bool,
+
+        /// Maximum concurrent chunk executions (default: 4)
+        #[arg(long, default_value = "4")]
+        max_concurrency: usize,
     },
 }
 
@@ -267,22 +278,22 @@ pub async fn run() -> Result<ExitCode> {
 
     match cli.command {
         Command::Explain { from } => {
-            cmd_explain(&config, from, output_mode, cli.chunk, cli.dry_run).await
+            cmd_explain(&config, from, output_mode, false, cli.dry_run).await
         }
         Command::Review { from, checks } => {
             let options = ReviewOptions {
-                chunk: cli.chunk,
-                max_concurrency: cli.max_concurrency,
-                partial: cli.partial,
+                chunk: false,
+                max_concurrency: 4,
+                partial: false,
                 dry_run: cli.dry_run,
             };
             cmd_review(&config, options, from, &checks, output_mode).await
         }
         Command::Fix { from } => {
             let options = FixOptions {
-                chunk: cli.chunk,
-                max_concurrency: cli.max_concurrency,
-                partial: cli.partial,
+                chunk: false,
+                max_concurrency: 4,
+                partial: false,
                 dry_run: cli.dry_run,
             };
             cmd_fix(&config, options, from, output_mode).await
@@ -296,12 +307,29 @@ pub async fn run() -> Result<ExitCode> {
             let options = CommitOptions {
                 format: MessageFormat::from_body_flag(body),
                 post_action: PostAction::from_execute_flag(execute),
-                chunk_mode: cli.chunk,
+                chunk_mode: false,
                 dry_run: cli.dry_run,
             };
             cmd_commit(&config, options, from, &style, output_mode).await
         }
         Command::Config { key, list } => cmd_config(&config, key, list, output_mode),
+        Command::Derive {
+            derive_type,
+            from,
+            style,
+            chunk_recursive,
+            max_concurrency,
+        } => {
+            let derive_type = DeriveType::from_str(&derive_type).map_err(CliError::Config)?;
+            let options = DeriveOptions {
+                derive_type,
+                style: Some(style),
+                chunk_recursive,
+                max_concurrency,
+                dry_run: cli.dry_run,
+            };
+            cmd_derive(&config, options, from, output_mode).await
+        }
     }
 }
 

@@ -265,23 +265,20 @@ fn cli_commit_empty_stdin_errors() -> TestResult {
 }
 
 #[test]
-fn cli_accepts_partial_flag() -> TestResult {
-    // Verify --partial flag is accepted by checking it doesn't error as unrecognized
+fn cli_derive_shows_help() -> TestResult {
+    // Verify derive command shows help with available types
     let result = Command::cargo_bin("usx")?
-        .args(["--partial", "review", "--help"])
+        .args(["derive", "--help"])
         .output()?;
 
-    // Should show help for review command, not error about unrecognized flag
     let stdout = String::from_utf8_lossy(&result.stdout);
     assert!(
-        stdout.contains("Review code changes"),
-        "review --help should show command description"
+        stdout.contains("Derive content from input"),
+        "derive --help should show command description"
     );
-
-    let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
-        !stderr.contains("unexpected argument"),
-        "--partial flag should be accepted"
+        stdout.contains("--chunk-recursive"),
+        "derive should support --chunk-recursive flag"
     );
     Ok(())
 }

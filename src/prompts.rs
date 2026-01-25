@@ -253,6 +253,161 @@ fn capitalize_first(s: &str) -> String {
     }
 }
 
+// =============================================================================
+// Derive Command Prompts
+// =============================================================================
+// These prompts support the unified derive command which generates content
+// based on the derive type (commit-msg, explanation, summary).
+
+use crate::commands::DeriveType;
+
+/// Get the appropriate prompt for a derive type
+pub fn derive_prompt_for_type(derive_type: DeriveType) -> &'static str {
+    match derive_type {
+        DeriveType::CommitMsg => COMMIT_PIPELINE_PROMPT,
+        DeriveType::Explanation => EXPLAIN_PIPELINE_PROMPT,
+        DeriveType::Summary => DERIVE_SUMMARY_PROMPT,
+    }
+}
+
+/// Pipeline prompt for the summary derive type
+pub const DERIVE_SUMMARY_PROMPT: &str = r#"You are a content summarization expert. Your task is to provide a clear, concise summary of the provided content.
+
+When summarizing:
+1. Identify the main purpose and key points
+2. Highlight important details without unnecessary elaboration
+3. Maintain the essential meaning while being concise
+4. Use clear, straightforward language
+
+Return your summary as JSON in this exact format:
+{
+  "summary": "Your concise summary of the content"
+}
+
+Notes:
+- Focus on the most important information
+- Be thorough but concise
+
+Output ONLY the JSON, no other text."#;
+
+// =============================================================================
+// Chunk Processing Prompts
+// =============================================================================
+// These prompts are used when processing large inputs in chunks.
+
+/// Chunk processing prompt for commit-msg derive type
+pub const DERIVE_COMMIT_CHUNK_PROMPT: &str = r#"You are analyzing a portion of a code diff. Your task is to summarize what changes were made in this section.
+
+Focus on:
+- What files were modified
+- What functionality was added, changed, or removed
+- Key implementation details relevant to understanding the change
+
+Return your summary as JSON in this exact format:
+{
+  "summary": "Brief summary of changes in this diff section"
+}
+
+Output ONLY the JSON, no other text."#;
+
+/// Chunk processing prompt for explanation derive type
+pub const DERIVE_EXPLANATION_CHUNK_PROMPT: &str = r#"You are explaining a section of code. Your task is to explain what this section does.
+
+Focus on:
+- The purpose of the code in this section
+- Key functions, types, and patterns
+- How this section relates to the overall codebase (if apparent)
+
+Return your explanation as JSON in this exact format:
+{
+  "explanation": "Explanation of this code section"
+}
+
+Output ONLY the JSON, no other text."#;
+
+/// Chunk processing prompt for summary derive type
+pub const DERIVE_SUMMARY_CHUNK_PROMPT: &str = r#"You are summarizing a section of content. Your task is to capture the key points from this section.
+
+Focus on:
+- Main ideas and important details
+- Key facts or findings
+- Relevant context
+
+Return your summary as JSON in this exact format:
+{
+  "summary": "Summary of this section"
+}
+
+Output ONLY the JSON, no other text."#;
+
+// =============================================================================
+// Synthesis Prompts
+// =============================================================================
+// These prompts combine chunk results into a final unified output.
+
+/// Synthesis prompt for commit-msg derive type
+pub const DERIVE_COMMIT_SYNTHESIS_PROMPT: &str = r#"You are combining summaries of different parts of a code diff into a single commit message.
+
+The input contains summaries of different sections of the diff. Combine them into a cohesive commit message following conventional commits format:
+- Type: feat, fix, docs, style, refactor, test, chore
+- Scope: optional, in parentheses
+- Subject: imperative mood, lowercase, no period, under 50 chars
+- Body: optional, explain why not what
+
+Return your commit message as JSON in this exact format:
+{
+  "message": "The full commit message including title and body",
+  "title": "feat(scope): subject line under 50 chars",
+  "body": "Optional body explaining why the change was made"
+}
+
+Notes:
+- The "body" field is optional and can be null if not needed
+- The "message" field should contain the complete commit message (title + body with blank line separator)
+- Synthesize the partial summaries into a unified message that captures all the changes
+
+Output ONLY the JSON, no other text."#;
+
+/// Synthesis prompt for explanation derive type
+pub const DERIVE_EXPLANATION_SYNTHESIS_PROMPT: &str = r#"You are combining explanations of different code sections into a cohesive overall explanation.
+
+The input contains explanations of different parts of the code. Combine them into a unified explanation that:
+1. Provides a high-level overview of what the code does
+2. Explains how the different sections work together
+3. Highlights key functions, types, and patterns
+4. Notes any important relationships and dependencies
+
+Return your explanation as JSON in this exact format:
+{
+  "explanation": "Your detailed explanation in markdown format"
+}
+
+Notes:
+- Use markdown formatting for code snippets and structure
+- Be thorough but concise
+- Ensure the explanation flows logically
+
+Output ONLY the JSON, no other text."#;
+
+/// Synthesis prompt for summary derive type
+pub const DERIVE_SUMMARY_SYNTHESIS_PROMPT: &str = r#"You are combining partial summaries into a comprehensive overall summary.
+
+The input contains summaries of different sections of the content. Combine them into a cohesive summary that:
+1. Captures the main purpose and key points from all sections
+2. Maintains logical flow and organization
+3. Eliminates redundancy while preserving important details
+
+Return your summary as JSON in this exact format:
+{
+  "summary": "Your comprehensive summary of the content"
+}
+
+Notes:
+- Focus on the most important information across all sections
+- Be thorough but concise
+
+Output ONLY the JSON, no other text."#;
+
 #[cfg(test)]
 mod tests {
     use super::*;

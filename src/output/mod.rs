@@ -3,18 +3,18 @@
 //! Provides structured output types that can be rendered as either
 //! human-readable text or JSON for scripting/automation.
 
-mod ask;
 mod commit;
 mod config;
+mod derive;
 mod dry_run;
 pub mod error;
 mod explain;
 mod fix;
 mod review;
 
-pub use ask::AskResult;
 pub use commit::CommitResult;
 pub use config::{ConfigEntry, ConfigResult};
+pub use derive::DeriveResult;
 pub use dry_run::{ChunkPlan, DryRunResult};
 pub use error::{ErrorResponse, TypedError};
 pub use explain::ExplainResult;

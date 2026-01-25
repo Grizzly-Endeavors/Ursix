@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::config::Config;
-use crate::output::{AskResult, CommandOutput, ConfigEntry, ConfigResult, ExitCode, OutputMode};
+use crate::output::{CommandOutput, ConfigEntry, ConfigResult, ExitCode, OutputMode};
 
 #[allow(clippy::unnecessary_wraps)]
 pub fn cmd_config(
@@ -68,14 +68,13 @@ pub fn cmd_config(
         };
         println!("{}", result.render(output_mode));
     } else {
-        // Show usage help through the render system
+        // Show usage help
         let help_text = "Usage: usx config <key> or usx config --list\n\
                          To change settings, edit .ursix.toml directly.";
-        let result = AskResult {
-            response: help_text.to_string(),
-            turns: 0,
-        };
-        println!("{}", result.render(output_mode));
+        match output_mode {
+            OutputMode::Human => println!("{help_text}"),
+            OutputMode::Json => println!(r#"{{"help": "{}"}}"#, help_text.replace('\n', "\\n")),
+        }
     }
     Ok(ExitCode::Success)
 }
