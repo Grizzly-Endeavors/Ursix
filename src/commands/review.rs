@@ -11,7 +11,7 @@ use crate::input::read_input;
 use crate::output::{ChunkPlan, CommandOutput, DryRunResult, ExitCode, ExitStatus, OutputMode};
 use crate::parsers::parse_review_response;
 use crate::pipeline::PipelineError;
-use crate::prompts::build_review_prompt;
+use crate::prompts::{build_category_review_prompt, build_review_prompt};
 use crate::rules::RulesConfig;
 use crate::tokens::{TokenCheck, TokenLimits, check_token_limits, count_context_tokens};
 
@@ -72,7 +72,12 @@ pub async fn cmd_review(
 
     // Build system prompt with rules
     let rules_section = rules_config.resolve(checks, &[]).to_prompt_section();
-    let system_prompt = build_review_prompt(&rules_section);
+    let system_prompt = if checks.is_empty() {
+        build_review_prompt(&rules_section)
+    } else {
+        let categories = checks.join(", ");
+        build_category_review_prompt(&categories, &rules_section)
+    };
 
     let response = run_pipeline(
         config,
