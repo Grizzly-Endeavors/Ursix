@@ -97,6 +97,26 @@ DO NOT, under any circumstance, change this config or add allow macros without e
 - Always include context: `"failed to parse config at {path}"` not just `"parse error"`
 - Lowercase, no trailing period (Unix style, chains well with `anyhow` context)
 
+## No Silent Failures
+
+**Every failure must be visible to the user.** This is non-negotiable.
+
+- If an operation fails, it must either return an error or print a warning to stderr
+- Debug/trace logging is NOT sufficient - users don't run with `RUST_LOG=debug` by default
+- Partial failures (e.g., reading 2 of 3 files) must be reported, not silently ignored
+- Empty input that causes unexpected behavior must warn the user
+- "Graceful degradation" that hides errors is not acceptable - fail explicitly instead
+
+## Structural Output Guarantee
+
+**Output is ALWAYS valid JSON matching a documented schema** - whether success or failure.
+
+- Scripts must be able to parse output reliably with `jq` or similar
+- Exit 0 = complete, valid result JSON
+- Exit non-zero = valid error JSON (never malformed output)
+- Partial failures return error JSON with `partial_results` field for recovery
+- Never return unparseable or structurally inconsistent output
+
 ## Comments
 - Explain **why**, never **what** — the code shows what, comments explain non-obvious reasoning
 - Doc comments: one-line `///` summary for public items; expand only for complex behavior
