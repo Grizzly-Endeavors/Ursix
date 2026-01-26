@@ -4,6 +4,7 @@
 //! pattern: they gather context, run the LLM via pipeline, parse the response,
 //! and render output.
 
+pub(crate) mod common;
 mod config;
 mod derive;
 mod fix;

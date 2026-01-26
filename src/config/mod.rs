@@ -7,12 +7,14 @@
 //! 4. Global config (~/.config/ursix/config.toml)
 //! 5. Defaults (lowest priority)
 
-use std::fmt;
+mod types;
+
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+
+pub use types::{Provider, TokenizerMode};
 
 use crate::llm::RetryConfig;
 
@@ -31,118 +33,6 @@ pub const DEFAULT_OPENAI_URL: &str = "https://api.openai.com/v1";
 /// each chunk has its own timeout. A 60-second timeout provides reasonable
 /// protection against hung connections while allowing time for complex queries.
 pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
-
-/// Tokenizer mode for token counting
-///
-/// Controls how tokens are counted for input validation and chunking decisions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TokenizerMode {
-    /// Fast heuristic-based counting (~4 chars per token)
-    ///
-    /// This is the default and recommended mode. Uses a simple character-based
-    /// approximation that works well for most use cases without external dependencies
-    /// or network overhead.
-    #[default]
-    Heuristic,
-    /// Full `HuggingFace` tokenizer (GPT-2)
-    ///
-    /// More accurate but requires downloading tokenizer data on first use (~2MB)
-    /// and has higher CPU overhead per call. Use only when precise token counts
-    /// are critical.
-    Full,
-}
-
-impl fmt::Display for TokenizerMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Heuristic => write!(f, "heuristic"),
-            Self::Full => write!(f, "full"),
-        }
-    }
-}
-
-impl FromStr for TokenizerMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "heuristic" => Ok(Self::Heuristic),
-            "full" => Ok(Self::Full),
-            _ => Err(format!(
-                "unknown tokenizer mode: {s} (expected 'heuristic' or 'full')"
-            )),
-        }
-    }
-}
-
-impl Serialize for TokenizerMode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for TokenizerMode {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_str(&s).map_err(serde::de::Error::custom)
-    }
-}
-
-/// LLM provider selection
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Provider {
-    #[default]
-    Ollama,
-    OpenAi,
-}
-
-impl fmt::Display for Provider {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Ollama => write!(f, "ollama"),
-            Self::OpenAi => write!(f, "openai"),
-        }
-    }
-}
-
-impl FromStr for Provider {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "ollama" => Ok(Self::Ollama),
-            "openai" => Ok(Self::OpenAi),
-            _ => Err(format!(
-                "unknown provider: {s} (expected 'ollama' or 'openai')"
-            )),
-        }
-    }
-}
-
-impl Serialize for Provider {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for Provider {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_str(&s).map_err(serde::de::Error::custom)
-    }
-}
 
 /// Runtime configuration
 #[derive(Debug, Clone)]
@@ -360,31 +250,6 @@ mod tests {
     }
 
     #[test]
-    fn test_provider_parse() {
-        assert_eq!(Provider::from_str("ollama").unwrap(), Provider::Ollama);
-        assert_eq!(Provider::from_str("openai").unwrap(), Provider::OpenAi);
-        assert_eq!(Provider::from_str("OLLAMA").unwrap(), Provider::Ollama);
-        assert_eq!(Provider::from_str("OpenAI").unwrap(), Provider::OpenAi);
-        assert!(Provider::from_str("unknown").is_err());
-    }
-
-    #[test]
-    fn test_provider_display() {
-        assert_eq!(Provider::Ollama.to_string(), "ollama");
-        assert_eq!(Provider::OpenAi.to_string(), "openai");
-    }
-
-    #[test]
-    fn test_provider_serialize_deserialize() {
-        let provider = Provider::OpenAi;
-        let json = serde_json::to_string(&provider).unwrap();
-        assert_eq!(json, "\"openai\"");
-
-        let deserialized: Provider = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized, Provider::OpenAi);
-    }
-
-    #[test]
     fn test_merge_file() {
         let mut config = Config::default();
 
@@ -452,48 +317,6 @@ mod tests {
         let loaded = ConfigFile::load(&path).unwrap();
         assert_eq!(loaded.provider, Some(Provider::OpenAi));
         assert_eq!(loaded.model, Some("gpt-4".to_string()));
-    }
-
-    #[test]
-    fn test_tokenizer_mode_default() {
-        assert_eq!(TokenizerMode::default(), TokenizerMode::Heuristic);
-    }
-
-    #[test]
-    fn test_tokenizer_mode_parse() {
-        assert_eq!(
-            TokenizerMode::from_str("heuristic").unwrap(),
-            TokenizerMode::Heuristic
-        );
-        assert_eq!(
-            TokenizerMode::from_str("full").unwrap(),
-            TokenizerMode::Full
-        );
-        assert_eq!(
-            TokenizerMode::from_str("HEURISTIC").unwrap(),
-            TokenizerMode::Heuristic
-        );
-        assert_eq!(
-            TokenizerMode::from_str("Full").unwrap(),
-            TokenizerMode::Full
-        );
-        assert!(TokenizerMode::from_str("unknown").is_err());
-    }
-
-    #[test]
-    fn test_tokenizer_mode_display() {
-        assert_eq!(TokenizerMode::Heuristic.to_string(), "heuristic");
-        assert_eq!(TokenizerMode::Full.to_string(), "full");
-    }
-
-    #[test]
-    fn test_tokenizer_mode_serialize_deserialize() {
-        let mode = TokenizerMode::Full;
-        let json = serde_json::to_string(&mode).unwrap();
-        assert_eq!(json, "\"full\"");
-
-        let deserialized: TokenizerMode = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized, TokenizerMode::Full);
     }
 
     #[test]

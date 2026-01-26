@@ -1,21 +1,11 @@
-use std::time::Duration;
-
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use super::http::{build_http_client, map_request_error, warn_if_insecure_remote};
 use super::{
     ChatOptions, LlmClient, LlmError, LlmResponse, Message, Role, ToolCall, ToolDefinition,
 };
-
-/// Check if a URL is using insecure HTTP for a remote (non-localhost) server
-fn is_insecure_remote_url(url: &str) -> bool {
-    let url_lower = url.to_lowercase();
-    url_lower.starts_with("http://")
-        && !url_lower.contains("localhost")
-        && !url_lower.contains("127.0.0.1")
-        && !url_lower.contains("[::1]")
-}
 
 /// Ollama API client
 #[derive(Clone)]
@@ -28,29 +18,12 @@ pub struct OllamaClient {
 
 impl OllamaClient {
     /// Create a new Ollama client with the specified timeout
-    ///
-    /// # Panics
-    /// Panics if the reqwest client cannot be built (should not happen with valid timeout)
     pub fn new(base_url: impl Into<String>, model: impl Into<String>, timeout_secs: u64) -> Self {
         let base_url = base_url.into();
-
-        if is_insecure_remote_url(&base_url) {
-            tracing::warn!(
-                url = %base_url,
-                "using unencrypted HTTP for non-localhost API; consider using HTTPS"
-            );
-        }
-
-        let client = Client::builder()
-            .timeout(Duration::from_secs(timeout_secs))
-            .build()
-            .unwrap_or_else(|e| {
-                tracing::error!(error = %e, "failed to build HTTP client with timeout, using default");
-                Client::new()
-            });
+        warn_if_insecure_remote(&base_url);
 
         Self {
-            client,
+            client: build_http_client(timeout_secs),
             base_url,
             model: model.into(),
             timeout_secs,
@@ -63,13 +36,12 @@ impl OllamaClient {
     /// Returns error if the API request fails or response cannot be parsed
     pub async fn list_models(&self) -> Result<Vec<String>, LlmError> {
         let url = format!("{}/api/tags", self.base_url);
-        let response = self.client.get(&url).send().await.map_err(|e| {
-            if e.is_timeout() {
-                LlmError::Timeout(self.timeout_secs)
-            } else {
-                LlmError::Request(e)
-            }
-        })?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| map_request_error(e, self.timeout_secs))?;
 
         if !response.status().is_success() {
             let error_body = response
@@ -130,13 +102,7 @@ impl LlmClient for OllamaClient {
             .json(&request)
             .send()
             .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    LlmError::Timeout(self.timeout_secs)
-                } else {
-                    LlmError::Request(e)
-                }
-            })?;
+            .map_err(|e| map_request_error(e, self.timeout_secs))?;
 
         if !response.status().is_success() {
             let error_body = response
@@ -293,15 +259,6 @@ mod tests {
         let ollama_msg: OllamaMessage = (&msg).into();
         assert_eq!(ollama_msg.role, "user");
         assert_eq!(ollama_msg.content, Some("Hello".to_string()));
-    }
-
-    #[test]
-    fn test_insecure_url_detection() {
-        assert!(is_insecure_remote_url("http://api.example.com:11434"));
-        assert!(is_insecure_remote_url("http://192.168.1.1:11434"));
-        assert!(!is_insecure_remote_url("http://localhost:11434"));
-        assert!(!is_insecure_remote_url("http://127.0.0.1:11434"));
-        assert!(!is_insecure_remote_url("https://api.example.com"));
     }
 
     #[tokio::test]

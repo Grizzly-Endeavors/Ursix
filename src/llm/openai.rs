@@ -2,24 +2,14 @@
 //!
 //! Supports various providers including Azure, vLLM, LM Studio, and other compatible endpoints.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use super::http::{build_http_client, map_request_error, warn_if_insecure_remote};
 use super::{
     ChatOptions, LlmClient, LlmError, LlmResponse, Message, Role, ToolCall, ToolDefinition,
 };
-
-/// Check if a URL is using insecure HTTP for a remote (non-localhost) server
-fn is_insecure_remote_url(url: &str) -> bool {
-    let url_lower = url.to_lowercase();
-    url_lower.starts_with("http://")
-        && !url_lower.contains("localhost")
-        && !url_lower.contains("127.0.0.1")
-        && !url_lower.contains("[::1]")
-}
 
 /// OpenAI-compatible API client
 #[derive(Clone)]
@@ -32,30 +22,13 @@ pub struct OpenAiClient {
 }
 
 impl OpenAiClient {
-    /// Build a reqwest client with the specified timeout
-    fn build_client(timeout_secs: u64) -> Client {
-        Client::builder()
-            .timeout(Duration::from_secs(timeout_secs))
-            .build()
-            .unwrap_or_else(|e| {
-                tracing::error!(error = %e, "failed to build HTTP client with timeout, using default");
-                Client::new()
-            })
-    }
-
     /// Create a new client without authentication (for local servers)
     pub fn new(base_url: impl Into<String>, model: impl Into<String>, timeout_secs: u64) -> Self {
         let base_url = base_url.into();
-
-        if is_insecure_remote_url(&base_url) {
-            tracing::warn!(
-                url = %base_url,
-                "using unencrypted HTTP for non-localhost API; consider using HTTPS"
-            );
-        }
+        warn_if_insecure_remote(&base_url);
 
         Self {
-            client: Self::build_client(timeout_secs),
+            client: build_http_client(timeout_secs),
             base_url,
             api_key: None,
             model: model.into(),
@@ -71,16 +44,10 @@ impl OpenAiClient {
         timeout_secs: u64,
     ) -> Self {
         let base_url = base_url.into();
-
-        if is_insecure_remote_url(&base_url) {
-            tracing::warn!(
-                url = %base_url,
-                "using unencrypted HTTP for non-localhost API; consider using HTTPS"
-            );
-        }
+        warn_if_insecure_remote(&base_url);
 
         Self {
-            client: Self::build_client(timeout_secs),
+            client: build_http_client(timeout_secs),
             base_url,
             api_key: Some(api_key.into()),
             model: model.into(),
@@ -139,13 +106,10 @@ impl LlmClient for OpenAiClient {
             req_builder = req_builder.header("Authorization", format!("Bearer {key}"));
         }
 
-        let response = req_builder.send().await.map_err(|e| {
-            if e.is_timeout() {
-                LlmError::Timeout(self.timeout_secs)
-            } else {
-                LlmError::Request(e)
-            }
-        })?;
+        let response = req_builder
+            .send()
+            .await
+            .map_err(|e| map_request_error(e, self.timeout_secs))?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -382,15 +346,6 @@ mod tests {
         assert_eq!(openai_msg.role, "tool");
         assert_eq!(openai_msg.content, Some("result output".to_string()));
         assert_eq!(openai_msg.tool_call_id, Some("call_123".to_string()));
-    }
-
-    #[test]
-    fn test_insecure_url_detection() {
-        assert!(is_insecure_remote_url("http://api.example.com/v1"));
-        assert!(is_insecure_remote_url("http://192.168.1.1:8000/v1"));
-        assert!(!is_insecure_remote_url("http://localhost:8000/v1"));
-        assert!(!is_insecure_remote_url("http://127.0.0.1:8000/v1"));
-        assert!(!is_insecure_remote_url("https://api.openai.com/v1"));
     }
 
     #[tokio::test]

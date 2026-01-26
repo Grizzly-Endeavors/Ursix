@@ -4,15 +4,14 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
+use super::common::{handle_dry_run, validate_token_limits};
 use crate::cli::run_pipeline;
 use crate::config::Config;
 use crate::context::InputContext;
 use crate::input::read_input;
-use crate::output::{ChunkPlan, CommandOutput, DryRunResult, ExitCode, ExitStatus, OutputMode};
+use crate::output::{ChunkPlan, CommandOutput, ExitCode, ExitStatus, OutputMode};
 use crate::parsers::parse_fix_response;
-use crate::pipeline::PipelineError;
 use crate::prompts::pipeline_prompt_for_command;
-use crate::tokens::{TokenCheck, TokenLimits, check_token_limits, count_context_tokens};
 
 /// Options for the fix command
 #[allow(clippy::struct_excessive_bools)]
@@ -54,20 +53,16 @@ pub async fn cmd_fix(
 
     // Dry-run mode: output token estimation without LLM calls
     if dry_run {
-        return handle_fix_dry_run(config, &ctx, output_mode);
+        let chunk_plan = ChunkPlan {
+            enabled: false,
+            chunk_count: None,
+            chunks: vec![],
+        };
+        return handle_dry_run("fix", config, &ctx, chunk_plan, output_mode);
     }
 
     // Check token limits
-    let token_count = count_context_tokens(&ctx, config.tokenizer_mode)?;
-    match check_token_limits(token_count, &TokenLimits::default()) {
-        TokenCheck::Warning { message, .. } => {
-            eprintln!("warning: {message}");
-        }
-        TokenCheck::Error { message, .. } => {
-            return Err(PipelineError::TokenLimit(message).into());
-        }
-        TokenCheck::Ok(_) => {}
-    }
+    validate_token_limits(config, &ctx)?;
 
     let response = run_pipeline(
         config,
@@ -82,30 +77,5 @@ pub async fn cmd_fix(
 
     println!("{}", result.render(output_mode));
 
-    Ok(result.exit_code())
-}
-
-/// Handle dry-run mode for fix command
-fn handle_fix_dry_run(
-    config: &Config,
-    context: &InputContext,
-    output_mode: OutputMode,
-) -> Result<ExitCode> {
-    let token_count = count_context_tokens(context, config.tokenizer_mode)?;
-
-    let result = DryRunResult::new(
-        "fix",
-        token_count.count,
-        config.provider.to_string(),
-        &config.model,
-        config.timeout_secs,
-    )
-    .with_chunking(ChunkPlan {
-        enabled: false,
-        chunk_count: None,
-        chunks: vec![],
-    });
-
-    println!("{}", result.render(output_mode));
     Ok(result.exit_code())
 }

@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use super::{CategoryResolvedRules, ResolvedRule, ResolvedRules, RulesConfig};
+use super::{CategoryResolvedRules, ResolvedRule, ResolvedRules, Rule, RulesConfig};
 
 impl RulesConfig {
     /// Resolve rules based on selected categories and file patterns.
@@ -12,31 +12,10 @@ impl RulesConfig {
     /// * `files` - File paths being reviewed (for pattern matching)
     #[must_use]
     pub fn resolve(&self, checks: &[String], files: &[PathBuf]) -> ResolvedRules {
-        let mut resolved = Vec::new();
+        let filtered = self.filter_rules(checks, files);
 
-        for (category, rules) in &self.categories {
-            // Skip if checks are specified and this category isn't in the list
-            if !checks.is_empty() && !checks.iter().any(|c| c.eq_ignore_ascii_case(category)) {
-                continue;
-            }
-
-            for rule in rules {
-                // Check if rule applies to any of the files
-                if let Some(ref pattern) = rule.files
-                    && !files.is_empty()
-                    && !Self::matches_any_file(pattern, files)
-                {
-                    continue;
-                }
-
-                resolved.push(ResolvedRule {
-                    category: category.clone(),
-                    name: rule.name.clone(),
-                    description: rule.description.clone(),
-                    severity: rule.severity,
-                });
-            }
-        }
+        let mut resolved: Vec<ResolvedRule> =
+            filtered.into_iter().flat_map(|(_, rules)| rules).collect();
 
         // Sort by category then name for consistent output
         resolved.sort_by(|a, b| (&a.category, &a.name).cmp(&(&b.category, &b.name)));
@@ -74,44 +53,95 @@ impl RulesConfig {
             }
         }
 
-        for (category, rules) in &self.categories {
-            // Skip if checks are specified and this category isn't in the list
-            if !checks.is_empty() && !checks.iter().any(|c| c.eq_ignore_ascii_case(category)) {
-                continue;
-            }
+        let filtered = self.filter_rules(checks, files);
 
-            let mut resolved = Vec::new();
-            for rule in rules {
-                // Check if rule applies to any of the files
-                if let Some(ref pattern) = rule.files
-                    && !files.is_empty()
-                    && !Self::matches_any_file(pattern, files)
-                {
-                    continue;
-                }
+        // Collect matched category names before consuming filtered
+        let matched_categories: Vec<String> = filtered.iter().map(|(cat, _)| cat.clone()).collect();
 
-                resolved.push(ResolvedRule {
-                    category: category.clone(),
-                    name: rule.name.clone(),
-                    description: rule.description.clone(),
-                    severity: rule.severity,
-                });
-            }
-
+        for (category, mut rules) in filtered {
             // Sort by name for consistent output within category
-            resolved.sort_by(|a, b| a.name.cmp(&b.name));
+            rules.sort_by(|a, b| a.name.cmp(&b.name));
+            category_rules.insert(category, ResolvedRules { rules });
+        }
 
-            if !resolved.is_empty() {
-                category_rules.insert(category.clone(), ResolvedRules { rules: resolved });
-            } else if checks.iter().any(|c| c.eq_ignore_ascii_case(category)) {
-                // User explicitly requested this category but no rules matched the files
-                eprintln!(
-                    "warning: category '{category}' has no rules matching the specified files"
-                );
+        // Warn about explicitly requested categories that had no rules matching files
+        for check in checks {
+            let check_matched = matched_categories
+                .iter()
+                .any(|c| c.eq_ignore_ascii_case(check));
+            let category_exists = available_categories
+                .iter()
+                .any(|c| c.eq_ignore_ascii_case(check));
+
+            if category_exists && !check_matched {
+                // Find the actual category name for the warning message
+                if let Some(category) = self
+                    .categories
+                    .keys()
+                    .find(|c| c.eq_ignore_ascii_case(check))
+                {
+                    eprintln!(
+                        "warning: category '{category}' has no rules matching the specified files"
+                    );
+                }
             }
         }
 
         category_rules
+    }
+
+    /// Filter rules by category and file patterns.
+    ///
+    /// Returns matching rules grouped by category name. Categories with no
+    /// matching rules are omitted from the result.
+    fn filter_rules(
+        &self,
+        checks: &[String],
+        files: &[PathBuf],
+    ) -> Vec<(String, Vec<ResolvedRule>)> {
+        let mut result = Vec::new();
+
+        for (category, rules) in &self.categories {
+            // Skip if checks are specified and this category isn't in the list
+            if !Self::category_matches_checks(category, checks) {
+                continue;
+            }
+
+            let resolved: Vec<ResolvedRule> = rules
+                .iter()
+                .filter(|rule| Self::rule_matches_files(rule, files))
+                .map(|rule| Self::resolve_rule(category, rule))
+                .collect();
+
+            if !resolved.is_empty() {
+                result.push((category.clone(), resolved));
+            }
+        }
+
+        result
+    }
+
+    /// Check if a category should be included based on the checks filter.
+    fn category_matches_checks(category: &str, checks: &[String]) -> bool {
+        checks.is_empty() || checks.iter().any(|c| c.eq_ignore_ascii_case(category))
+    }
+
+    /// Check if a rule applies to any of the given files.
+    fn rule_matches_files(rule: &Rule, files: &[PathBuf]) -> bool {
+        match &rule.files {
+            Some(pattern) if !files.is_empty() => Self::matches_any_file(pattern, files),
+            _ => true,
+        }
+    }
+
+    /// Convert a `Rule` to a `ResolvedRule` with the given category.
+    fn resolve_rule(category: &str, rule: &Rule) -> ResolvedRule {
+        ResolvedRule {
+            category: category.to_string(),
+            name: rule.name.clone(),
+            description: rule.description.clone(),
+            severity: rule.severity,
+        }
     }
 
     /// Check if a glob pattern matches any of the given files.

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
 
+use super::common::validate_token_limits;
 use crate::chunk::{DiffChunk, chunk_diff_by_file};
 use crate::cli::run_pipeline;
 use crate::config::Config;
@@ -15,7 +16,6 @@ use crate::output::{
     OutputMode, ReviewIssue, ReviewResult,
 };
 use crate::parsers::parse_review_response;
-use crate::pipeline::PipelineError;
 use crate::prompts::{build_category_review_prompt, build_review_prompt};
 use crate::rules::RulesConfig;
 use crate::tokens::{TokenCheck, TokenLimits, check_token_limits, count_context_tokens};
@@ -141,12 +141,7 @@ pub async fn cmd_review(
 
     // Single-pass review
     // Check token limits
-    let token_count = count_context_tokens(&ctx, config.tokenizer_mode)?;
-    match check_token_limits(token_count, &TokenLimits::default()) {
-        TokenCheck::Warning { message, .. } => eprintln!("warning: {message}"),
-        TokenCheck::Error { message, .. } => return Err(PipelineError::TokenLimit(message).into()),
-        TokenCheck::Ok(_) => {}
-    }
+    validate_token_limits(config, &ctx)?;
 
     let response = run_pipeline(
         config,
