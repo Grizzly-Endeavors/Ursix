@@ -1,111 +1,152 @@
 # Ursix Philosophy
 
+## The Core Idea
+
+Ursix treats LLMs as compute primitives: text in, structured output, done.
+
+Not a chatty assistant. Not a magic developer. Just a function that transforms text, like `sed` or `jq`, but with semantic understanding.
+
 ## What Ursix Is
 
-Ursix is a Unix-style CLI for LLM operations. It exposes LLM capabilities as CLI commands that behave like any other Unix tool—structured input, structured output, predictable behavior, composable via pipes and scripts.
+### A Link in a Chain
 
-**Commands are functions, not conversations.**
-
-Each command does one thing. It takes explicit input, produces structured output, and exits with a meaningful status code. There's no hidden state between invocations, no interactive back-and-forth, no ambient context that changes behavior unpredictably.
+Ursix is one step in your pipeline. It doesn't know what came before, doesn't care what comes after, and won't try to orchestrate a workflow for you.
 
 ```bash
-# This is Ursix
-usx review --checks=style > issues.json
-usx fix --from=issues.json
-usx commit
-
-# This is not Ursix
-usx "hey can you look at my code and maybe fix some stuff and also write a commit message"
+# Ursix is the middle step—you control the rest
+git diff --staged | usx review | jq '.issues[] | select(.severity == "error")'
 ```
+
+The iteration loop? That's your script:
+
+```bash
+for i in {1..3}; do
+    usx review > /tmp/review.json
+    [ $(jq '.issues | length' /tmp/review.json) -eq 0 ] && break
+    # Handle issues however you want
+done
+```
+
+### Stateless
+
+Each command runs, does a thing, and exits. No conversation history. No memory between invocations. No ambient context that changes behavior.
+
+This means:
+- **Atomic**: Each invocation's success or failure is independent
+- **Auditable**: You can inspect exactly what the LLM received and produced
+- **Predictable**: Same input produces consistent output
+
+### Contract-Based
+
+Commands are defined by their input/output contracts:
+
+| Command | Input | Output | Exit Codes |
+|---------|-------|--------|------------|
+| `derive` | arbitrary text | text (mode-dependent) | 0, 2, 3, 4 |
+| `review` | diff or code file | issues array + passed | 0, 1, 2, 3, 4 |
+| `fix` | code + context | atomic fixes | (coming soon) |
+| `config` | none | configuration values | 0, 2 |
+
+`review` earns its own command because the contract is different—it outputs structured issues, returns exit code 1 when issues are found, and integrates with rules.yml. `derive` is the generic transform.
 
 ## What Ursix Isn't
 
-**Ursix is not an interactive assistant.** If you want to have a conversation with an LLM, use a chat interface. Ursix is for automation.
+### Not an Interactive Assistant
 
-**Ursix is not a coding agent.** Tools like Claude Code, Cursor, and Aider are designed for open-ended development tasks with human oversight. Ursix is for bounded, repeatable operations that run unattended.
+If you want to have a conversation with an LLM, use a chat interface. Ursix is for automation.
 
-**Ursix is not a SaaS product.** There's no cloud dependency, no GitHub App, no web dashboard. It's a binary that runs on your machine and calls whatever LLM backend you configure.
+### Not a Coding Agent
 
-## Core Principles
+Tools like Claude Code, Cursor, and Aider are designed for open-ended development with human oversight. They gather context, iterate on solutions, and execute actions. Ursix does none of these—it's for bounded, repeatable operations that run unattended.
+
+### Not a SaaS Product
+
+No cloud dependency, no GitHub App, no web dashboard. Just a binary that calls whatever LLM backend you configure.
+
+### Not Magic
+
+**Ursix won't assume you want anything.**
+
+- If you don't provide a file argument, it won't look for one
+- If you don't tell it to chunk, it won't chunk
+- If you don't specify rules, it uses sensible defaults
+- If you don't pipe input, it waits on stdin
+
+Explicit over implicit, always.
+
+## Design Principles
+
+### No Magic, No Batteries
+
+Every behavior is opt-in. Ursix does exactly what you ask—nothing more, nothing less.
+
+This means:
+- **No context gathering**: Won't read files you didn't provide
+- **No tool execution**: Won't run commands or modify your system
+- **No feature auto-detection**: Won't enable chunking based on input size
+- **No helpful guessing**: Won't infer what you probably meant
+
+If something fails because you forgot a flag, that's feedback—not a bug.
+
+### Structured Output Guarantee
+
+Despite LLMs under the hood, output is always valid JSON (or explicit error JSON). Exit codes are always meaningful. Scripts can rely on output parsing.
+
+```bash
+# This will never break due to malformed JSON
+usx review | jq '.passed'
+```
+
+If an error occurs, you get structured error JSON—not a stack trace mixed with partial output.
 
 ### Automation-First
 
-Every command must be scriptable. If it can't be used in a bash script or CI pipeline without human intervention, it doesn't belong in Ursix.
+CI/CD is the primary use case. Every design decision asks: "Does this work in a script? Can it be run unattended?"
 
 This means:
-- Structured JSON output by default (`--text` for human-readable)
-- Semantic exit codes (0 = success, 1 = issues found, 2 = error)
-- No interactive prompts unless explicitly requested
-- Deterministic behavior given the same inputs
-
-### Stateless Execution
-
-Each command is a stateless function: gather context, call the LLM once, parse the response, output results. There's no conversation history, no multi-turn loops, no tool execution.
-
-This is intentional:
-- **Atomic**: Each invocation's success or failure is independent
-- **Auditable**: You can inspect exactly what input the LLM received and what it produced
-- **Predictable**: Same input produces consistent output
-
-When using chunked processing (e.g., parallel file reviews), each chunk is processed independently. The cost of duplicated work is negligible compared to the complexity cost of coordination.
-
-### Bring Your Own Model
-
-Ursix doesn't care where inference happens. Local models via Ollama, cloud APIs via Anthropic/OpenAI, or your own self-hosted endpoint. The tool is model-agnostic.
-
-This also means Ursix is optimized for *narrow, well-prompted tasks* where smaller models excel. You don't need GPT-4 to check if there are too many comments. The command structure lets you match model capability to task complexity.
+- **Exit codes that stop builds**: 0 = success, 1 = issues found, 2+ = errors
+- **No interactive prompts** unless explicitly requested
+- **Deterministic(ish) behavior** given the same inputs
+- **Retry logic** for transient failures (network, rate limits)
 
 ### Composability Over Features
 
 Rather than building every workflow into the tool, Ursix provides primitives that compose with standard Unix tools:
 
 ```bash
-# Iteration via shell
-while ! usx review --checks=style; do
-    usx fix --from-last-review
-done
-
 # Filtering via jq
-usx review | jq '.issues[] | select(.severity == "error")'
+git diff | usx review | jq '.issues[] | select(.severity == "error")'
 
 # Parallel execution via xargs
-find . -name "*.rs" | xargs -P4 -I{} usx explain {}
+find . -name "*.rs" | xargs -P4 -I{} sh -c 'cat {} | usx derive explanation'
+
+# Conditional logic via shell
+usx review && echo "Clean" || echo "Issues found"
 ```
 
 If you find yourself wanting a complex built-in workflow, consider whether it could be a shell script instead.
 
-## The Problem Ursix Solves
+## The JSON Guarantee
 
-AI coding agents are powerful but error-prone. They find loopholes in linter rules, sneak in `// eslint-disable` without justification, and produce code that passes CI but violates team conventions.
+LLMs can be unreliable for producing structured output. Ursix will throw a parsable error if it can't recover, *never malformed JSON*.
 
-Traditional code review catches these issues, but it requires humans. CI catches objective violations, but not subjective ones.
+- Output is always valid JSON matching a documented schema
+- Exit 0 = complete, valid result JSON
+- Exit non-zero = valid error JSON (never malformed output)
+- Partial failures return error JSON with `partial_results` for recovery
 
-The gap is: **reviewers need to be automated, but automation tools assume human-in-the-loop.**
-
-Existing AI review tools are built for GitHub comment threads and web UIs. They can't be called from a script, can't produce machine-parseable output, can't be composed into iteration loops.
-
-Ursix fills this gap by treating AI review (and AI-powered fixes) as Unix commands. The iteration loop becomes trivial:
-
-```bash
-for i in {1..3}; do
-    usx review --checks=style,security > /tmp/review.json
-    [ $(jq '.issues | length' /tmp/review.json) -eq 0 ] && break
-    usx fix --from=/tmp/review.json
-done
-```
-
-No magic, no hidden state, trivially debuggable.
+Your scripts will never crash parsing Ursix output.
 
 ## Who Ursix Is For
 
-- Developers who want to integrate AI into shell scripts and CI pipelines
+- Developers integrating LLMs into shell scripts and CI pipelines
 - Teams using AI coding agents who need automated review/fix loops
-- Anyone who's frustrated that AI tools are chat-first instead of automation-first
+- Anyone frustrated that AI tools are chat-first instead of automation-first
 
 ## Who Ursix Is Not For
 
 - People who want an interactive coding assistant
 - Teams looking for a turnkey SaaS code review solution
-- Anyone who needs AI tools to "just work" without configuration
+- Anyone who expects AI tools to "just work" without configuration
 
 Ursix requires you to think about prompts, models, and workflows. It gives you control in exchange for effort.
