@@ -16,6 +16,28 @@ fn read_stdin() -> Result<String> {
     Ok(buffer)
 }
 
+/// Check if content appears to be a git diff format
+///
+/// Detects unified diff format by looking for characteristic headers:
+/// - `diff --git a/... b/...`
+/// - `--- a/...` or `--- /dev/null`
+/// - `+++ b/...` or `+++ /dev/null`
+#[must_use]
+pub fn is_diff_format(content: &str) -> bool {
+    // Check for git diff header
+    if content.contains("diff --git ") {
+        return true;
+    }
+
+    // Check for unified diff markers (both must be present)
+    let has_minus_marker =
+        content.contains("\n--- ") || content.starts_with("--- ") || content.contains("--- a/");
+    let has_plus_marker =
+        content.contains("\n+++ ") || content.starts_with("+++ ") || content.contains("+++ b/");
+
+    has_minus_marker && has_plus_marker
+}
+
 /// Read input from a source
 ///
 /// # Arguments
@@ -87,5 +109,72 @@ mod tests {
         let result = read_input(Some(&file_path)).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("input is empty"));
+    }
+
+    #[test]
+    fn test_is_diff_format_git_diff() {
+        let content = r#"diff --git a/src/main.rs b/src/main.rs
+index 1234567..abcdefg 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,4 @@
+ fn main() {
++    println!("hello");
+ }
+"#;
+        assert!(is_diff_format(content));
+    }
+
+    #[test]
+    fn test_is_diff_format_unified_diff() {
+        let content = r"--- a/file.txt
++++ b/file.txt
+@@ -1,3 +1,4 @@
+ line1
++new line
+ line2
+";
+        assert!(is_diff_format(content));
+    }
+
+    #[test]
+    fn test_is_diff_format_dev_null() {
+        let content = r"diff --git a/new_file.rs b/new_file.rs
+new file mode 100644
+--- /dev/null
++++ b/new_file.rs
+@@ -0,0 +1,3 @@
++fn new() {}
+";
+        assert!(is_diff_format(content));
+    }
+
+    #[test]
+    fn test_is_diff_format_not_diff_rust_code() {
+        let content = r#"fn main() {
+    println!("Hello, world!");
+}
+"#;
+        assert!(!is_diff_format(content));
+    }
+
+    #[test]
+    fn test_is_diff_format_not_diff_text() {
+        let content = "This is just some plain text content.";
+        assert!(!is_diff_format(content));
+    }
+
+    #[test]
+    fn test_is_diff_format_partial_markers_only_minus() {
+        // Only --- marker, no +++ marker
+        let content = "--- a/file.txt\nsome content";
+        assert!(!is_diff_format(content));
+    }
+
+    #[test]
+    fn test_is_diff_format_partial_markers_only_plus() {
+        // Only +++ marker, no --- marker
+        let content = "+++ b/file.txt\nsome content";
+        assert!(!is_diff_format(content));
     }
 }

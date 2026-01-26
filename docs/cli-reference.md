@@ -62,6 +62,8 @@ Single LLM call with piped input. No tools, no message history.
 
 ## Chunked Processing
 
+### Derive Command
+
 The `derive` command supports `--chunk-recursive` for processing large inputs:
 
 ```bash
@@ -77,7 +79,35 @@ When chunked processing is enabled:
 2. Each chunk is processed independently
 3. Results are synthesized into final output
 
-Note: `review` and `fix` commands do not currently support chunking.
+### Review Command
+
+The `review` command supports `--chunk` for file-based diff chunking:
+
+```bash
+# Chunked review of large diff
+git diff HEAD~10 | usx review --chunk
+
+# With custom concurrency
+git diff | usx review --chunk --max-concurrency 8
+
+# Continue on partial failures
+git diff | usx review --chunk --partial
+
+# Preview chunk plan without LLM calls
+git diff | usx review --chunk --dry-run
+```
+
+Review command flags for chunking:
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--chunk` | boolean | false | Enable file-based chunking for diffs |
+| `--max-concurrency` | usize | 4 | Maximum concurrent chunk executions |
+| `--partial` | boolean | false | Continue when some chunks fail |
+
+**Important:** The `--chunk` flag only works with diff input. Single files passed via `--from` cannot be chunked and will fall back to single-pass processing.
+
+Note: The `fix` command does not currently support chunking.
 
 ## Exit Codes
 

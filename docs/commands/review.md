@@ -15,22 +15,35 @@ git diff | usx review
 |------|------|---------|-------------|
 | `--from` | PATH | - | Read input from file (use `-` for stdin) |
 | `--checks` | string[] | empty | Comma-separated checks to perform |
+| `--chunk` | boolean | false | Enable file-based chunking for large diffs |
+| `--max-concurrency` | usize | 4 | Maximum concurrent chunk executions |
+| `--partial` | boolean | false | Continue processing when some chunks fail |
 
 Plus all [global flags](../cli-reference.md#global-flags).
 
 ## Behavior
 
-### Input Sources
+### Supported Input Types
 
-1. Piped stdin - Default input method
-2. `--from FILE` - Read from specified file
-3. `--from -` - Explicitly read from stdin
+The review command accepts two types of input:
+
+1. **Diff format** (stdin or `--from`) - Unified diff format is auto-detected
+2. **Single file** (`--from FILE`) - Review a specific file
+
+**Not supported:**
+- Arbitrary text piped via stdin (use `usx derive explanation` instead)
+
+If you pipe non-diff content via stdin without `--from`, you'll see:
+```
+error: review expects diff input or --from FILE; use 'usx derive explanation' for arbitrary text
+```
 
 ### Execution
 
 1. Reads code or diff from stdin or `--from`
-2. Single LLM call for review
-3. Returns issues and summary
+2. Validates input type (diff format or single file via `--from`)
+3. Single LLM call for review (or multiple calls with `--chunk`)
+4. Returns issues and summary
 
 ### Checks (`--checks`)
 
@@ -45,19 +58,43 @@ Common check types:
 
 ### Chunked Mode (`--chunk`)
 
-Not supported in stdin mode. The `--chunk` flag issues a warning.
+When `--chunk` is enabled with diff input:
+
+1. The diff is split at file boundaries (`diff --git` markers)
+2. Each file is processed independently with bounded concurrency
+3. Results are aggregated into a single response
+
+**Requirements:**
+- Input must be in diff format (auto-detected)
+- Only works with stdin or diff files, not single source files
+
+**Limitations:**
+- Single files via `--from` cannot be chunked (falls back to single-pass with warning)
+- Non-diff stdin content with `--chunk` produces an error
+
+### Partial Mode (`--partial`)
+
+When combined with `--chunk`, the `--partial` flag allows processing to continue when some file chunks fail:
+
+- Failed chunks are recorded in `chunk_failures` array
+- Successful results are still returned
+- Exit code reflects whether any issues were found in successful chunks
+
+Without `--partial`, the first chunk failure stops all processing.
 
 ## Output
 
 ### Human Format
 
 ```
+Processed 3 file(s)
+
 Review Summary:
 [summary text]
 
-Issues:
-- [severity] file.rs:42 - Description
-- [severity] file.rs:67 - Description
+Issues (2):
+  [warning] src/main.rs:42 - Description
+  [error] src/lib.rs:67 - Description
 ```
 
 ### JSON Format (default)
@@ -74,7 +111,25 @@ Issues:
     }
   ],
   "passed": false,
-  "parse_warning": "..."
+  "chunks_processed": 3,
+  "chunk_failures": []
+}
+```
+
+When chunks fail with `--partial`:
+
+```json
+{
+  "summary": "Reviewed 3 file(s) (2 succeeded, 1 failed)",
+  "issues": [...],
+  "passed": false,
+  "chunks_processed": 3,
+  "chunk_failures": [
+    {
+      "file_path": "src/broken.rs",
+      "error": "LLM timeout"
+    }
+  ]
 }
 ```
 
@@ -95,6 +150,33 @@ git diff | usx review --checks style,security
 
 # Read from file
 usx review --from changes.diff
+
+# Review a single source file
+usx review --from src/main.rs
+
+# Chunked review of large diff (parallel processing)
+git diff HEAD~10 | usx review --chunk
+
+# Chunked review with custom concurrency
+git diff | usx review --chunk --max-concurrency 8
+
+# Continue on partial failures
+git diff | usx review --chunk --partial
+
+# Dry-run to see chunk plan
+git diff | usx review --chunk --dry-run
+```
+
+### Invalid Usage (Errors)
+
+```bash
+# Error: arbitrary stdin is not supported
+echo "fn main() {}" | usx review
+# error: review expects diff input or --from FILE; use 'usx derive explanation' for arbitrary text
+
+# Error: --chunk requires diff input
+usx review --from src/main.rs --chunk
+# warning: chunking single files not supported; processing as single-pass
 ```
 
 ## Exit Codes
@@ -103,7 +185,8 @@ usx review --from changes.diff
 |------|---------|
 | 0 | Success (no issues) |
 | 1 | Issues found |
-| 2 | User error (empty input) |
+| 2 | User error (empty input, invalid input type) |
+| 3 | Transient error (network, timeout) |
 | 4 | Permanent error (parse error) |
 
 ## Integration
@@ -113,6 +196,9 @@ usx review --from changes.diff
 ```bash
 # Fail CI if issues found (JSON is default)
 git diff origin/main...HEAD | usx review | jq -e '.passed'
+
+# Chunked review for large PRs
+git diff origin/main...HEAD | usx review --chunk | jq -e '.passed'
 ```
 
 ### Pre-commit Hook
@@ -120,4 +206,12 @@ git diff origin/main...HEAD | usx review | jq -e '.passed'
 ```bash
 #!/bin/bash
 git diff --staged | usx review || exit 1
+```
+
+### Large Diff Review
+
+```bash
+#!/bin/bash
+# Review large diffs with chunking, continue on partial failures
+git diff HEAD~20 | usx review --chunk --partial --text
 ```

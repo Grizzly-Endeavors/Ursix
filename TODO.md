@@ -158,6 +158,37 @@ Allow file-based splitting as alternative to token-based splitting:
 - `--chunk-mode tokens` (default) - current behavior, split at ~4k token boundaries
 - `--chunk-mode files` - split by file (for diffs), generate per-file summaries then synthesize
 
+### [x] Review command file-based chunking
+
+**Status: COMPLETE**
+
+Added `--chunk` flag to review command for file-based diff chunking:
+- Diffs are split at file boundaries (`diff --git` markers)
+- Each file is processed independently with bounded concurrency (`--max-concurrency`)
+- `--partial` flag allows continuing when some chunks fail
+- Dry-run shows chunk plan with per-file token estimates
+
+Supported input types:
+- `git diff | usx review` - diff format (auto-detected)
+- `usx review --from file.rs` - single file review
+
+Not supported:
+- Arbitrary stdin text (error: "use 'usx derive explanation' for arbitrary text")
+- Chunking single files via `--from` (warning: falls back to single-pass)
+
+### [ ] Review command: chunking for large single files
+
+Currently, `--chunk` only supports diff input (splits by file). Large single files
+passed via `--from` are processed as single-pass to avoid:
+- Loss of line number context when splitting mid-file
+- Issues reported with line numbers relative to chunk, not file
+- Poor boundaries (splitting within functions/structs)
+
+Potential solutions:
+- AST-aware splitting (chunk at function/module boundaries)
+- Relative line numbers with chunk offset tracking
+- Accept the limitation (most review happens on diffs, not full files)
+
 ### [x] Structural output guarantee for partial failures
 
 **Status: COMPLETE** (Commit 1baf361)

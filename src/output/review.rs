@@ -13,6 +13,21 @@ pub struct ReviewResult {
     pub issues: Vec<ReviewIssue>,
     /// Whether the review passed (no issues or only warnings)
     pub passed: bool,
+    /// Number of chunks processed (only present when chunking enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunks_processed: Option<usize>,
+    /// Details about chunks that failed (only present when chunking enabled with --partial)
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub chunk_failures: Vec<ChunkFailure>,
+}
+
+/// Information about a chunk that failed during chunked processing
+#[derive(Debug, Clone, Serialize)]
+pub struct ChunkFailure {
+    /// The file path that failed
+    pub file_path: String,
+    /// Error message describing the failure
+    pub error: String,
 }
 
 /// An issue identified during code review
@@ -37,6 +52,17 @@ impl CommandOutput for ReviewResult {
     fn render_human(&self) -> String {
         use std::fmt::Write;
         let mut output = String::new();
+
+        // Show chunking info if applicable
+        if let Some(chunks) = self.chunks_processed {
+            let _ = writeln!(output, "Processed {chunks} file(s)");
+            if self.chunk_failures.is_empty() {
+                output.push('\n');
+            } else {
+                let failed_count = self.chunk_failures.len();
+                let _ = writeln!(output, "  ({failed_count} failed, results are partial)\n");
+            }
+        }
 
         // Show summary
         if !self.summary.is_empty() {
@@ -70,6 +96,14 @@ impl CommandOutput for ReviewResult {
             }
         }
 
+        // Show chunk failures if any
+        if !self.chunk_failures.is_empty() {
+            let _ = writeln!(output, "\nChunk failures ({}):", self.chunk_failures.len());
+            for failure in &self.chunk_failures {
+                let _ = writeln!(output, "  {}: {}", failure.file_path, failure.error);
+            }
+        }
+
         output
     }
 }
@@ -95,6 +129,8 @@ mod tests {
             summary: "All good".to_string(),
             issues: vec![],
             passed: true,
+            chunks_processed: None,
+            chunk_failures: vec![],
         };
         assert_eq!(result.exit_code(), ExitCode::Success);
     }
@@ -111,6 +147,8 @@ mod tests {
                 rule: None,
             }],
             passed: false,
+            chunks_processed: None,
+            chunk_failures: vec![],
         };
         assert_eq!(result.exit_code(), ExitCode::IssuesFound);
     }
@@ -121,6 +159,8 @@ mod tests {
             summary: "Code looks great".to_string(),
             issues: vec![],
             passed: true,
+            chunks_processed: None,
+            chunk_failures: vec![],
         };
         let output = result.render_human();
         assert!(output.contains("Code looks great"));
@@ -139,6 +179,8 @@ mod tests {
                 rule: None,
             }],
             passed: false,
+            chunks_processed: None,
+            chunk_failures: vec![],
         };
         let output = result.render_human();
         assert!(output.contains("Issues (1):"));
@@ -157,6 +199,8 @@ mod tests {
                 rule: None,
             }],
             passed: false,
+            chunks_processed: None,
+            chunk_failures: vec![],
         };
         let output = result.render_human();
         assert!(output.contains("[warning] lib.rs: missing docs"));
@@ -174,6 +218,8 @@ mod tests {
                 rule: None,
             }],
             passed: true,
+            chunks_processed: None,
+            chunk_failures: vec![],
         };
         let output = result.render_human();
         assert!(output.contains("[info] line 100: consider refactoring"));
@@ -191,6 +237,8 @@ mod tests {
                 rule: None,
             }],
             passed: false,
+            chunks_processed: None,
+            chunk_failures: vec![],
         };
         let output = result.render_human();
         assert!(output.contains("[error] global issue"));
@@ -217,10 +265,51 @@ mod tests {
                 },
             ],
             passed: false,
+            chunks_processed: None,
+            chunk_failures: vec![],
         };
         let output = result.render_human();
         assert!(output.contains("Issues (2):"));
         assert!(output.contains("[error] a.rs:1: first issue"));
         assert!(output.contains("[warning] b.rs:2: second issue"));
+    }
+
+    #[test]
+    fn test_review_result_with_chunks() {
+        let result = ReviewResult {
+            summary: "Reviewed 3 files".to_string(),
+            issues: vec![ReviewIssue {
+                severity: "warning".to_string(),
+                file: Some("src/lib.rs".to_string()),
+                line: Some(5),
+                message: "unused import".to_string(),
+                rule: None,
+            }],
+            passed: false,
+            chunks_processed: Some(3),
+            chunk_failures: vec![],
+        };
+        let output = result.render_human();
+        assert!(output.contains("Processed 3 file(s)"));
+        assert!(output.contains("Issues (1):"));
+    }
+
+    #[test]
+    fn test_review_result_with_chunk_failures() {
+        let result = ReviewResult {
+            summary: "Partial review".to_string(),
+            issues: vec![],
+            passed: true,
+            chunks_processed: Some(3),
+            chunk_failures: vec![ChunkFailure {
+                file_path: "src/broken.rs".to_string(),
+                error: "LLM timeout".to_string(),
+            }],
+        };
+        let output = result.render_human();
+        assert!(output.contains("Processed 3 file(s)"));
+        assert!(output.contains("1 failed, results are partial"));
+        assert!(output.contains("Chunk failures (1):"));
+        assert!(output.contains("src/broken.rs: LLM timeout"));
     }
 }

@@ -113,6 +113,8 @@ pub fn parse_review_response(response: &str) -> Result<ReviewResult> {
         summary: parsed.summary,
         issues,
         passed: review_passed,
+        chunks_processed: None,
+        chunk_failures: vec![],
     })
 }
 

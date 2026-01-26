@@ -153,6 +153,24 @@ pub enum Command {
         /// Checks to perform (e.g., style, security, performance)
         #[arg(long, value_delimiter = ',')]
         checks: Vec<String>,
+
+        /// Enable file-based chunking for large diffs
+        ///
+        /// Splits diff input by file and processes each file independently.
+        /// Only works with diff input via stdin; single files via --from are not chunked.
+        #[arg(long)]
+        chunk: bool,
+
+        /// Maximum concurrent chunk executions (default: 4)
+        #[arg(long, default_value = "4")]
+        max_concurrency: usize,
+
+        /// Continue processing remaining chunks when some fail
+        ///
+        /// Without this flag, the command exits on first chunk failure.
+        /// With this flag, partial results are returned with failure details.
+        #[arg(long)]
+        partial: bool,
     },
 
     /// Fix issues in code from stdin or --from
@@ -268,11 +286,17 @@ pub async fn run() -> Result<ExitCode> {
             };
             cmd_derive(&config, options, from, output_mode).await
         }
-        Command::Review { from, checks } => {
+        Command::Review {
+            from,
+            checks,
+            chunk,
+            max_concurrency,
+            partial,
+        } => {
             let options = ReviewOptions {
-                chunk: false,
-                max_concurrency: 4,
-                partial: false,
+                chunk,
+                max_concurrency,
+                partial,
                 dry_run: cli.dry_run,
             };
             cmd_review(&config, options, from, &checks, output_mode).await

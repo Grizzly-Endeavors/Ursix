@@ -12,10 +12,10 @@ mod review;
 
 pub use config::{ConfigEntry, ConfigResult};
 pub use derive::DeriveResult;
-pub use dry_run::{ChunkPlan, DryRunResult};
+pub use dry_run::{ChunkInfo, ChunkPlan, DryRunResult};
 pub use error::{ErrorResponse, TypedError};
 pub use fix::{Fix, FixResult};
-pub use review::{ReviewIssue, ReviewResult};
+pub use review::{ChunkFailure, ReviewIssue, ReviewResult};
 
 use serde::Serialize;
 
