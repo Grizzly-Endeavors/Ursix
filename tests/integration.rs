@@ -106,7 +106,7 @@ fn cli_fix_shows_help() -> TestResult {
         .assert()
         .success()
         .stdout(predicate::str::contains("Fix issues in code"))
-        .stdout(predicate::str::contains("--from"))
+        .stdout(predicate::str::contains("[FILE]"))
         .stdout(predicate::str::contains("--context"))
         .stdout(predicate::str::contains("--retry"))
         .stdout(predicate::str::contains("--partial"));
@@ -114,17 +114,17 @@ fn cli_fix_shows_help() -> TestResult {
 }
 
 #[test]
-fn cli_fix_accepts_from_flag() -> TestResult {
-    // Verify --from flag is accepted
+fn cli_fix_accepts_positional_file() -> TestResult {
+    // Verify positional file argument is accepted
     let result = Command::cargo_bin("usx")?
-        .args(["fix", "--from", "issues.txt"])
+        .args(["fix", "issues.json"])
         .output()?;
 
     let stderr = String::from_utf8_lossy(&result.stderr);
     // Will fail on file not found, but shouldn't error on arg parsing
     assert!(
         !stderr.contains("unexpected argument"),
-        "fix command should accept --from flag"
+        "fix command should accept positional file argument"
     );
     Ok(())
 }
@@ -283,8 +283,8 @@ fn cli_derive_shows_help() -> TestResult {
         "derive --help should show command description"
     );
     assert!(
-        stdout.contains("--chunk-recursive"),
-        "derive should support --chunk-recursive flag"
+        stdout.contains("--chunk"),
+        "derive should support --chunk flag"
     );
     Ok(())
 }

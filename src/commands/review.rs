@@ -25,7 +25,7 @@ pub struct ReviewOptions {
     /// Enable chunked processing
     pub chunk: bool,
     /// Maximum concurrent chunk executions
-    pub max_concurrency: usize,
+    pub concurrency: usize,
     /// Return partial results when some chunks fail
     pub partial: bool,
     /// Show dry-run information without LLM calls
@@ -64,13 +64,13 @@ fn validate_input(content: &str, from: Option<&PathBuf>) -> Result<InputType, &'
 pub async fn cmd_review(
     config: &Config,
     options: ReviewOptions,
-    from: Option<PathBuf>,
+    file: Option<PathBuf>,
     checks: &[String],
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let ReviewOptions {
         chunk: chunk_mode,
-        max_concurrency,
+        concurrency,
         partial,
         dry_run,
     } = options;
@@ -79,13 +79,13 @@ pub async fn cmd_review(
     let rules_config =
         RulesConfig::load(&config.working_dir).context("failed to load review rules")?;
 
-    // Read input from stdin or --from
-    let input = read_input(from.as_ref())
+    // Read input from stdin or file argument
+    let input = read_input(file.as_ref())
         .await
         .context("failed to read code to review")?;
 
     // Validate input type
-    let input_type = validate_input(&input, from.as_ref()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let input_type = validate_input(&input, file.as_ref()).map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Handle --chunk with single file (not supported)
     if chunk_mode {
@@ -131,7 +131,7 @@ pub async fn cmd_review(
                 config,
                 &system_prompt,
                 chunks,
-                max_concurrency,
+                concurrency,
                 partial,
                 output_mode,
             )

@@ -5,19 +5,24 @@ Review code changes from stdin or a file.
 ## Syntax
 
 ```bash
-usx review [OPTIONS]
+usx review [FILE] [OPTIONS]
 git diff | usx review
 ```
+
+## Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `FILE` | Input file (omit for stdin, use `-` for explicit stdin) |
 
 ## Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--from` | PATH | - | Read input from file (use `-` for stdin) |
 | `--checks` | string[] | empty | Comma-separated checks to perform |
-| `--chunk` | boolean | false | Enable file-based chunking for large diffs |
-| `--max-concurrency` | usize | 4 | Maximum concurrent chunk executions |
-| `--partial` | boolean | false | Continue processing when some chunks fail |
+| `--chunk` | boolean | false | Split by file, process in parallel |
+| `--concurrency` | usize | 4 | Max concurrent chunk executions |
+| `--partial` | boolean | false | Continue when some chunks fail |
 
 Plus all [global flags](../cli-reference.md#global-flags).
 
@@ -27,21 +32,21 @@ Plus all [global flags](../cli-reference.md#global-flags).
 
 The review command accepts two types of input:
 
-1. **Diff format** (stdin or `--from`) - Unified diff format is auto-detected
-2. **Single file** (`--from FILE`) - Review a specific file
+1. **Diff format** (stdin or file) - Unified diff format is auto-detected
+2. **Single file** (positional argument) - Review a specific file
 
 **Not supported:**
 - Arbitrary text piped via stdin (use `usx derive explanation` instead)
 
-If you pipe non-diff content via stdin without `--from`, you'll see:
+If you pipe non-diff content via stdin without a file argument, you'll see:
 ```
-error: review expects diff input or --from FILE; use 'usx derive explanation' for arbitrary text
+error: review expects diff input or FILE; use 'usx derive explanation' for arbitrary text
 ```
 
 ### Execution
 
-1. Reads code or diff from stdin or `--from`
-2. Validates input type (diff format or single file via `--from`)
+1. Reads code or diff from stdin or file argument
+2. Validates input type (diff format or single file)
 3. Single LLM call for review (or multiple calls with `--chunk`)
 4. Returns issues and summary
 
@@ -148,17 +153,17 @@ git diff HEAD~3 | usx review
 # Review with specific checks
 git diff | usx review --checks style,security
 
-# Read from file
-usx review --from changes.diff
+# Read from file (positional argument)
+usx review changes.diff
 
 # Review a single source file
-usx review --from src/main.rs
+usx review src/main.rs
 
 # Chunked review of large diff (parallel processing)
 git diff HEAD~10 | usx review --chunk
 
 # Chunked review with custom concurrency
-git diff | usx review --chunk --max-concurrency 8
+git diff | usx review --chunk --concurrency 8
 
 # Continue on partial failures
 git diff | usx review --chunk --partial
@@ -172,10 +177,10 @@ git diff | usx review --chunk --dry-run
 ```bash
 # Error: arbitrary stdin is not supported
 echo "fn main() {}" | usx review
-# error: review expects diff input or --from FILE; use 'usx derive explanation' for arbitrary text
+# error: review expects diff input or FILE; use 'usx derive explanation' for arbitrary text
 
 # Error: --chunk requires diff input
-usx review --from src/main.rs --chunk
+usx review src/main.rs --chunk
 # warning: chunking single files not supported; processing as single-pass
 ```
 

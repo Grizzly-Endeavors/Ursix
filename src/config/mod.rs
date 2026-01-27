@@ -43,14 +43,11 @@ pub struct Config {
     /// Model identifier
     pub model: String,
 
-    /// Ollama API base URL
-    pub ollama_url: String,
+    /// Provider API base URL (overrides default for selected provider)
+    pub provider_url: Option<String>,
 
-    /// OpenAI-compatible API base URL
-    pub openai_url: String,
-
-    /// API key for OpenAI-compatible endpoints (loaded from environment only, never in files)
-    pub openai_api_key: Option<String>,
+    /// API key for authenticated providers
+    pub api_key: Option<String>,
 
     /// Working directory for file operations
     pub working_dir: PathBuf,
@@ -123,11 +120,8 @@ impl Config {
         if let Some(ref model) = file.model {
             self.model.clone_from(model);
         }
-        if let Some(ref url) = file.ollama_url {
-            self.ollama_url.clone_from(url);
-        }
-        if let Some(ref url) = file.openai_url {
-            self.openai_url.clone_from(url);
+        if let Some(ref url) = file.provider_url {
+            self.provider_url = Some(url.clone());
         }
         if let Some(mode) = file.tokenizer_mode {
             self.tokenizer_mode = mode;
@@ -147,17 +141,14 @@ impl Config {
         if let Ok(model) = std::env::var("URSIX_MODEL") {
             self.model = model;
         }
-        if let Ok(url) = std::env::var("URSIX_OLLAMA_URL") {
-            self.ollama_url = url;
+        if let Ok(url) = std::env::var("URSIX_PROVIDER_URL") {
+            self.provider_url = Some(url);
         }
-        if let Ok(url) = std::env::var("URSIX_OPENAI_URL") {
-            self.openai_url = url;
-        }
-        // Check both URSIX_OPENAI_API_KEY and standard OPENAI_API_KEY
-        if let Ok(key) = std::env::var("URSIX_OPENAI_API_KEY") {
-            self.openai_api_key = Some(key);
+        // Check both URSIX_API_KEY and standard OPENAI_API_KEY
+        if let Ok(key) = std::env::var("URSIX_API_KEY") {
+            self.api_key = Some(key);
         } else if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-            self.openai_api_key = Some(key);
+            self.api_key = Some(key);
         }
         if let Ok(mode) = std::env::var("URSIX_TOKENIZER_MODE")
             && let Ok(m) = mode.parse()
@@ -170,6 +161,15 @@ impl Config {
             self.timeout_secs = t;
         }
     }
+
+    /// Get the effective provider URL based on provider type and overrides
+    #[must_use]
+    pub fn effective_provider_url(&self) -> &str {
+        self.provider_url.as_deref().unwrap_or(match self.provider {
+            Provider::Ollama => DEFAULT_OLLAMA_URL,
+            Provider::OpenAi => DEFAULT_OPENAI_URL,
+        })
+    }
 }
 
 impl Default for Config {
@@ -177,9 +177,8 @@ impl Default for Config {
         Self {
             provider: Provider::default(),
             model: String::from(DEFAULT_MODEL),
-            ollama_url: String::from(DEFAULT_OLLAMA_URL),
-            openai_url: String::from(DEFAULT_OPENAI_URL),
-            openai_api_key: None,
+            provider_url: None,
+            api_key: None,
             working_dir: std::env::current_dir().unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "failed to get current directory, using '.'");
                 PathBuf::from(".")
@@ -202,13 +201,9 @@ pub struct ConfigFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 
-    /// Ollama API URL
+    /// Provider API base URL
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ollama_url: Option<String>,
-
-    /// OpenAI-compatible API URL
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub openai_url: Option<String>,
+    pub provider_url: Option<String>,
 
     /// Tokenizer mode (heuristic or full)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -243,10 +238,33 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.provider, Provider::Ollama);
         assert_eq!(config.model, DEFAULT_MODEL);
-        assert_eq!(config.ollama_url, DEFAULT_OLLAMA_URL);
-        assert_eq!(config.openai_url, DEFAULT_OPENAI_URL);
-        assert!(config.openai_api_key.is_none());
+        assert!(config.provider_url.is_none());
+        assert!(config.api_key.is_none());
         assert_eq!(config.timeout_secs, DEFAULT_TIMEOUT_SECS);
+    }
+
+    #[test]
+    fn test_effective_provider_url_default_ollama() {
+        let config = Config::default();
+        assert_eq!(config.effective_provider_url(), DEFAULT_OLLAMA_URL);
+    }
+
+    #[test]
+    fn test_effective_provider_url_default_openai() {
+        let config = Config {
+            provider: Provider::OpenAi,
+            ..Config::default()
+        };
+        assert_eq!(config.effective_provider_url(), DEFAULT_OPENAI_URL);
+    }
+
+    #[test]
+    fn test_effective_provider_url_with_override() {
+        let config = Config {
+            provider_url: Some("http://custom:8000/v1".to_string()),
+            ..Config::default()
+        };
+        assert_eq!(config.effective_provider_url(), "http://custom:8000/v1");
     }
 
     #[test]
@@ -256,8 +274,7 @@ mod tests {
         let file = ConfigFile {
             provider: Some(Provider::OpenAi),
             model: Some("custom-model".to_string()),
-            ollama_url: None,
-            openai_url: Some("http://custom:8000/v1".to_string()),
+            provider_url: Some("http://custom:8000/v1".to_string()),
             tokenizer_mode: None,
             timeout_secs: None,
         };
@@ -266,8 +283,10 @@ mod tests {
 
         assert_eq!(config.provider, Provider::OpenAi);
         assert_eq!(config.model, "custom-model");
-        assert_eq!(config.ollama_url, DEFAULT_OLLAMA_URL); // Unchanged
-        assert_eq!(config.openai_url, "http://custom:8000/v1");
+        assert_eq!(
+            config.provider_url,
+            Some("http://custom:8000/v1".to_string())
+        );
     }
 
     #[test]
@@ -278,8 +297,7 @@ mod tests {
         let file = ConfigFile {
             provider: None,
             model: None,
-            ollama_url: None,
-            openai_url: None,
+            provider_url: None,
             tokenizer_mode: None,
             timeout_secs: Some(120),
         };
@@ -303,8 +321,7 @@ mod tests {
         let loaded = ConfigFile::load(&path).unwrap();
         assert!(loaded.provider.is_none());
         assert_eq!(loaded.model, Some("partial-model".to_string()));
-        assert!(loaded.ollama_url.is_none());
-        assert!(loaded.openai_url.is_none());
+        assert!(loaded.provider_url.is_none());
     }
 
     #[test]
@@ -333,8 +350,7 @@ mod tests {
         let file = ConfigFile {
             provider: None,
             model: None,
-            ollama_url: None,
-            openai_url: None,
+            provider_url: None,
             tokenizer_mode: Some(TokenizerMode::Full),
             timeout_secs: None,
         };
@@ -363,5 +379,19 @@ mod tests {
 
         let loaded = ConfigFile::load(&path).unwrap();
         assert_eq!(loaded.timeout_secs, Some(120));
+    }
+
+    #[test]
+    fn test_config_file_with_provider_url() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("provider_url.toml");
+
+        std::fs::write(&path, "provider_url = \"http://localhost:8080/v1\"\n").unwrap();
+
+        let loaded = ConfigFile::load(&path).unwrap();
+        assert_eq!(
+            loaded.provider_url,
+            Some("http://localhost:8080/v1".to_string())
+        );
     }
 }

@@ -12,11 +12,16 @@ pub fn cmd_config(
     list: bool,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
-    let api_key_display = if config.openai_api_key.is_some() {
+    let api_key_display = if config.api_key.is_some() {
         "[set]".to_string()
     } else {
         "[not set]".to_string()
     };
+
+    let provider_url_display = config
+        .provider_url
+        .clone()
+        .unwrap_or_else(|| format!("[default for {}]", config.provider));
 
     if list {
         let result = ConfigResult {
@@ -30,15 +35,11 @@ pub fn cmd_config(
                     value: config.model.clone(),
                 },
                 ConfigEntry {
-                    key: "ollama_url".to_string(),
-                    value: config.ollama_url.clone(),
+                    key: "provider_url".to_string(),
+                    value: provider_url_display.clone(),
                 },
                 ConfigEntry {
-                    key: "openai_url".to_string(),
-                    value: config.openai_url.clone(),
-                },
-                ConfigEntry {
-                    key: "openai_api_key".to_string(),
+                    key: "api_key".to_string(),
                     value: api_key_display.clone(),
                 },
                 ConfigEntry {
@@ -56,9 +57,8 @@ pub fn cmd_config(
         let val = match k.as_str() {
             "provider" => config.provider.to_string(),
             "model" => config.model.clone(),
-            "ollama_url" => config.ollama_url.clone(),
-            "openai_url" => config.openai_url.clone(),
-            "openai_api_key" => api_key_display,
+            "provider_url" => provider_url_display,
+            "api_key" => api_key_display,
             "tokenizer_mode" => config.tokenizer_mode.to_string(),
             "working_dir" => config.working_dir.display().to_string(),
             _ => format!("unknown config key: {k}"),

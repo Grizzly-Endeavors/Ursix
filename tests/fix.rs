@@ -149,7 +149,7 @@ fn fix_help_shows_all_flags() -> TestResult {
         .stdout(predicate::str::contains("--context"))
         .stdout(predicate::str::contains("--retry"))
         .stdout(predicate::str::contains("--partial"))
-        .stdout(predicate::str::contains("--from"));
+        .stdout(predicate::str::contains("[FILE]"));
 
     Ok(())
 }
@@ -311,7 +311,7 @@ fn fix_dry_run_json_output() -> TestResult {
     Ok(())
 }
 
-// === From File Tests ===
+// === Positional File Argument Tests ===
 
 #[test]
 fn fix_reads_input_from_file() -> TestResult {
@@ -325,14 +325,15 @@ fn fix_reads_input_from_file() -> TestResult {
     std::fs::write(&input_file, json)?;
 
     // With --dry-run to avoid needing LLM
+    // Using positional argument instead of --from
     let output = Command::cargo_bin("usx")?
-        .args(["--dry-run", "fix", "--from", "input.json"])
+        .args(["--dry-run", "fix", "input.json"])
         .current_dir(dir.path())
         .output()?;
 
     assert!(
         output.status.success(),
-        "Should read input from --from file"
+        "Should read input from positional file argument"
     );
 
     Ok(())

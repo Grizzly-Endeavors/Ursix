@@ -60,12 +60,10 @@ impl DeriveType {
 pub struct DeriveOptions {
     /// Type of content to derive
     pub derive_type: DeriveType,
-    /// Commit style (only used for commit-msg type)
-    pub style: Option<String>,
-    /// Enable recursive chunking for large inputs
-    pub chunk_recursive: bool,
+    /// Enable chunking for large inputs
+    pub chunk: bool,
     /// Maximum concurrent chunk executions
-    pub max_concurrency: usize,
+    pub concurrency: usize,
     /// Show dry-run information without LLM calls
     pub dry_run: bool,
 }
@@ -77,19 +75,18 @@ pub struct DeriveOptions {
 pub async fn cmd_derive(
     config: &Config,
     options: DeriveOptions,
-    from: Option<PathBuf>,
+    file: Option<PathBuf>,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let DeriveOptions {
         derive_type,
-        style,
-        chunk_recursive,
-        max_concurrency: _max_concurrency,
+        chunk,
+        concurrency: _concurrency,
         dry_run,
     } = options;
 
-    // Read input from stdin or --from
-    let input = read_input(from.as_ref())
+    // Read input from stdin or file argument
+    let input = read_input(file.as_ref())
         .await
         .context("failed to read input")?;
 
@@ -100,7 +97,7 @@ pub async fn cmd_derive(
 
     // Dry-run mode: output token estimation without LLM calls
     if dry_run {
-        let chunk_plan = if chunk_recursive {
+        let chunk_plan = if chunk {
             // Estimate chunking plan
             let chunk_count = estimate_chunk_count(token_count.count);
             ChunkPlan {
@@ -136,24 +133,24 @@ pub async fn cmd_derive(
     match check {
         crate::tokens::TokenCheck::Ok(_) => {}
         crate::tokens::TokenCheck::Warning { message, .. } => {
-            if !chunk_recursive {
-                eprintln!("warning: {message}; consider using --chunk-recursive");
+            if !chunk {
+                eprintln!("warning: {message}; consider using --chunk");
             }
         }
         crate::tokens::TokenCheck::Error { message, .. } => {
-            if !chunk_recursive {
+            if !chunk {
                 return Err(anyhow::anyhow!(
-                    "{message}; use --chunk-recursive to process large inputs"
+                    "{message}; use --chunk to process large inputs"
                 ));
             }
         }
     }
 
     // Execute the appropriate pipeline
-    let result = if chunk_recursive {
-        execute_chunked(config, derive_type, style.as_deref(), &ctx).await?
+    let result = if chunk {
+        execute_chunked(config, derive_type, &ctx).await?
     } else {
-        execute_single_pass(config, derive_type, style.as_deref(), &ctx).await?
+        execute_single_pass(config, derive_type, &ctx).await?
     };
 
     println!("{}", result.render(output_mode));
@@ -164,11 +161,10 @@ pub async fn cmd_derive(
 async fn execute_single_pass(
     config: &Config,
     derive_type: DeriveType,
-    style: Option<&str>,
     ctx: &InputContext,
 ) -> Result<DeriveResult> {
     let system_prompt = derive_prompt_for_type(derive_type);
-    let user_request = build_user_request(derive_type, style);
+    let user_request = build_user_request(derive_type);
 
     let response = run_pipeline(config, system_prompt, ctx, &user_request, true).await?;
 
@@ -179,7 +175,6 @@ async fn execute_single_pass(
 async fn execute_chunked(
     config: &Config,
     derive_type: DeriveType,
-    style: Option<&str>,
     ctx: &InputContext,
 ) -> Result<DeriveResult> {
     // Split input into chunks
@@ -187,7 +182,7 @@ async fn execute_chunked(
 
     if chunks.len() == 1 {
         // Input fits in single chunk, use single-pass
-        return execute_single_pass(config, derive_type, style, ctx).await;
+        return execute_single_pass(config, derive_type, ctx).await;
     }
 
     tracing::info!(
@@ -197,7 +192,7 @@ async fn execute_chunked(
 
     // Process chunks in parallel
     let chunk_system_prompt = derive_chunk_prompt_for_type(derive_type);
-    let chunk_user_request = build_chunk_user_request(derive_type, style);
+    let chunk_user_request = build_chunk_user_request(derive_type);
 
     let mut chunk_results = Vec::with_capacity(chunks.len());
     for (i, chunk_content) in chunks.iter().enumerate() {
@@ -224,7 +219,7 @@ async fn execute_chunked(
     // Synthesize results
     let synthesis_ctx = InputContext::new(chunk_results.join("\n\n---\n\n"));
     let synthesis_prompt = derive_synthesis_prompt_for_type(derive_type);
-    let synthesis_request = build_synthesis_request(derive_type, style);
+    let synthesis_request = build_synthesis_request(derive_type);
 
     let final_response = run_pipeline(
         config,
@@ -312,11 +307,10 @@ fn find_split_point(content: &str, target: usize) -> usize {
 }
 
 /// Build user request for single-pass execution
-fn build_user_request(derive_type: DeriveType, style: Option<&str>) -> String {
+fn build_user_request(derive_type: DeriveType) -> String {
     match derive_type {
         DeriveType::CommitMsg => {
-            let style_name = style.unwrap_or("conventional");
-            format!("Generate a {style_name} commit message for these changes.")
+            "Generate a conventional commit message for these changes.".to_string()
         }
         DeriveType::Explanation => "Explain this code.".to_string(),
         DeriveType::Summary => "Summarize this content.".to_string(),
@@ -324,13 +318,11 @@ fn build_user_request(derive_type: DeriveType, style: Option<&str>) -> String {
 }
 
 /// Build user request for chunk processing
-fn build_chunk_user_request(derive_type: DeriveType, style: Option<&str>) -> String {
+fn build_chunk_user_request(derive_type: DeriveType) -> String {
     match derive_type {
         DeriveType::CommitMsg => {
-            let style_name = style.unwrap_or("conventional");
-            format!(
-                "Summarize the changes in this portion of the diff for a {style_name} commit message."
-            )
+            "Summarize the changes in this portion of the diff for a conventional commit message."
+                .to_string()
         }
         DeriveType::Explanation => "Explain this section of code.".to_string(),
         DeriveType::Summary => "Summarize this section.".to_string(),
@@ -338,11 +330,10 @@ fn build_chunk_user_request(derive_type: DeriveType, style: Option<&str>) -> Str
 }
 
 /// Build user request for synthesis step
-fn build_synthesis_request(derive_type: DeriveType, style: Option<&str>) -> String {
+fn build_synthesis_request(derive_type: DeriveType) -> String {
     match derive_type {
         DeriveType::CommitMsg => {
-            let style_name = style.unwrap_or("conventional");
-            format!("Combine these partial summaries into a single {style_name} commit message.")
+            "Combine these partial summaries into a single conventional commit message.".to_string()
         }
         DeriveType::Explanation => {
             "Combine these section explanations into a cohesive overall explanation.".to_string()
@@ -459,16 +450,13 @@ mod tests {
 
     #[test]
     fn test_build_user_request() {
-        let req = build_user_request(DeriveType::CommitMsg, None);
+        let req = build_user_request(DeriveType::CommitMsg);
         assert!(req.contains("conventional"));
 
-        let req = build_user_request(DeriveType::CommitMsg, Some("simple"));
-        assert!(req.contains("simple"));
-
-        let req = build_user_request(DeriveType::Explanation, None);
+        let req = build_user_request(DeriveType::Explanation);
         assert!(req.contains("Explain"));
 
-        let req = build_user_request(DeriveType::Summary, None);
+        let req = build_user_request(DeriveType::Summary);
         assert!(req.contains("Summarize"));
     }
 }

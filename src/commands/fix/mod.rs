@@ -53,12 +53,12 @@ pub struct FixOptions {
 pub async fn cmd_fix(
     config: &Config,
     options: FixOptions,
-    from: Option<PathBuf>,
+    file: Option<PathBuf>,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     match options.mode {
-        FixMode::Atomic => cmd_fix_atomic(config, &options, from, output_mode).await,
-        FixMode::WholeFile => cmd_fix_whole_file(config, &options, from, output_mode).await,
+        FixMode::Atomic => cmd_fix_atomic(config, &options, file, output_mode).await,
+        FixMode::WholeFile => cmd_fix_whole_file(config, &options, file, output_mode).await,
     }
 }
 
@@ -66,11 +66,11 @@ pub async fn cmd_fix(
 async fn cmd_fix_atomic(
     config: &Config,
     options: &FixOptions,
-    from: Option<PathBuf>,
+    file: Option<PathBuf>,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
-    // Read input from stdin or --from
-    let raw_input = read_input(from.as_ref())
+    // Read input from stdin or file argument
+    let raw_input = read_input(file.as_ref())
         .await
         .context("failed to read fix input")?;
 
@@ -107,11 +107,11 @@ async fn cmd_fix_atomic(
 async fn cmd_fix_whole_file(
     config: &Config,
     options: &FixOptions,
-    from: Option<PathBuf>,
+    file: Option<PathBuf>,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
-    // Read input from stdin or --from
-    let raw_input = read_input(from.as_ref())
+    // Read input from stdin or file argument
+    let raw_input = read_input(file.as_ref())
         .await
         .context("failed to read fix input")?;
 

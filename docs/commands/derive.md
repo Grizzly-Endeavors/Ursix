@@ -5,14 +5,14 @@ Derive content from input. Unified command for generative output types.
 ## Synopsis
 
 ```bash
-usx derive <TYPE> [--from FILE] [--style STYLE] [--chunk-recursive] [--max-concurrency N]
+usx derive <TYPE> [FILE] [--chunk] [--concurrency N]
 ```
 
 ## Description
 
 The `derive` command generates different types of content from input:
 
-- **commit-msg**: Generate commit messages from diffs
+- **commit-msg**: Generate conventional commit messages from diffs
 - **explanation**: Generate explanations of code
 - **summary**: Generate summaries of content
 
@@ -21,25 +21,25 @@ The `derive` command generates different types of content from input:
 | Argument | Description |
 |----------|-------------|
 | `TYPE` | Content type to derive: `commit-msg`, `explanation`, `summary` |
+| `FILE` | Input file (omit for stdin, use `-` for explicit stdin) |
 
 ## Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--from FILE` | path | stdin | Read input from file (use `-` for stdin) |
-| `--style STYLE` | string | conventional | Commit style (only for commit-msg): `conventional`, `simple` |
-| `--chunk-recursive` | boolean | false | Split large inputs into chunks and synthesize results |
-| `--max-concurrency N` | usize | 4 | Maximum concurrent chunk executions |
+| `--chunk` | boolean | false | Split large inputs into chunks and synthesize results |
+| `--concurrency` | usize | 4 | Max concurrent chunk executions |
+
+Plus all [global flags](../cli-reference.md#global-flags).
 
 ## Derive Types
 
 ### commit-msg
 
-Generate a commit message from a git diff.
+Generate a conventional commit message from a git diff.
 
 ```bash
 git diff --staged | usx derive commit-msg
-git diff --staged | usx derive commit-msg --style simple
 ```
 
 ### explanation
@@ -48,6 +48,7 @@ Generate an explanation of code.
 
 ```bash
 cat src/main.rs | usx derive explanation
+usx derive explanation src/main.rs
 ```
 
 ### summary
@@ -56,19 +57,19 @@ Generate a summary of content.
 
 ```bash
 cat large_doc.md | usx derive summary
-cat src/**/*.rs | usx derive summary --chunk-recursive
+cat src/**/*.rs | usx derive summary --chunk
 ```
 
 ## Chunked Processing
 
-For large inputs that exceed token limits, use `--chunk-recursive`:
+For large inputs that exceed token limits, use `--chunk`:
 
 ```bash
 # Process large codebase with chunking
-cat src/**/*.rs | usx derive summary --chunk-recursive
+cat src/**/*.rs | usx derive summary --chunk
 
 # Estimate token usage without LLM calls
-cat src/**/*.rs | usx derive summary --chunk-recursive --dry-run
+cat src/**/*.rs | usx derive summary --chunk --dry-run
 ```
 
 The chunked workflow:
@@ -121,15 +122,18 @@ Returns the raw content (message, explanation, or summary) without JSON wrapper.
 # Generate commit message
 git diff --staged | usx derive commit-msg
 
-# Explain code
+# Explain code (file argument)
+usx derive explanation src/lib.rs
+
+# Explain code (stdin)
 cat src/lib.rs | usx derive explanation
 
 # Summarize with chunking for large input
-find src -name "*.rs" -exec cat {} \; | usx derive summary --chunk-recursive
+find src -name "*.rs" -exec cat {} \; | usx derive summary --chunk
 
 # Dry run to estimate tokens
 git diff --staged | usx derive commit-msg --dry-run
 
 # Human-readable output
-cat src/main.rs | usx derive explanation --text
+usx derive explanation src/main.rs --text
 ```

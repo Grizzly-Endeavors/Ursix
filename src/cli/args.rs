@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use crate::config::{Provider, TokenizerMode};
+use crate::config::Provider;
 
 /// Mode for the fix command
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
@@ -22,7 +22,6 @@ pub enum FixMode {
 #[command(name = "usx")]
 #[command(about = "Ursix - Unix utilities powered by LLMs")]
 #[command(version)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct Cli {
     /// Output as plain text instead of JSON (default: JSON)
     #[arg(long, global = true)]
@@ -36,32 +35,17 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub model: Option<String>,
 
-    /// Ollama API base URL (overrides config)
+    /// Provider API base URL (overrides config)
     #[arg(long, global = true)]
-    pub ollama_url: Option<String>,
+    pub provider_url: Option<String>,
 
-    /// OpenAI-compatible API base URL (overrides config)
-    #[arg(long, global = true)]
-    pub openai_url: Option<String>,
+    /// API key for authenticated providers (prefer env: `URSIX_API_KEY`)
+    #[arg(long, global = true, env = "URSIX_API_KEY")]
+    pub api_key: Option<String>,
 
-    /// API key for OpenAI-compatible endpoints (overrides environment variable)
-    #[arg(long, global = true, env = "URSIX_OPENAI_API_KEY")]
-    pub openai_api_key: Option<String>,
-
-    /// Tokenizer mode for token counting (heuristic or full)
-    ///
-    /// 'heuristic' (default): Fast character-based approximation
-    /// 'full': Accurate `HuggingFace` tokenizer (has network/CPU overhead)
-    #[arg(long, global = true)]
-    pub tokenizer: Option<TokenizerMode>,
-
-    /// Disable automatic retry on transient failures
-    #[arg(long, global = true)]
-    pub no_retry: bool,
-
-    /// Maximum retry attempts for transient failures (default: 3)
+    /// Max retry attempts for transient failures (0 to disable)
     #[arg(long, global = true, default_value = "3")]
-    pub max_retries: u32,
+    pub retries: u32,
 
     /// Timeout for LLM requests in seconds (default: 60)
     ///
@@ -89,65 +73,53 @@ pub enum Command {
         #[arg(value_name = "TYPE")]
         derive_type: String,
 
-        /// Read input from a file (use - for stdin)
-        #[arg(long, value_name = "FILE")]
-        from: Option<PathBuf>,
+        /// Input file (omit for stdin, use - for explicit stdin)
+        #[arg(value_name = "FILE")]
+        file: Option<PathBuf>,
 
-        /// Commit style (only for commit-msg type: conventional, simple)
-        #[arg(long, default_value = "conventional")]
-        style: String,
-
-        /// Process large inputs by splitting into chunks and synthesizing results
+        /// Split large inputs into chunks and synthesize results
         #[arg(long)]
-        chunk_recursive: bool,
+        chunk: bool,
 
-        /// Maximum concurrent chunk executions (default: 4)
+        /// Max concurrent chunk executions
         #[arg(long, default_value = "4")]
-        max_concurrency: usize,
+        concurrency: usize,
     },
 
-    /// Review code changes from stdin or --from
+    /// Review code changes
     Review {
-        /// Read input from a file (use - for stdin)
-        #[arg(long, value_name = "FILE")]
-        from: Option<PathBuf>,
+        /// Input file (omit for stdin, use - for explicit stdin)
+        #[arg(value_name = "FILE")]
+        file: Option<PathBuf>,
 
         /// Checks to perform (e.g., style, security, performance)
         #[arg(long, value_delimiter = ',')]
         checks: Vec<String>,
 
-        /// Enable file-based chunking for large diffs
-        ///
-        /// Splits diff input by file and processes each file independently.
-        /// Only works with diff input via stdin; single files via --from are not chunked.
+        /// Split by file and process in parallel
         #[arg(long)]
         chunk: bool,
 
-        /// Maximum concurrent chunk executions (default: 4)
+        /// Max concurrent chunk executions
         #[arg(long, default_value = "4")]
-        max_concurrency: usize,
+        concurrency: usize,
 
-        /// Continue processing remaining chunks when some fail
-        ///
-        /// Without this flag, the command exits on first chunk failure.
-        /// With this flag, partial results are returned with failure details.
+        /// Continue when some chunks fail
         #[arg(long)]
         partial: bool,
     },
 
-    /// Fix issues in code using structured input
-    ///
-    /// Expects JSON input with: issue, file, lines (atomic mode) or file, issues (whole-file mode)
+    /// Fix issues in code using structured JSON input
     Fix {
-        /// Read input from a file (use - for stdin)
-        #[arg(long, value_name = "FILE")]
-        from: Option<PathBuf>,
+        /// JSON input file (omit for stdin, use - for explicit stdin)
+        #[arg(value_name = "FILE")]
+        file: Option<PathBuf>,
 
         /// Fix mode: atomic (single issue) or whole-file (multiple issues)
         #[arg(long, value_enum, default_value = "atomic")]
         mode: FixMode,
 
-        /// Number of context lines in unified diff output (default: 3)
+        /// Diff context lines
         #[arg(long, default_value = "3")]
         context: usize,
 
@@ -155,7 +127,7 @@ pub enum Command {
         #[arg(long)]
         retry: bool,
 
-        /// Return raw LLM output on validation failure for inspection
+        /// Return partial results on failure
         #[arg(long)]
         partial: bool,
     },
@@ -174,26 +146,23 @@ pub enum Command {
 /// Options for retry behavior
 #[derive(Debug, Clone)]
 pub struct RetryOptions {
-    /// Whether retries are enabled
-    pub enabled: bool,
-    /// Maximum retry attempts
+    /// Maximum retry attempts (0 = disabled)
     pub max_retries: u32,
 }
 
 impl RetryOptions {
-    /// Create retry options from CLI flags
+    /// Create retry options from CLI retries count
     #[must_use]
-    pub fn from_cli(no_retry: bool, max_retries: u32) -> Self {
+    pub fn from_cli(retries: u32) -> Self {
         Self {
-            enabled: !no_retry,
-            max_retries,
+            max_retries: retries,
         }
     }
 
     /// Convert to [`RetryConfig`] for the retry infrastructure
     #[must_use]
     pub fn to_config(&self) -> crate::llm::RetryConfig {
-        if self.enabled {
+        if self.max_retries > 0 {
             crate::llm::RetryConfig {
                 max_retries: self.max_retries,
                 ..crate::llm::RetryConfig::default()

@@ -77,21 +77,15 @@ pub async fn run() -> Result<ExitCode> {
     if let Some(ref model) = cli.model {
         config.model.clone_from(model);
     }
-    if let Some(ref url) = cli.ollama_url {
-        config.ollama_url.clone_from(url);
+    if let Some(ref url) = cli.provider_url {
+        config.provider_url = Some(url.clone());
     }
-    if let Some(ref url) = cli.openai_url {
-        config.openai_url.clone_from(url);
-    }
-    if let Some(ref key) = cli.openai_api_key {
-        config.openai_api_key = Some(key.clone());
-    }
-    if let Some(mode) = cli.tokenizer {
-        config.tokenizer_mode = mode;
+    if let Some(ref key) = cli.api_key {
+        config.api_key = Some(key.clone());
     }
 
     // Apply retry config from CLI
-    config.retry_config = RetryOptions::from_cli(cli.no_retry, cli.max_retries).to_config();
+    config.retry_config = RetryOptions::from_cli(cli.retries).to_config();
 
     // Apply timeout from CLI if provided
     if let Some(timeout) = cli.timeout {
@@ -101,38 +95,36 @@ pub async fn run() -> Result<ExitCode> {
     match cli.command {
         Command::Derive {
             derive_type,
-            from,
-            style,
-            chunk_recursive,
-            max_concurrency,
+            file,
+            chunk,
+            concurrency,
         } => {
             let derive_type = DeriveType::from_str(&derive_type).map_err(CliError::Config)?;
             let options = DeriveOptions {
                 derive_type,
-                style: Some(style),
-                chunk_recursive,
-                max_concurrency,
+                chunk,
+                concurrency,
                 dry_run: cli.dry_run,
             };
-            cmd_derive(&config, options, from, output_mode).await
+            cmd_derive(&config, options, file, output_mode).await
         }
         Command::Review {
-            from,
+            file,
             checks,
             chunk,
-            max_concurrency,
+            concurrency,
             partial,
         } => {
             let options = ReviewOptions {
                 chunk,
-                max_concurrency,
+                concurrency,
                 partial,
                 dry_run: cli.dry_run,
             };
-            cmd_review(&config, options, from, &checks, output_mode).await
+            cmd_review(&config, options, file, &checks, output_mode).await
         }
         Command::Fix {
-            from,
+            file,
             mode,
             context,
             retry,
@@ -145,7 +137,7 @@ pub async fn run() -> Result<ExitCode> {
                 partial,
                 dry_run: cli.dry_run,
             };
-            cmd_fix(&config, options, from, output_mode).await
+            cmd_fix(&config, options, file, output_mode).await
         }
         Command::Config { key, list } => cmd_config(&config, key, list, output_mode),
     }

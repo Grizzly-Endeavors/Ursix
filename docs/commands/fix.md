@@ -6,8 +6,8 @@ Transform code snippets using structured input. The fix command takes a specific
 
 ```bash
 echo '{"issue": "...", "file": "...", "lines": [...]}' | usx fix
-usx fix --from input.json
-usx fix --mode whole-file --from input.json
+usx fix input.json
+usx fix --mode whole-file input.json
 ```
 
 ## Modes
@@ -58,15 +58,20 @@ Fix multiple issues in a single file. Issues are processed bottom-to-top to pres
 - Line ranges must not overlap (adjacent ranges are OK)
 - All line ranges must be within file bounds
 
+## Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `FILE` | JSON input file (omit for stdin, use `-` for explicit stdin) |
+
 ## Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--from` | PATH | - | Read input from file (use `-` for stdin) |
 | `--mode` | `atomic` \| `whole-file` | `atomic` | Fix mode |
-| `--context` | number | 3 | Number of context lines in unified diff output |
+| `--context` | number | 3 | Diff context lines |
 | `--retry` | boolean | false | Retry on validation failure with error context |
-| `--partial` | boolean | false | Return raw LLM output on validation failure; in whole-file mode, continue on failure |
+| `--partial` | boolean | false | Return partial results on failure |
 
 Plus all [global flags](../cli-reference.md#global-flags).
 
@@ -209,24 +214,24 @@ cat <<'EOF' | usx fix
 }
 EOF
 
-# Read input from file
+# Read input from file (positional argument)
 echo '{"issue": "...", ...}' > fix-input.json
-usx fix --from fix-input.json
+usx fix fix-input.json
 
 # Get more context in diff
-cat input.json | usx fix --context 5
+usx fix input.json --context 5
 
 # Debug with partial output
-cat input.json | usx fix --partial
+usx fix input.json --partial
 
 # Retry on failure
-cat input.json | usx fix --retry
+usx fix input.json --retry
 
 # Dry run to validate input without LLM call
-cat input.json | usx fix --dry-run
+usx fix input.json --dry-run
 
 # Apply the fix using patch
-usx fix --from input.json | jq -r '.diff' | patch -p1
+usx fix input.json | jq -r '.diff' | patch -p1
 ```
 
 ### Whole-File Mode
@@ -245,10 +250,10 @@ cat <<'EOF' | usx fix --mode whole-file
 EOF
 
 # Continue on failures
-cat input.json | usx fix --mode whole-file --partial
+usx fix input.json --mode whole-file --partial
 
 # Dry run to see processing plan
-cat input.json | usx fix --mode whole-file --dry-run
+usx fix input.json --mode whole-file --dry-run
 ```
 
 ## Exit Codes

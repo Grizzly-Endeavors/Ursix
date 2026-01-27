@@ -99,28 +99,28 @@ Generic text transformation. The LLM derives content based on the mode you speci
 
 **Modes:**
 - `explanation` — Explain what code does
-- `commit-msg` — Generate a commit message from a diff
+- `commit-msg` — Generate a conventional commit message from a diff
 - `summary` — Summarize content
 
 ```bash
-cat src/lib.rs | usx derive explanation              # Explain code
+usx derive explanation src/lib.rs                    # Explain code (file argument)
+cat src/lib.rs | usx derive explanation              # Explain code (stdin)
 git diff --staged | usx derive commit-msg            # Generate commit message
 cat README.md | usx derive summary                   # Summarize content
 ```
 
 **Chunking for large inputs:**
 ```bash
-cat huge_file.rs | usx derive explanation --chunk-recursive
+cat huge_file.rs | usx derive explanation --chunk
 ```
 
 **Options:**
 | Flag | Description |
 |------|-------------|
-| `--from FILE` | Read input from file (use `-` for stdin) |
+| `[FILE]` | Input file (omit for stdin, use `-` for explicit stdin) |
 | `--text` | Human-readable output instead of JSON |
-| `--style {conventional,simple}` | Commit message format (commit-msg only) |
-| `--chunk-recursive` | Split large inputs, process in parallel, synthesize |
-| `--max-concurrency N` | Parallel chunk limit (default: 4) |
+| `--chunk` | Split large inputs, process in parallel, synthesize |
+| `--concurrency N` | Parallel chunk limit (default: 4) |
 | `--dry-run` | Show token estimate without calling LLM |
 
 ---
@@ -131,6 +131,7 @@ Review code changes and output structured issues. Designed for CI pipelines.
 
 ```bash
 git diff --staged | usx review                       # Review staged changes
+usx review src/auth.rs                               # Review a single file
 git diff HEAD~3 | usx review                         # Review commit range
 git diff | usx review --checks security              # Focus on specific rules
 ```
@@ -154,9 +155,10 @@ git diff | usx review --checks security              # Focus on specific rules
 **Options:**
 | Flag | Description |
 |------|-------------|
-| `--from FILE` | Review a single file |
+| `[FILE]` | Input file (omit for stdin, use `-` for explicit stdin) |
 | `--checks LIST` | Comma-separated rule categories (e.g., `security,style`) |
 | `--chunk` | Split diff by file, process in parallel |
+| `--concurrency N` | Max concurrent chunks (default: 4) |
 | `--partial` | Return partial results if some chunks fail |
 | `--dry-run` | Show token estimate and chunking plan |
 
@@ -173,8 +175,8 @@ echo '{"issue": "unused variable", "file": "src/main.rs", "lines": [42, 42]}' | 
 # Fix multiple issues in one file (whole-file mode)
 echo '{"file": "src/main.rs", "issues": [{"issue": "a", "lines": [10,10]}, {"issue": "b", "lines": [20,20]}]}' | usx fix --mode whole-file
 
-# Apply the fix
-usx fix --from input.json | jq -r '.diff' | patch -p1
+# Apply the fix (from file argument)
+usx fix input.json | jq -r '.diff' | patch -p1
 ```
 
 **Atomic Mode Input (JSON):**
@@ -211,11 +213,11 @@ usx fix --from input.json | jq -r '.diff' | patch -p1
 **Options:**
 | Flag | Description |
 |------|-------------|
-| `--from FILE` | Read input from file |
+| `[FILE]` | JSON input file (omit for stdin, use `-` for explicit stdin) |
 | `--mode {atomic,whole-file}` | Fix mode (default: atomic) |
-| `--context N` | Context lines in diff (default: 3) |
+| `--context N` | Diff context lines (default: 3) |
 | `--retry` | Retry on validation failure |
-| `--partial` | Return raw LLM output on failure; continue on failures in whole-file mode |
+| `--partial` | Return partial results on failure |
 | `--dry-run` | Validate input without LLM call |
 
 ---
@@ -360,34 +362,31 @@ Layered configuration (highest priority first):
 # .ursix.toml
 provider = "ollama"
 model = "qwen2.5-coder:7b"
-ollama_url = "http://localhost:11434"
-openai_url = "https://api.openai.com/v1"
+provider_url = "http://localhost:11434"  # Optional: override default for selected provider
 ```
+
+Note: API keys should be set via environment variables for security.
 
 ### Environment Variables
 
 ```bash
 export URSIX_PROVIDER=openai
 export URSIX_MODEL=gpt-4
-export URSIX_OPENAI_API_KEY=sk-...
-export URSIX_OPENAI_URL=https://api.openai.com/v1
-export URSIX_OLLAMA_URL=http://localhost:11434
+export URSIX_API_KEY=sk-...              # API key for authenticated providers
+export URSIX_PROVIDER_URL=https://api.openai.com/v1
 ```
 
 ### Global Flags
 
 ```
---text                 Human-readable output (default: JSON)
---provider <NAME>      LLM provider (ollama, openai)
--m, --model <MODEL>    Model to use
---ollama-url <URL>     Ollama API base URL
---openai-url <URL>     OpenAI-compatible API base URL
---openai-api-key <KEY> API key for OpenAI endpoints
---tokenizer <MODE>     Token counting: heuristic (fast) or full (accurate)
---no-retry             Disable automatic retry on transient failures
---max-retries <N>      Maximum retry attempts (default: 3)
---timeout <N>          Timeout for LLM requests in seconds (default: 60)
---dry-run              Show token estimation without making LLM calls
+--text                    Human-readable output (default: JSON)
+--provider <NAME>         LLM provider (ollama, openai)
+-m, --model <MODEL>       Model to use
+--provider-url <URL>      Provider API base URL
+--api-key <KEY>           API key for authenticated providers
+--retries <N>             Max retry attempts (default: 3, 0 to disable)
+--timeout <N>             Timeout for LLM requests in seconds (default: 60)
+--dry-run                 Show token estimation without making LLM calls
 ```
 
 ## Philosophy

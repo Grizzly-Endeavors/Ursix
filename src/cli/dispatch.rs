@@ -21,24 +21,20 @@ fn is_local_url(url: &str) -> bool {
 }
 
 /// Create an [`OpenAiClient`] from config, handling API key requirements
-pub(crate) fn create_openai_client(config: &Config) -> Result<OpenAiClient> {
-    if let Some(ref key) = config.openai_api_key {
+pub(crate) fn create_openai_client(config: &Config, url: &str) -> Result<OpenAiClient> {
+    if let Some(ref key) = config.api_key {
         Ok(OpenAiClient::with_api_key(
-            &config.openai_url,
+            url,
             &config.model,
             key,
             config.timeout_secs,
         ))
-    } else if is_local_url(&config.openai_url) {
-        Ok(OpenAiClient::new(
-            &config.openai_url,
-            &config.model,
-            config.timeout_secs,
-        ))
+    } else if is_local_url(url) {
+        Ok(OpenAiClient::new(url, &config.model, config.timeout_secs))
     } else {
         Err(CliError::Config(anyhow::anyhow!(
-            "OpenAI API key required for remote endpoints. \
-             Set OPENAI_API_KEY environment variable or use --openai-api-key flag."
+            "API key required for remote OpenAI endpoints. \
+             Set URSIX_API_KEY environment variable or use --api-key flag."
         ))
         .into())
     }
@@ -52,9 +48,11 @@ pub(crate) async fn run_pipeline(
     user_request: &str,
     json_mode: bool,
 ) -> Result<String> {
+    let provider_url = config.effective_provider_url();
+
     match config.provider {
         Provider::Ollama => {
-            let client = OllamaClient::new(&config.ollama_url, &config.model, config.timeout_secs);
+            let client = OllamaClient::new(provider_url, &config.model, config.timeout_secs);
             run_pipeline_with_client(
                 client,
                 system_prompt,
@@ -66,7 +64,7 @@ pub(crate) async fn run_pipeline(
             .await
         }
         Provider::OpenAi => {
-            let client = create_openai_client(config)?;
+            let client = create_openai_client(config, provider_url)?;
             run_pipeline_with_client(
                 client,
                 system_prompt,

@@ -11,12 +11,9 @@ These flags apply to all commands:
 | `--text` | boolean | false | Output as plain text instead of JSON |
 | `--provider` | enum | config | LLM provider (`ollama`, `openai`) |
 | `-m, --model` | string | config | Model to use |
-| `--ollama-url` | string | config | Ollama API base URL |
-| `--openai-url` | string | config | OpenAI-compatible API base URL |
-| `--openai-api-key` | string | config | API key for OpenAI-compatible endpoints |
-| `--tokenizer` | enum | heuristic | Tokenizer mode (`heuristic`, `full`) |
-| `--no-retry` | boolean | false | Disable automatic retry on transient failures |
-| `--max-retries` | u32 | 3 | Maximum retry attempts for transient failures |
+| `--provider-url` | string | config | Provider API base URL |
+| `--api-key` | string | config | API key for authenticated providers |
+| `--retries` | u32 | 3 | Max retry attempts (0 to disable) |
 | `--timeout` | u64 | 60 | Timeout for LLM requests in seconds |
 | `--dry-run` | boolean | false | Show token estimation without making LLM calls |
 
@@ -24,7 +21,9 @@ These flags apply to all commands:
 
 | Variable | Description |
 |----------|-------------|
-| `URSIX_OPENAI_API_KEY` | API key for OpenAI-compatible endpoints |
+| `URSIX_API_KEY` | API key for authenticated providers |
+| `URSIX_PROVIDER_URL` | Provider API base URL |
+| `OPENAI_API_KEY` | Fallback API key (if `URSIX_API_KEY` not set) |
 
 ## Commands
 
@@ -35,19 +34,19 @@ These flags apply to all commands:
 
 ## Input Handling
 
-All commands read from stdin by default or from a file via `--from`:
+All commands read from stdin by default or from a positional file argument:
 
 ```bash
 # Pipe input via stdin
 cat src/main.rs | usx derive explanation
 git diff --staged | usx review
 
-# Read from file directly
-usx derive explanation --from src/main.rs
-usx review --from changes.diff
+# Read from file directly (positional argument)
+usx derive explanation src/main.rs
+usx review changes.diff
 
-# Explicit stdin (same as piped)
-usx derive explanation --from -
+# Explicit stdin (use - as file argument)
+usx derive explanation -
 ```
 
 If no input is provided, commands will block waiting for stdin.
@@ -64,14 +63,14 @@ Single LLM call with piped input. No tools, no message history.
 
 ### Derive Command
 
-The `derive` command supports `--chunk-recursive` for processing large inputs:
+The `derive` command supports `--chunk` for processing large inputs:
 
 ```bash
 # Process large input with automatic chunking
-cat src/**/*.rs | usx derive summary --chunk-recursive
+cat src/**/*.rs | usx derive summary --chunk
 
 # Estimate token usage
-cat src/**/*.rs | usx derive summary --chunk-recursive --dry-run
+cat src/**/*.rs | usx derive summary --chunk --dry-run
 ```
 
 When chunked processing is enabled:
@@ -88,7 +87,7 @@ The `review` command supports `--chunk` for file-based diff chunking:
 git diff HEAD~10 | usx review --chunk
 
 # With custom concurrency
-git diff | usx review --chunk --max-concurrency 8
+git diff | usx review --chunk --concurrency 8
 
 # Continue on partial failures
 git diff | usx review --chunk --partial
@@ -97,15 +96,15 @@ git diff | usx review --chunk --partial
 git diff | usx review --chunk --dry-run
 ```
 
-Review command flags for chunking:
+Chunking flags (shared by derive and review):
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--chunk` | boolean | false | Enable file-based chunking for diffs |
-| `--max-concurrency` | usize | 4 | Maximum concurrent chunk executions |
-| `--partial` | boolean | false | Continue when some chunks fail |
+| `--chunk` | boolean | false | Enable chunking for large inputs |
+| `--concurrency` | usize | 4 | Max concurrent chunk executions |
+| `--partial` | boolean | false | Continue when some chunks fail (review only) |
 
-**Important:** The `--chunk` flag only works with diff input. Single files passed via `--from` cannot be chunked and will fall back to single-pass processing.
+**Important:** The `--chunk` flag for review only works with diff input. Single files cannot be chunked and will fall back to single-pass processing.
 
 Note: The `fix` command operates on single snippets and does not support chunking. It uses structured JSON input to specify exact code locations.
 
@@ -143,11 +142,11 @@ By default, Ursix automatically retries LLM calls on transient failures (network
 # Default: retries up to 3 times with exponential backoff
 git diff | usx review
 
-# Disable retry (for debugging or when you want fast failures)
-git diff | usx review --no-retry
+# Disable retry
+git diff | usx review --retries 0
 
 # Custom retry count
-git diff | usx review --max-retries 5
+git diff | usx review --retries 5
 ```
 
 ### JSON Error Output
@@ -181,12 +180,12 @@ Configuration is loaded from multiple sources (highest to lowest precedence):
 # .ursix.toml
 provider = "openai"
 model = "gpt-4"
-ollama_url = "http://localhost:11434"
-openai_url = "https://api.openai.com/v1"
-openai_api_key = "sk-..."
+provider_url = "https://api.openai.com/v1"
 tokenizer_mode = "heuristic"
 timeout_secs = 60
 ```
+
+Note: API keys should be set via environment variables (`URSIX_API_KEY`) for security, not in config files.
 
 ### Available Settings
 
@@ -194,8 +193,6 @@ timeout_secs = 60
 |-----|------|-------------|
 | `provider` | enum | LLM provider (`ollama`, `openai`) |
 | `model` | string | Model name to use |
-| `ollama_url` | string | Ollama API base URL |
-| `openai_url` | string | OpenAI-compatible API base URL |
-| `openai_api_key` | string | OpenAI API key |
+| `provider_url` | string | Provider API base URL (overrides default for selected provider) |
 | `tokenizer_mode` | enum | Token counting mode (`heuristic`, `full`) |
 | `timeout_secs` | u64 | Timeout for LLM requests in seconds |
