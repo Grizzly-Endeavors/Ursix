@@ -57,7 +57,6 @@ impl LlmError {
             // Api: Retryable only if server indicates transient overload/rate-limit
             Self::Api(msg) => {
                 let lower = msg.to_lowercase();
-                // Check for rate limit or overload status codes and messages
                 lower.contains("rate")
                     || lower.contains("limit")
                     || lower.contains("overload")

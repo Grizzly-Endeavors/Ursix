@@ -222,6 +222,7 @@ Notes:
 - The "file" and "line" fields are optional if the issue is general
 - The "rule" field is optional - include it when the issue relates to a specific rule from above
 - Use "error" sparingly, only for critical bugs or security issues
+- IMPORTANT: Each issue MUST be its own object in the array. Do NOT combine multiple issues into one object. This output is parsed by downstream pipelines.
 
 Output ONLY the JSON, no other text."#;
 
@@ -271,6 +272,7 @@ Notes:
 - The "rule" field is optional - include it when the issue relates to a specific rule from above
 - Use "error" sparingly, only for critical problems
 - ONLY report {category} issues - ignore issues that belong to other categories
+- IMPORTANT: Each issue MUST be its own object in the array. Do NOT combine multiple issues into one object. This output is parsed by downstream pipelines.
 
 Output ONLY the JSON, no other text."#
     );

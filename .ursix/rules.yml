@@ -52,7 +52,7 @@ categories:
 
   style:
     - name: why-not-what-comments
-      description: "Comments should explain WHY, not WHAT. Flag comments that merely restate obvious code behavior in different words. Only flag comments where the text adds no information beyond what the code already shows. Do NOT flag doc comments (///) or comments explaining non-obvious logic."
+      description: "Comments should explain WHY, not WHAT. Flag comments that merely restate obvious code behavior in different words. Only flag comments where the text adds no information beyond what the code already shows. Do NOT flag: doc comments (///), comments explaining non-obvious logic, or comments in #[cfg(test)] modules (test comments often serve as spec documentation)."
       severity: warning
       files: "*.rs"
 
