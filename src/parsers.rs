@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 
 use crate::commands::DeriveType;
 use crate::json_repair::{RepairError, repair_json};
-use crate::output::{DeriveResult, Fix, FixResult, ReviewIssue, ReviewResult};
+use crate::output::{DeriveResult, ReviewIssue, ReviewResult};
 
 /// Intermediate commit message result from parsing
 pub(crate) struct ParsedCommit {
@@ -182,48 +182,6 @@ pub fn parse_summary_response(response: &str) -> Result<String> {
     Ok(parsed.summary)
 }
 
-/// Parse the LLM JSON response into a [`FixResult`]
-pub fn parse_fix_response(response: &str) -> Result<FixResult> {
-    #[derive(serde::Deserialize)]
-    struct FixJson {
-        diagnosis: String,
-        fixes: Vec<FixItemJson>,
-        #[serde(default)]
-        unfixable_count: usize,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct FixItemJson {
-        file: String,
-        line: Option<usize>,
-        original: String,
-        replacement: String,
-        explanation: String,
-    }
-
-    let json_str = extract_and_repair_json(response)?;
-    let parsed: FixJson = serde_json::from_str(&json_str)
-        .with_context(|| format!("failed to parse fix JSON: {json_str}"))?;
-
-    let fixes: Vec<Fix> = parsed
-        .fixes
-        .into_iter()
-        .map(|f| Fix {
-            file: f.file,
-            line: f.line,
-            original: f.original,
-            replacement: f.replacement,
-            explanation: f.explanation,
-        })
-        .collect();
-
-    Ok(FixResult {
-        diagnosis: parsed.diagnosis,
-        fixes,
-        unfixable_count: parsed.unfixable_count,
-    })
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -277,39 +235,6 @@ mod tests {
         assert_eq!(result.explanation, "This function does...");
     }
 
-    #[test]
-    fn test_parse_fix_response_valid() {
-        let input = r#"{"diagnosis": "unused variable", "fixes": [{"file": "src/main.rs", "line": 10, "original": "let x = 1;", "replacement": "let _x = 1;", "explanation": "prefix unused variable with underscore"}], "unfixable_count": 0}"#;
-        let result = parse_fix_response(input).unwrap();
-        assert_eq!(result.diagnosis, "unused variable");
-        assert_eq!(result.fixes.len(), 1);
-        assert_eq!(result.fixes[0].file, "src/main.rs");
-        assert_eq!(result.fixes[0].line, Some(10));
-        assert_eq!(result.fixes[0].original, "let x = 1;");
-        assert_eq!(result.fixes[0].replacement, "let _x = 1;");
-        assert_eq!(
-            result.fixes[0].explanation,
-            "prefix unused variable with underscore"
-        );
-        assert_eq!(result.unfixable_count, 0);
-    }
-
-    #[test]
-    fn test_parse_fix_response_no_line() {
-        let input = r#"{"diagnosis": "issue found", "fixes": [{"file": "src/lib.rs", "line": null, "original": "foo()", "replacement": "bar()", "explanation": "renamed function"}], "unfixable_count": 1}"#;
-        let result = parse_fix_response(input).unwrap();
-        assert_eq!(result.fixes[0].line, None);
-        assert_eq!(result.unfixable_count, 1);
-    }
-
-    #[test]
-    fn test_parse_fix_response_empty_fixes() {
-        let input = r#"{"diagnosis": "no issues found", "fixes": [], "unfixable_count": 0}"#;
-        let result = parse_fix_response(input).unwrap();
-        assert!(result.fixes.is_empty());
-        assert_eq!(result.diagnosis, "no issues found");
-    }
-
     // === JSON Repair Integration Tests ===
 
     #[test]
@@ -340,13 +265,6 @@ mod tests {
         let input = r"{'explanation': 'This function does something'}";
         let result = parse_explain_response(input).unwrap();
         assert_eq!(result.explanation, "This function does something");
-    }
-
-    #[test]
-    fn test_parse_fix_with_trailing_comma() {
-        let input = r#"{"diagnosis": "no issues", "fixes": [], "unfixable_count": 0,}"#;
-        let result = parse_fix_response(input).unwrap();
-        assert_eq!(result.diagnosis, "no issues");
     }
 
     #[test]

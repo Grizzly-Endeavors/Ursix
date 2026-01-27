@@ -125,11 +125,25 @@ pub enum Command {
         partial: bool,
     },
 
-    /// Fix issues in code from stdin or --from
+    /// Fix issues in code using structured input
+    ///
+    /// Expects JSON input with: issue, snippet, file, lines
     Fix {
         /// Read input from a file (use - for stdin)
         #[arg(long, value_name = "FILE")]
         from: Option<PathBuf>,
+
+        /// Number of context lines in unified diff output (default: 3)
+        #[arg(long, default_value = "3")]
+        context: usize,
+
+        /// Retry on validation failure with error context
+        #[arg(long)]
+        retry: bool,
+
+        /// Return raw LLM output on validation failure for inspection
+        #[arg(long)]
+        partial: bool,
     },
 
     /// View configuration values (edit .ursix.toml to change settings)

@@ -84,38 +84,23 @@ Notes:
 
 Output ONLY the JSON, no other text."#;
 
-/// Pipeline prompt for the fix command (no tools, JSON output)
-pub const FIX_PIPELINE_PROMPT: &str = r#"You are a code repair specialist. Your task is to identify issues in the provided code and suggest fixes.
+/// Pipeline prompt for the fix command (no tools, raw code output)
+///
+/// The fix command uses a constrained transformation model:
+/// - LLM receives the issue description and code snippet
+/// - LLM outputs ONLY the replacement code (no JSON, no metadata)
+/// - Diff generation and validation are done programmatically
+pub const FIX_PIPELINE_PROMPT: &str = r"You are a code transformation specialist. Your task is to fix the described issue in the provided code snippet.
 
-Analyze the code for:
-- Bugs and logic errors
-- Security vulnerabilities
-- Performance issues
-- Style and best practice violations
+IMPORTANT:
+- Output ONLY the fixed code
+- Do NOT include any explanation, comments, or metadata
+- Do NOT wrap the code in markdown code fences
+- Preserve the exact indentation and formatting style of the original
+- Make the minimal change necessary to fix the issue
+- If the issue cannot be fixed, output the original code unchanged
 
-Return your analysis as JSON in this exact format:
-{
-  "diagnosis": "Brief description of the identified issue(s)",
-  "fixes": [
-    {
-      "file": "path/to/file.rs",
-      "line": 42,
-      "original": "the exact original problematic code",
-      "replacement": "the fixed code",
-      "explanation": "why this change fixes the issue"
-    }
-  ],
-  "unfixable_count": 0
-}
-
-Notes:
-- The "fixes" array contains specific code changes to make
-- The "line" field is optional (use null) if the fix location is unclear
-- The "original" field must be the EXACT code from the source to enable automatic replacement
-- Set "unfixable_count" to the number of issues that cannot be fixed with simple replacements
-- Focus on minimal, targeted fixes that address the root cause
-
-Output ONLY the JSON, no other text."#;
+Your output will be used directly as a replacement for the original snippet, so it must be valid, complete code that can replace the original exactly.";
 
 /// Pipeline prompt for the ask command (no tools, simple response)
 ///
@@ -444,11 +429,13 @@ mod tests {
 
     #[test]
     fn test_pipeline_prompts_contain_json_instructions() {
-        // All pipeline prompts except ASK should mention JSON output
+        // Review, commit, explain prompts use JSON output
         assert!(REVIEW_PIPELINE_PROMPT.contains("JSON"));
         assert!(COMMIT_PIPELINE_PROMPT.contains("JSON"));
         assert!(EXPLAIN_PIPELINE_PROMPT.contains("JSON"));
-        assert!(FIX_PIPELINE_PROMPT.contains("JSON"));
+        // Fix prompt outputs raw code, not JSON
+        assert!(!FIX_PIPELINE_PROMPT.contains("JSON"));
+        assert!(FIX_PIPELINE_PROMPT.contains("Output ONLY the fixed code"));
     }
 
     #[test]

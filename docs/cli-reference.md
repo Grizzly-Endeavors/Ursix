@@ -30,7 +30,7 @@ These flags apply to all commands:
 
 - [`derive`](commands/derive.md) - Derive content from input (commit-msg, explanation, summary)
 - [`review`](commands/review.md) - Review code changes from stdin or file
-- [`fix`](commands/fix.md) - Suggest fixes for code from stdin or file
+- [`fix`](commands/fix.md) - Transform code snippets using structured input
 - [`config`](commands/config.md) - View configuration
 
 ## Input Handling
@@ -107,7 +107,7 @@ Review command flags for chunking:
 
 **Important:** The `--chunk` flag only works with diff input. Single files passed via `--from` cannot be chunked and will fall back to single-pass processing.
 
-Note: The `fix` command does not currently support chunking.
+Note: The `fix` command operates on single snippets and does not support chunking. It uses structured JSON input to specify exact code locations.
 
 ## Exit Codes
 

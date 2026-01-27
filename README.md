@@ -162,9 +162,47 @@ git diff | usx review --checks security              # Focus on specific rules
 
 ---
 
-### `usx fix` — Code Fixes
+### `usx fix` — Atomic Code Transformation
 
-> **Coming soon.** The fix command is under development for reliable atomic fixes.
+Transform specific code snippets with structured input. The fix command takes exact location information and outputs a unified diff.
+
+```bash
+# Fix a specific issue
+echo '{"issue": "unused variable", "snippet": "let x = 1;", "file": "src/main.rs", "lines": [42, 42]}' | usx fix
+
+# Apply the fix
+usx fix --from input.json | jq -r '.diff' | patch -p1
+```
+
+**Input (JSON):**
+```json
+{
+  "issue": "description of the problem",
+  "snippet": "exact code to fix",
+  "file": "path/to/file.rs",
+  "lines": [start, end]
+}
+```
+
+**Output (JSON):**
+```json
+{
+  "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n@@ ...",
+  "file": "src/main.rs",
+  "lines": [42, 42],
+  "lines_added": 1,
+  "lines_removed": 1
+}
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--from FILE` | Read input from file |
+| `--context N` | Context lines in diff (default: 3) |
+| `--retry` | Retry on validation failure |
+| `--partial` | Return raw LLM output on failure |
+| `--dry-run` | Validate input without LLM call |
 
 ---
 

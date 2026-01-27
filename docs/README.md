@@ -8,7 +8,7 @@ Comprehensive documentation for the Ursix CLI tool.
 - [Commands](commands/) - Detailed documentation for each command:
   - [derive](commands/derive.md) - Derive content from input (commit-msg, explanation, summary)
   - [review](commands/review.md) - Review code changes from stdin or file
-  - [fix](commands/fix.md) - Suggest fixes for code from stdin or file
+  - [fix](commands/fix.md) - Transform code snippets using structured input
   - [config](commands/config.md) - View configuration
 
 ## Overview
@@ -40,8 +40,8 @@ cat doc.md | usx derive summary
 # Review staged changes
 git diff --staged | usx review
 
-# Fix issues
-cat src/lib.rs | usx fix
+# Fix specific issue (structured input)
+echo '{"issue": "unused variable", "snippet": "let x = 1;", "file": "src/lib.rs", "lines": [10, 10]}' | usx fix
 ```
 
 ### Large Input Handling

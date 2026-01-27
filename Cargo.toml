@@ -34,6 +34,7 @@ regex = "1"
 async-trait = "0.1"
 futures = "0.3"
 rand = "0.8"
+similar = "2"
 
 # Logging
 tracing = "0.1"

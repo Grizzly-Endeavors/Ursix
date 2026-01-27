@@ -106,7 +106,10 @@ fn cli_fix_shows_help() -> TestResult {
         .assert()
         .success()
         .stdout(predicate::str::contains("Fix issues in code"))
-        .stdout(predicate::str::contains("--from"));
+        .stdout(predicate::str::contains("--from"))
+        .stdout(predicate::str::contains("--context"))
+        .stdout(predicate::str::contains("--retry"))
+        .stdout(predicate::str::contains("--partial"));
     Ok(())
 }
 
@@ -214,7 +217,7 @@ fn cli_derive_commit_msg_accepts_piped_stdin() -> TestResult {
 
 #[test]
 fn cli_fix_accepts_piped_stdin() -> TestResult {
-    // Pipe code content to fix command
+    // Pipe JSON input to fix command (fix now expects structured JSON input)
     let mut child = Command::cargo_bin("usx")?
         .args(["fix"])
         .stdin(Stdio::piped())
@@ -222,8 +225,11 @@ fn cli_fix_accepts_piped_stdin() -> TestResult {
         .stderr(Stdio::piped())
         .spawn()?;
 
+    // Fix command expects JSON with issue, snippet, file, lines
+    // This will fail validation (file doesn't exist) but tests stdin handling
+    let json_input = r#"{"issue": "test", "snippet": "code", "file": "test.rs", "lines": [1, 1]}"#;
     if let Some(ref mut stdin) = child.stdin {
-        stdin.write_all(b"fn main() { let unused = 42; }")?;
+        stdin.write_all(json_input.as_bytes())?;
     }
     drop(child.stdin.take());
 

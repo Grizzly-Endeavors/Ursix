@@ -131,11 +131,16 @@ pub async fn run() -> Result<ExitCode> {
             };
             cmd_review(&config, options, from, &checks, output_mode).await
         }
-        Command::Fix { from } => {
+        Command::Fix {
+            from,
+            context,
+            retry,
+            partial,
+        } => {
             let options = FixOptions {
-                chunk: false,
-                max_concurrency: 4,
-                partial: false,
+                context_lines: context,
+                retry,
+                partial,
                 dry_run: cli.dry_run,
             };
             cmd_fix(&config, options, from, output_mode).await
