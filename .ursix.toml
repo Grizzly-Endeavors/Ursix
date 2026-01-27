@@ -1,0 +1,5 @@
+provider = "openai"
+model = "qwen-3-32b"
+openai_url = "https://api.cerebras.ai/v1"
+tokenizer_mode = "heuristic"
+timeout_secs = 120

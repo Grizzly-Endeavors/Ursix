@@ -379,14 +379,18 @@ export URSIX_PROVIDER_URL=https://api.openai.com/v1
 ### Global Flags
 
 ```
---text                    Human-readable output (default: JSON)
---provider <NAME>         LLM provider (ollama, openai)
--m, --model <MODEL>       Model to use
---provider-url <URL>      Provider API base URL
---api-key <KEY>           API key for authenticated providers
---retries <N>             Max retry attempts (default: 3, 0 to disable)
---timeout <N>             Timeout for LLM requests in seconds (default: 60)
---dry-run                 Show token estimation without making LLM calls
+--text                           Human-readable output (default: JSON)
+--provider <NAME> [URL] [KEY]    LLM provider with optional URL and API key
+-m, --model <MODEL>              Model to use
+--retries <N>                    Max retry attempts (default: 3, 0 to disable)
+--timeout <N>                    Timeout for LLM requests in seconds (default: 60)
+--dry-run                        Show token estimation without making LLM calls
+```
+
+**Examples** (place after command):
+```bash
+usx review --provider ollama                              # Just provider
+usx review --provider openai https://api.openai.com/v1 sk-xxx  # With URL and key
 ```
 
 ## Philosophy

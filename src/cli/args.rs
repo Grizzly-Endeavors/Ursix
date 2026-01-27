@@ -6,8 +6,6 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use crate::config::Provider;
-
 /// Mode for the fix command
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum FixMode {
@@ -27,21 +25,13 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub text: bool,
 
-    /// LLM provider (ollama, openai)
-    #[arg(long, global = true)]
-    pub provider: Option<Provider>,
+    /// LLM provider: NAME [URL] [API-KEY]
+    #[arg(long, global = true, num_args = 1..=3, value_names = ["NAME", "URL", "API-KEY"])]
+    pub provider: Vec<String>,
 
     /// Model to use (overrides config)
     #[arg(short, long, global = true)]
     pub model: Option<String>,
-
-    /// Provider API base URL (overrides config)
-    #[arg(long, global = true)]
-    pub provider_url: Option<String>,
-
-    /// API key for authenticated providers (prefer env: `URSIX_API_KEY`)
-    #[arg(long, global = true, env = "URSIX_API_KEY")]
-    pub api_key: Option<String>,
 
     /// Max retry attempts for transient failures (0 to disable)
     #[arg(long, global = true, default_value = "3")]

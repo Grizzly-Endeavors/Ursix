@@ -71,17 +71,22 @@ pub async fn run() -> Result<ExitCode> {
     config.working_dir = working_dir;
 
     // CLI flags override everything
-    if let Some(provider) = cli.provider {
-        config.provider = provider;
+    // Parse --provider NAME [URL] [API-KEY]
+    if !cli.provider.is_empty() {
+        let provider_name = &cli.provider[0];
+        config.provider = provider_name
+            .parse()
+            .map_err(|e: String| CliError::Config(anyhow::anyhow!(e)))?;
+
+        if let Some(url) = cli.provider.get(1) {
+            config.provider_url = Some(url.clone());
+        }
+        if let Some(key) = cli.provider.get(2) {
+            config.api_key = Some(key.clone());
+        }
     }
     if let Some(ref model) = cli.model {
         config.model.clone_from(model);
-    }
-    if let Some(ref url) = cli.provider_url {
-        config.provider_url = Some(url.clone());
-    }
-    if let Some(ref key) = cli.api_key {
-        config.api_key = Some(key.clone());
     }
 
     // Apply retry config from CLI

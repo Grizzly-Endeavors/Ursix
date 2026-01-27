@@ -9,13 +9,26 @@ These flags apply to all commands:
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--text` | boolean | false | Output as plain text instead of JSON |
-| `--provider` | enum | config | LLM provider (`ollama`, `openai`) |
+| `--provider` | 1-3 args | config | LLM provider: `NAME [URL] [API-KEY]` |
 | `-m, --model` | string | config | Model to use |
-| `--provider-url` | string | config | Provider API base URL |
-| `--api-key` | string | config | API key for authenticated providers |
 | `--retries` | u32 | 3 | Max retry attempts (0 to disable) |
 | `--timeout` | u64 | 60 | Timeout for LLM requests in seconds |
 | `--dry-run` | boolean | false | Show token estimation without making LLM calls |
+
+### Provider Flag Examples
+
+The `--provider` flag accepts 1-3 space-separated values. Place it after the command:
+
+```bash
+# Just provider name (uses default URL)
+usx review --provider ollama
+
+# Provider with custom URL
+usx review --provider ollama http://localhost:11434
+
+# Provider with URL and API key
+usx review --provider openai https://api.openai.com/v1 sk-xxx
+```
 
 ### Environment Variables
 
