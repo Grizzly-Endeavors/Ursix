@@ -364,22 +364,6 @@ Added: `repository`, `keywords`, `categories`, `readme`, `rust-version`.
 
 Lower priority items to revisit later.
 
-### Interactive `usx init` command
-
-Add an interactive setup wizard for first-time users:
-
-```bash
-usx init
-```
-
-Should:
-- Detect available providers (check if Ollama is running, prompt for OpenAI key)
-- Create `.ursix.toml` with chosen settings
-- Optionally scaffold `.ursix/rules.yml` with starter rules
-- Validate the setup works with a test call
-
-This would significantly improve the first-run experience.
-
 ### Revisit review→fix pipeline (dedicated apply command?)
 
 The `fix` command now only outputs suggested fixes - it no longer applies them automatically.
@@ -409,6 +393,19 @@ When category has 10+ rules, sub-chunk to avoid overwhelming LLM.
 ## Completed
 
 ### Recent (2026-01-27)
+- [x] Interactive `usx init` command for first-time setup (dialoguer-based wizard)
+  - Auto-detects Ollama availability
+  - Guides provider selection (ollama/openai)
+  - Creates `.ursix.toml` and `.ursix/rules.yml` with LLM-focused starter rules
+  - Tests connectivity (optional `--skip-test`)
+  - Supports `--force` to overwrite existing config
+- [x] `.env` file support via dotenvy - enables `URSIX_API_KEY` in project `.env` files
+- [x] Configurable system prompts in `.ursix.toml` (`[prompts]` section)
+  - Supports: review, commit-msg, explanation, summary, fix
+  - Custom prompts override defaults while preserving rules injection
+- [x] Rules now required - removed default rules fallback
+  - Error message suggests running `usx init` to create starter rules
+  - Encourages explicit rule configuration per project
 - [x] Phase 3: HTTP client reuse with SharedHttpClient for connection pooling
 - [x] Phase 3: Arc-wrap InputContext.content for memory optimization in chunking
 - [x] Phase 3: Fixed tokenizer mode consistency in review dry-run
