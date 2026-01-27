@@ -8,6 +8,16 @@ use clap::{Parser, Subcommand};
 
 use crate::config::{Provider, TokenizerMode};
 
+/// Mode for the fix command
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum FixMode {
+    /// Fix a single issue (default)
+    #[default]
+    Atomic,
+    /// Fix multiple issues in one file, processing bottom-to-top
+    WholeFile,
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "usx")]
 #[command(about = "Ursix - Unix utilities powered by LLMs")]
@@ -127,11 +137,15 @@ pub enum Command {
 
     /// Fix issues in code using structured input
     ///
-    /// Expects JSON input with: issue, snippet, file, lines
+    /// Expects JSON input with: issue, file, lines (atomic mode) or file, issues (whole-file mode)
     Fix {
         /// Read input from a file (use - for stdin)
         #[arg(long, value_name = "FILE")]
         from: Option<PathBuf>,
+
+        /// Fix mode: atomic (single issue) or whole-file (multiple issues)
+        #[arg(long, value_enum, default_value = "atomic")]
+        mode: FixMode,
 
         /// Number of context lines in unified diff output (default: 3)
         #[arg(long, default_value = "3")]

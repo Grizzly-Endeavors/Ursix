@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use thiserror::Error;
 
-pub use args::{Cli, Command, RetryOptions};
+pub use args::{Cli, Command, FixMode, RetryOptions};
 pub(crate) use dispatch::run_pipeline;
 
 use crate::commands::{
@@ -133,11 +133,13 @@ pub async fn run() -> Result<ExitCode> {
         }
         Command::Fix {
             from,
+            mode,
             context,
             retry,
             partial,
         } => {
             let options = FixOptions {
+                mode,
                 context_lines: context,
                 retry,
                 partial,

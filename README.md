@@ -164,27 +164,40 @@ git diff | usx review --checks security              # Focus on specific rules
 
 ### `usx fix` — Atomic Code Transformation
 
-Transform specific code snippets with structured input. The fix command takes exact location information and outputs a unified diff.
+Transform specific code snippets with structured input. The fix command takes exact location information and outputs a unified diff. The snippet is automatically inferred from the file content at the specified lines.
 
 ```bash
-# Fix a specific issue
-echo '{"issue": "unused variable", "snippet": "let x = 1;", "file": "src/main.rs", "lines": [42, 42]}' | usx fix
+# Fix a specific issue (atomic mode - default)
+echo '{"issue": "unused variable", "file": "src/main.rs", "lines": [42, 42]}' | usx fix
+
+# Fix multiple issues in one file (whole-file mode)
+echo '{"file": "src/main.rs", "issues": [{"issue": "a", "lines": [10,10]}, {"issue": "b", "lines": [20,20]}]}' | usx fix --mode whole-file
 
 # Apply the fix
 usx fix --from input.json | jq -r '.diff' | patch -p1
 ```
 
-**Input (JSON):**
+**Atomic Mode Input (JSON):**
 ```json
 {
   "issue": "description of the problem",
-  "snippet": "exact code to fix",
   "file": "path/to/file.rs",
   "lines": [start, end]
 }
 ```
 
-**Output (JSON):**
+**Whole-File Mode Input (JSON):**
+```json
+{
+  "file": "path/to/file.rs",
+  "issues": [
+    {"issue": "first issue", "lines": [10, 10]},
+    {"issue": "second issue", "lines": [25, 28]}
+  ]
+}
+```
+
+**Atomic Mode Output (JSON):**
 ```json
 {
   "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n@@ ...",
@@ -199,9 +212,10 @@ usx fix --from input.json | jq -r '.diff' | patch -p1
 | Flag | Description |
 |------|-------------|
 | `--from FILE` | Read input from file |
+| `--mode {atomic,whole-file}` | Fix mode (default: atomic) |
 | `--context N` | Context lines in diff (default: 3) |
 | `--retry` | Retry on validation failure |
-| `--partial` | Return raw LLM output on failure |
+| `--partial` | Return raw LLM output on failure; continue on failures in whole-file mode |
 | `--dry-run` | Validate input without LLM call |
 
 ---

@@ -1,22 +1,25 @@
 # fix
 
-Transform code snippets using structured input. The fix command takes a specific issue description, code snippet, and location, then generates a unified diff with the fix.
+Transform code snippets using structured input. The fix command takes a specific issue description and location, then generates a unified diff with the fix.
 
 ## Syntax
 
 ```bash
-echo '{"issue": "...", "snippet": "...", "file": "...", "lines": [...]}' | usx fix
+echo '{"issue": "...", "file": "...", "lines": [...]}' | usx fix
 usx fix --from input.json
+usx fix --mode whole-file --from input.json
 ```
 
-## Input Schema
+## Modes
 
-The fix command requires JSON input with the following structure:
+### Atomic Mode (default)
 
+Fix a single issue at a specific location. The snippet is automatically inferred from the file content at the specified lines.
+
+**Input Schema:**
 ```json
 {
   "issue": "description of the problem to fix",
-  "snippet": "exact code lines to transform",
   "file": "path/to/file.rs",
   "lines": [start_line, end_line]
 }
@@ -25,20 +28,45 @@ The fix command requires JSON input with the following structure:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `issue` | string | yes | Description of the problem to fix |
-| `snippet` | string | yes | Exact code to transform (must match file content) |
 | `file` | string | yes | Path to the file containing the code |
 | `lines` | [number, number] | yes | Line range [start, end], 1-indexed, inclusive |
 
-The snippet must exactly match the content of the file at the specified lines (trailing whitespace is normalized for comparison).
+### Whole-File Mode (`--mode whole-file`)
+
+Fix multiple issues in a single file. Issues are processed bottom-to-top to preserve line numbers as fixes are applied.
+
+**Input Schema:**
+```json
+{
+  "file": "path/to/file.rs",
+  "issues": [
+    {"issue": "unused var", "lines": [10, 10]},
+    {"issue": "missing error handling", "lines": [25, 28]}
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | string | yes | Path to the file containing the code |
+| `issues` | array | yes | List of issues to fix |
+| `issues[].issue` | string | yes | Description of the problem |
+| `issues[].lines` | [number, number] | yes | Line range [start, end], 1-indexed, inclusive |
+
+**Constraints:**
+- Issues list must not be empty
+- Line ranges must not overlap (adjacent ranges are OK)
+- All line ranges must be within file bounds
 
 ## Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--from` | PATH | - | Read input from file (use `-` for stdin) |
+| `--mode` | `atomic` \| `whole-file` | `atomic` | Fix mode |
 | `--context` | number | 3 | Number of context lines in unified diff output |
 | `--retry` | boolean | false | Retry on validation failure with error context |
-| `--partial` | boolean | false | Return raw LLM output on validation failure |
+| `--partial` | boolean | false | Return raw LLM output on validation failure; in whole-file mode, continue on failure |
 
 Plus all [global flags](../cli-reference.md#global-flags).
 
@@ -50,7 +78,14 @@ Before making an LLM call, the command validates:
 1. JSON structure (all required fields present)
 2. File exists and is readable
 3. Line range is valid (start <= end, within file bounds, 1-indexed)
-4. Snippet matches file content at specified lines
+4. For whole-file mode: no overlapping line ranges
+
+### Snippet Inference
+
+The snippet to fix is always inferred from the file content at the specified lines. This ensures:
+- No mismatch between provided snippet and actual file content
+- Simpler input contract
+- Reliable diff generation
 
 ### LLM Transformation
 
@@ -75,13 +110,17 @@ When validation fails and `--retry` is enabled:
 
 ### Partial Mode (`--partial`)
 
-When validation fails and `--partial` is enabled:
-- Error output includes raw LLM response for inspection
-- Useful for debugging prompt issues
+**Atomic mode:** When validation fails, error output includes raw LLM response for inspection.
+
+**Whole-file mode:** Continue processing remaining issues when some fail. Result includes both successful fixes and failure details.
+
+### Whole-File Processing Order
+
+Issues are processed bottom-to-top (by descending line number). This ensures earlier line numbers remain valid as later lines are modified.
 
 ## Output
 
-### Success (JSON, default)
+### Atomic Mode Success (JSON, default)
 
 ```json
 {
@@ -91,6 +130,40 @@ When validation fails and `--partial` is enabled:
   "lines_added": 1,
   "lines_removed": 2,
   "warnings": []
+}
+```
+
+### Whole-File Mode Success (JSON, default)
+
+```json
+{
+  "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n@@ ...",
+  "file": "src/main.rs",
+  "issues_fixed": 3,
+  "issues_failed": 0,
+  "lines_added": 5,
+  "lines_removed": 8,
+  "issue_failures": []
+}
+```
+
+### Whole-File Mode Partial Success (with `--partial`)
+
+```json
+{
+  "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n@@ ...",
+  "file": "src/main.rs",
+  "issues_fixed": 2,
+  "issues_failed": 1,
+  "lines_added": 3,
+  "lines_removed": 4,
+  "issue_failures": [
+    {
+      "issue": "fix complex logic",
+      "lines": [50, 55],
+      "error": "validation failed: replacement too long"
+    }
+  ]
 }
 ```
 
@@ -118,18 +191,19 @@ Fixed src/main.rs (lines 10..12)
 ```
 
 Error codes:
-- `input_validation` - Bad input JSON, missing file, snippet mismatch
+- `input_validation` - Bad input JSON, missing file, overlapping ranges
 - `llm_error` - LLM call failed (network, timeout)
 - `output_validation` - LLM output failed validation
 
 ## Examples
+
+### Atomic Mode
 
 ```bash
 # Fix an unused variable
 cat <<'EOF' | usx fix
 {
   "issue": "unused variable",
-  "snippet": "    let x = calculate();",
   "file": "src/main.rs",
   "lines": [42, 42]
 }
@@ -155,12 +229,34 @@ cat input.json | usx fix --dry-run
 usx fix --from input.json | jq -r '.diff' | patch -p1
 ```
 
+### Whole-File Mode
+
+```bash
+# Fix multiple issues in one file
+cat <<'EOF' | usx fix --mode whole-file
+{
+  "file": "src/main.rs",
+  "issues": [
+    {"issue": "unused variable", "lines": [10, 10]},
+    {"issue": "missing error handling", "lines": [25, 28]},
+    {"issue": "inefficient loop", "lines": [50, 55]}
+  ]
+}
+EOF
+
+# Continue on failures
+cat input.json | usx fix --mode whole-file --partial
+
+# Dry run to see processing plan
+cat input.json | usx fix --mode whole-file --dry-run
+```
+
 ## Exit Codes
 
 | Code | Name | Meaning |
 |------|------|---------|
 | 0 | Success | Fix generated successfully |
-| 2 | UserError | Input validation failed (bad JSON, file not found, snippet mismatch) |
+| 2 | UserError | Input validation failed (bad JSON, file not found, overlapping ranges) |
 | 3 | TransientError | LLM call failed (network, rate limit) |
 | 4 | PermanentError | Output validation failed (LLM returned invalid code) |
 
@@ -176,11 +272,20 @@ cargo clippy --message-format=json 2>&1 \
   | usx fix
 ```
 
+For multiple issues in one file, use whole-file mode:
+
+```bash
+# Collect all issues for a file and fix them together
+cargo clippy --message-format=json 2>&1 \
+  | jq -s '[.[] | select(.file == "src/main.rs")] | {file: "src/main.rs", issues: .}' \
+  | usx fix --mode whole-file
+```
+
 ## Comparison with Review
 
 | Aspect | fix | review |
 |--------|-----|--------|
 | Input | Structured JSON with exact location | Raw diff or code |
-| Scope | Single snippet transformation | Whole-file analysis |
+| Scope | Single snippet or multiple issues in one file | Whole-file/diff analysis |
 | Output | Unified diff | Issue list with suggestions |
 | Use case | Apply specific fixes | Identify potential issues |

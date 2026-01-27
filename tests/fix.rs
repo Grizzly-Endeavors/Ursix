@@ -20,6 +20,16 @@ fn setup_test_file(content: &str) -> (TempDir, String) {
     (dir, "test.rs".to_string())
 }
 
+/// Create multiple test files and return the directory
+fn setup_test_files(files: &[(&str, &str)]) -> TempDir {
+    let dir = TempDir::new().unwrap();
+    for (name, content) in files {
+        let file_path = dir.path().join(name);
+        std::fs::write(&file_path, content).unwrap();
+    }
+    dir
+}
+
 // === Input Validation Tests ===
 
 #[test]
@@ -56,7 +66,7 @@ fn fix_rejects_missing_fields() -> TestResult {
         .spawn()?;
 
     // Missing 'lines' field
-    let json = r#"{"issue": "test", "snippet": "code", "file": "test.rs"}"#;
+    let json = r#"{"issue": "test", "file": "test.rs"}"#;
     if let Some(ref mut stdin) = child.stdin {
         stdin.write_all(json.as_bytes())?;
     }
@@ -81,7 +91,7 @@ fn fix_rejects_nonexistent_file() -> TestResult {
         .stderr(Stdio::piped())
         .spawn()?;
 
-    let json = r#"{"issue": "test", "snippet": "code", "file": "nonexistent.rs", "lines": [1, 1]}"#;
+    let json = r#"{"issue": "test", "file": "nonexistent.rs", "lines": [1, 1]}"#;
     if let Some(ref mut stdin) = child.stdin {
         stdin.write_all(json.as_bytes())?;
     }
@@ -109,9 +119,7 @@ fn fix_rejects_invalid_line_range() -> TestResult {
         .spawn()?;
 
     // Line range out of bounds
-    let json = format!(
-        r#"{{"issue": "test", "snippet": "line 1", "file": "{file_name}", "lines": [1, 100]}}"#
-    );
+    let json = format!(r#"{{"issue": "test", "file": "{file_name}", "lines": [1, 100]}}"#);
     if let Some(ref mut stdin) = child.stdin {
         stdin.write_all(json.as_bytes())?;
     }
@@ -128,38 +136,7 @@ fn fix_rejects_invalid_line_range() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn fix_rejects_snippet_mismatch() -> TestResult {
-    let (dir, file_name) = setup_test_file("actual content");
-
-    let mut child = Command::cargo_bin("usx")?
-        .args(["fix"])
-        .current_dir(dir.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-
-    let json = format!(
-        r#"{{"issue": "test", "snippet": "wrong content", "file": "{file_name}", "lines": [1, 1]}}"#
-    );
-    if let Some(ref mut stdin) = child.stdin {
-        stdin.write_all(json.as_bytes())?;
-    }
-    drop(child.stdin.take());
-
-    let output = child.wait_with_output()?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    assert!(!output.status.success());
-    assert!(
-        stdout.contains("mismatch")
-            || stdout.contains("does not match")
-            || stdout.contains("error")
-    );
-
-    Ok(())
-}
+// Note: snippet mismatch test removed - snippet is now always inferred from file
 
 // === CLI Flag Tests ===
 
@@ -289,9 +266,7 @@ fn fix_dry_run_succeeds_with_valid_input() -> TestResult {
         .stderr(Stdio::piped())
         .spawn()?;
 
-    let json = format!(
-        r#"{{"issue": "unused variable", "snippet": "let x = 1;", "file": "{file_name}", "lines": [1, 1]}}"#
-    );
+    let json = format!(r#"{{"issue": "unused variable", "file": "{file_name}", "lines": [1, 1]}}"#);
     if let Some(ref mut stdin) = child.stdin {
         stdin.write_all(json.as_bytes())?;
     }
@@ -319,9 +294,7 @@ fn fix_dry_run_json_output() -> TestResult {
         .stderr(Stdio::piped())
         .spawn()?;
 
-    let json = format!(
-        r#"{{"issue": "test", "snippet": "content", "file": "{file_name}", "lines": [1, 1]}}"#
-    );
+    let json = format!(r#"{{"issue": "test", "file": "{file_name}", "lines": [1, 1]}}"#);
     if let Some(ref mut stdin) = child.stdin {
         stdin.write_all(json.as_bytes())?;
     }
@@ -348,7 +321,7 @@ fn fix_reads_input_from_file() -> TestResult {
 
     std::fs::write(&code_file, "let x = 1;")?;
 
-    let json = r#"{"issue": "test", "snippet": "let x = 1;", "file": "code.rs", "lines": [1, 1]}"#;
+    let json = r#"{"issue": "test", "file": "code.rs", "lines": [1, 1]}"#;
     std::fs::write(&input_file, json)?;
 
     // With --dry-run to avoid needing LLM
@@ -361,6 +334,183 @@ fn fix_reads_input_from_file() -> TestResult {
         output.status.success(),
         "Should read input from --from file"
     );
+
+    Ok(())
+}
+
+// === Mode Flag Tests ===
+
+#[test]
+fn fix_mode_flag_accepted() -> TestResult {
+    // Just verify the --mode flag is accepted
+    let result = Command::cargo_bin("usx")?
+        .args(["fix", "--mode", "atomic"])
+        .output()?;
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "--mode flag should be accepted"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn fix_mode_whole_file_accepted() -> TestResult {
+    let result = Command::cargo_bin("usx")?
+        .args(["fix", "--mode", "whole-file"])
+        .output()?;
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "--mode=whole-file should be accepted"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn fix_help_shows_mode_flag() -> TestResult {
+    Command::cargo_bin("usx")?
+        .args(["fix", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--mode"));
+
+    Ok(())
+}
+
+// === Whole-File Mode Tests ===
+
+#[test]
+fn fix_whole_file_rejects_empty_issues() -> TestResult {
+    let (dir, file_name) = setup_test_file("content");
+
+    let mut child = Command::cargo_bin("usx")?
+        .args(["fix", "--mode", "whole-file"])
+        .current_dir(dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let json = format!(r#"{{"file": "{file_name}", "issues": []}}"#);
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(json.as_bytes())?;
+    }
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(!output.status.success());
+    assert!(stdout.contains("empty") || stdout.contains("error"));
+
+    Ok(())
+}
+
+#[test]
+fn fix_whole_file_rejects_overlapping_ranges() -> TestResult {
+    let (dir, file_name) = setup_test_file("line 1\nline 2\nline 3\nline 4");
+
+    let mut child = Command::cargo_bin("usx")?
+        .args(["fix", "--mode", "whole-file"])
+        .current_dir(dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let json = format!(
+        r#"{{
+            "file": "{file_name}",
+            "issues": [
+                {{"issue": "issue 1", "lines": [1, 3]}},
+                {{"issue": "issue 2", "lines": [2, 4]}}
+            ]
+        }}"#
+    );
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(json.as_bytes())?;
+    }
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(!output.status.success());
+    assert!(stdout.contains("overlap") || stdout.contains("error"));
+
+    Ok(())
+}
+
+#[test]
+fn fix_whole_file_dry_run_succeeds() -> TestResult {
+    let (dir, file_name) = setup_test_file("line 1\nline 2\nline 3\nline 4\nline 5");
+
+    let mut child = Command::cargo_bin("usx")?
+        .args(["--dry-run", "fix", "--mode", "whole-file"])
+        .current_dir(dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let json = format!(
+        r#"{{
+            "file": "{file_name}",
+            "issues": [
+                {{"issue": "fix line 1", "lines": [1, 1]}},
+                {{"issue": "fix line 5", "lines": [5, 5]}}
+            ]
+        }}"#
+    );
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(json.as_bytes())?;
+    }
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    // Should show issue count
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)?;
+    assert_eq!(
+        parsed
+            .get("issue_count")
+            .and_then(serde_json::Value::as_u64),
+        Some(2)
+    );
+
+    Ok(())
+}
+
+#[test]
+fn fix_no_snippet_field_in_new_format() -> TestResult {
+    let (dir, file_name) = setup_test_file("let x = 1;");
+
+    let mut child = Command::cargo_bin("usx")?
+        .args(["--dry-run", "fix"])
+        .current_dir(dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // New format without snippet field
+    let json = format!(r#"{{"issue": "unused variable", "file": "{file_name}", "lines": [1, 1]}}"#);
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(json.as_bytes())?;
+    }
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+
+    // Should succeed - snippet is inferred from file
+    assert!(output.status.success());
 
     Ok(())
 }

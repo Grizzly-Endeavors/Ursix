@@ -14,7 +14,7 @@ pub use config::{ConfigEntry, ConfigResult};
 pub use derive::DeriveResult;
 pub use dry_run::{ChunkInfo, ChunkPlan, DryRunResult};
 pub use error::{ErrorResponse, TypedError};
-pub use fix::{FixError, FixResult};
+pub use fix::{FixError, FixResult, IssueFailure, WholeFileFixResult};
 pub use review::{ChunkFailure, ReviewIssue, ReviewResult};
 
 use serde::Serialize;
