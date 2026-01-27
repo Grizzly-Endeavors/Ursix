@@ -311,19 +311,17 @@ Document the API that scripts depend on:
 
 Implement decided versioning strategy and metadata patterns.
 
-### [ ] SECURITY.md
+### [x] SECURITY.md
 
-Document:
-- Responsible disclosure process
-- Vulnerability reporting
-- Credential handling considerations
+**Status: COMPLETE**
 
-### [ ] CONTRIBUTING.md
+Documents responsible disclosure, credential handling, and dependency security.
 
-Extract from CLAUDE.md:
-- Development setup
-- Code style
-- PR process
+### [x] CONTRIBUTING.md
+
+**Status: COMPLETE**
+
+Extracted from CLAUDE.md: development setup, code style, testing, PR process.
 
 ### [x] Example configuration files
 
@@ -331,9 +329,10 @@ Extract from CLAUDE.md:
 
 Created `.ursix.toml.example` and `rules.example.yml` for onboarding.
 
-### [ ] CHANGELOG.md
+### [ ] CHANGELOG automation
 
-Track changes between versions for upgrade visibility.
+Set up `git-cliff` or similar to auto-generate changelog from conventional commits at release time.
+See: https://github.com/orhun/git-cliff
 
 ---
 
@@ -364,6 +363,22 @@ Added: `repository`, `keywords`, `categories`, `readme`, `rust-version`.
 ## Future Consideration
 
 Lower priority items to revisit later.
+
+### Interactive `usx init` command
+
+Add an interactive setup wizard for first-time users:
+
+```bash
+usx init
+```
+
+Should:
+- Detect available providers (check if Ollama is running, prompt for OpenAI key)
+- Create `.ursix.toml` with chosen settings
+- Optionally scaffold `.ursix/rules.yml` with starter rules
+- Validate the setup works with a test call
+
+This would significantly improve the first-run experience.
 
 ### Revisit review→fix pipeline (dedicated apply command?)
 
