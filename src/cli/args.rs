@@ -142,6 +142,13 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+
+    /// Check configuration and provider connectivity
+    Status {
+        /// Show detailed status information (response time, available models)
+        #[arg(long)]
+        verbose: bool,
+    },
 }
 
 /// Options for retry behavior

@@ -102,6 +102,37 @@ impl OpenAiClient {
     fn timeout_secs(&self) -> u64 {
         self.http.timeout_secs()
     }
+
+    /// List available models from the OpenAI-compatible API
+    ///
+    /// # Errors
+    /// Returns error if the API request fails or response cannot be parsed
+    pub async fn list_models(&self) -> Result<Vec<String>, LlmError> {
+        let url = format!("{}/models", self.base_url);
+
+        let mut req_builder = self.http.client().get(&url);
+
+        if let Some(ref key) = self.api_key {
+            req_builder = req_builder.header("Authorization", format!("Bearer {key}"));
+        }
+
+        let response = req_builder
+            .send()
+            .await
+            .map_err(|e| map_request_error(e, self.timeout_secs()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_body = response
+                .json::<OpenAiErrorResponse>()
+                .await
+                .map_or_else(|_| "unknown error".to_string(), |e| e.error.message);
+            return Err(LlmError::Api(format!("{status}: {error_body}")));
+        }
+
+        let models_response: ModelsResponse = response.json().await?;
+        Ok(models_response.data.into_iter().map(|m| m.id).collect())
+    }
 }
 
 #[async_trait]
@@ -332,6 +363,16 @@ struct OpenAiErrorResponse {
 #[derive(Deserialize)]
 struct OpenAiError {
     message: String,
+}
+
+#[derive(Deserialize)]
+struct ModelsResponse {
+    data: Vec<ModelInfo>,
+}
+
+#[derive(Deserialize)]
+struct ModelInfo {
+    id: String,
 }
 
 #[cfg(test)]
@@ -694,5 +735,90 @@ mod tests {
         let err = result.unwrap_err();
         assert!(matches!(err, LlmError::Timeout(1)));
         assert_eq!(err.to_string(), "request timed out after 1 seconds");
+    }
+
+    #[tokio::test]
+    async fn test_list_models_success() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {"id": "gpt-4", "object": "model"},
+                    {"id": "gpt-3.5-turbo", "object": "model"}
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 60);
+        let models = client.list_models().await.unwrap();
+
+        assert_eq!(models.len(), 2);
+        assert!(models.contains(&"gpt-4".to_string()));
+        assert!(models.contains(&"gpt-3.5-turbo".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_list_models_with_api_key() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .and(header("Authorization", "Bearer sk-test-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{"id": "gpt-4", "object": "model"}]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let client = OpenAiClient::with_api_key(mock_server.uri(), "gpt-4", "sk-test-key", 60);
+        let models = client.list_models().await.unwrap();
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0], "gpt-4");
+    }
+
+    #[tokio::test]
+    async fn test_list_models_unauthorized() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "error": {
+                    "message": "Invalid API key",
+                    "type": "invalid_request_error"
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 60);
+        let result = client.list_models().await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, LlmError::Api(_)));
+        assert!(err.to_string().contains("401"));
+    }
+
+    #[tokio::test]
+    async fn test_list_models_timeout() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(3)))
+            .mount(&mock_server)
+            .await;
+
+        let client = OpenAiClient::new(mock_server.uri(), "gpt-4", 1);
+        let result = client.list_models().await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, LlmError::Timeout(1)));
     }
 }

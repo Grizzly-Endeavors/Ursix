@@ -10,9 +10,11 @@ mod derive;
 mod fix;
 mod init;
 mod review;
+mod status;
 
 pub use config::cmd_config;
 pub use derive::{DeriveOptions, DeriveType, cmd_derive};
 pub use fix::{FixOptions, cmd_fix};
 pub use init::{InitOptions, cmd_init};
 pub use review::{ReviewOptions, cmd_review};
+pub use status::{StatusOptions, cmd_status};

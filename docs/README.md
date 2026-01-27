@@ -7,6 +7,7 @@ Comprehensive documentation for the Ursix CLI tool.
 - [CLI Reference](cli-reference.md) - Complete command and flag reference
 - [Commands](commands/) - Detailed documentation for each command:
   - [init](commands/init.md) - Initialize Ursix configuration
+  - [status](commands/status.md) - Check configuration and provider connectivity
   - [derive](commands/derive.md) - Derive content from input (commit-msg, explanation, summary)
   - [review](commands/review.md) - Review code changes from stdin or file
   - [fix](commands/fix.md) - Transform code snippets using structured input

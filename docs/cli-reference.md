@@ -41,6 +41,7 @@ usx review --provider openai https://api.openai.com/v1 sk-xxx
 ## Commands
 
 - [`init`](commands/init.md) - Initialize Ursix configuration
+- [`status`](commands/status.md) - Check configuration and provider connectivity
 - [`derive`](commands/derive.md) - Derive content from input (commit-msg, explanation, summary)
 - [`review`](commands/review.md) - Review code changes from stdin or file
 - [`fix`](commands/fix.md) - Transform code snippets using structured input

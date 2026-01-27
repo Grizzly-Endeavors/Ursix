@@ -10,6 +10,7 @@ pub mod error;
 mod fix;
 mod init;
 mod review;
+mod status;
 
 pub use config::{ConfigEntry, ConfigResult};
 pub use derive::DeriveResult;
@@ -18,6 +19,7 @@ pub use error::{ErrorResponse, TypedError};
 pub use fix::{FixError, FixResult, IssueFailure, WholeFileFixResult};
 pub use init::InitResult;
 pub use review::{ChunkFailure, ReviewIssue, ReviewResult};
+pub use status::{StatusCheck, StatusResult, VerboseInfo};
 
 use serde::Serialize;
 
