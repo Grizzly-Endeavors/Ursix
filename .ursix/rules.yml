@@ -30,7 +30,7 @@ categories:
       files: "src/output/**/*.rs"
 
     - name: serialization-fallback
-      description: "serde_json::to_string() calls must use ? or .unwrap_or_else() with error handling, never bare .unwrap(). Flag: serde_json::to_string(&x).unwrap()"
+      description: "serde_json::to_string() calls must use ? or .unwrap_or_else() with error handling, never bare .unwrap(). Flag: serde_json::to_string(&x).unwrap(). EXCEPTION: .unwrap() is allowed inside #[cfg(test)] modules or functions marked #[test] - do NOT flag unwrap in test code."
       severity: error
       files: "*.rs"
 
