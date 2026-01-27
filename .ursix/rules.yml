@@ -52,7 +52,7 @@ categories:
 
   style:
     - name: why-not-what-comments
-      description: "Comments should explain WHY, not WHAT. The code shows what it does; comments should explain non-obvious reasoning, edge cases, or design decisions. Flag comments that merely restate what the code does (e.g., '// increment counter' above 'counter += 1')."
+      description: "Comments should explain WHY, not WHAT. Flag comments that merely restate obvious code behavior in different words. Only flag comments where the text adds no information beyond what the code already shows. Do NOT flag doc comments (///) or comments explaining non-obvious logic."
       severity: warning
       files: "*.rs"
 
@@ -61,10 +61,6 @@ categories:
       severity: info
       files: "*.rs"
 
-    - name: doc-comment-coverage
-      description: "Public functions and types should have doc comments. One-line /// summary for public items; expand only for complex behavior."
-      severity: warning
-      files: "*.rs"
 
     - name: no-unexplained-allow
       description: "Every #[allow(...)] macro must have a comment explaining WHY the lint is suppressed. Flag bare allows without justification. Exception: #[allow(clippy::unwrap_used)] in test modules is pre-approved. Unnecessary allows (suppressing lints that don't fire) should be removed."
