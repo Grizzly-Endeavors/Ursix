@@ -9,29 +9,41 @@ The CLI uses a stateless pipeline model: single-pass LLM calls with piped input.
 ```
 src/
 ├── main.rs              # Entry point, tokio runtime
-├── cli.rs               # clap argument parsing, command dispatch
-├── config.rs            # Runtime configuration (layered: files, env, CLI)
-├── input.rs             # Input source handling (--from, stdin)
+├── cli/
+│   ├── mod.rs           # CLI error types, run() entry point
+│   ├── args.rs          # clap argument parsing
+│   └── dispatch.rs      # LLM client creation, pipeline dispatch
+├── config/
+│   ├── mod.rs           # Configuration loading and layering
+│   └── types.rs         # Provider, TokenizerMode enums
+├── input.rs             # Input source handling (positional args, stdin)
 ├── context.rs           # Input context wrapper for LLM calls
 ├── pipeline.rs          # Stateless single-pass executor
 ├── chunk.rs             # Token-aware parallel chunking
 ├── tokens.rs            # Token counting (heuristic and full modes)
 ├── parsers.rs           # Response parsing utilities
 ├── prompts.rs           # System prompts for each command
+├── json_repair.rs       # LLM JSON output repair utilities
+├── error.rs             # Error type conversion helpers
 ├── commands/
 │   ├── mod.rs
-│   ├── explain.rs
-│   ├── review.rs
-│   ├── fix.rs
-│   ├── commit.rs
-│   └── config.rs
+│   ├── derive.rs        # derive command (commit-msg, explanation, summary)
+│   ├── review.rs        # review command
+│   ├── fix/             # fix command (atomic and whole-file modes)
+│   │   ├── mod.rs
+│   │   ├── input.rs     # JSON input parsing and validation
+│   │   ├── diff.rs      # Unified diff generation
+│   │   └── validation.rs
+│   ├── config.rs        # config command
+│   └── common.rs        # Shared command helpers
 ├── output/
 │   ├── mod.rs           # Exit codes, output modes, traits
-│   ├── explain.rs
+│   ├── derive.rs
 │   ├── review.rs
 │   ├── fix.rs
-│   ├── commit.rs
-│   └── config.rs
+│   ├── config.rs
+│   ├── dry_run.rs       # --dry-run output formatting
+│   └── error.rs         # Typed error JSON output
 ├── rules/
 │   ├── mod.rs           # Rule types and resolution
 │   ├── defaults.rs      # Built-in default rules
@@ -40,30 +52,40 @@ src/
 └── llm/
     ├── mod.rs           # LlmClient trait, Message/ToolCall types
     ├── ollama.rs        # Ollama API implementation
-    └── openai.rs        # OpenAI-compatible API implementation
+    ├── openai.rs        # OpenAI-compatible API implementation
+    ├── http.rs          # Shared HTTP client, connection pooling
+    └── retry.rs         # Retry logic with exponential backoff
 ```
 
 ## Usage
 
 Single LLM call with piped input. No tools, no message history.
 ```bash
-cat src/main.rs | usx explain           # Explain code
-git diff --staged | usx review          # Review staged changes
-git diff --staged | usx commit          # Generate commit message
-cat src/main.rs | usx fix               # Suggest fixes
+cat src/main.rs | usx derive explanation    # Explain code
+git diff --staged | usx derive commit-msg   # Generate commit message
+git diff --staged | usx review              # Review staged changes
+echo '{"issue": "...", "file": "...", "lines": [1,1]}' | usx fix  # Generate fix
+```
+
+Input can also be provided as a positional file argument:
+```bash
+usx derive explanation src/main.rs          # File argument instead of stdin
+usx review src/auth.rs                      # Review a single file
 ```
 
 ## Key CLI Flags
 
 | Flag | Description |
 |------|-------------|
-| `--from FILE` | Read input from file (use `-` for stdin) |
-| `--execute` | Auto-execute git commit (commit command) |
-| `--checks LIST` | Comma-separated checks to focus on (review command) |
 | `--text` | Output as plain text instead of JSON (default: JSON) |
 | `--dry-run` | Show token estimation without making LLM calls |
 | `--timeout N` | Timeout for LLM requests in seconds (default: 60) |
-| `--tokenizer MODE` | Token counting: heuristic (fast) or full (accurate) |
+| `--provider NAME [URL] [KEY]` | LLM provider with optional URL and API key |
+| `--model MODEL` | Model to use (overrides config) |
+| `--retries N` | Max retry attempts for transient failures (default: 3) |
+| `--checks LIST` | Comma-separated checks to focus on (review command) |
+| `--chunk` | Split input and process in parallel (derive, review) |
+| `--partial` | Return partial results when some chunks fail |
 
 # Commit Requirements, Linting, and Formatting.
 
