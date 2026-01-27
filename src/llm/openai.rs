@@ -207,11 +207,9 @@ impl LlmClient for OpenAiClient {
 
         let chat_response: ChatCompletionResponse = response.json().await?;
 
-        let choice = chat_response
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| LlmError::Parse("response contained no choices".to_string()))?;
+        let choice = chat_response.choices.into_iter().next().ok_or_else(|| {
+            LlmError::Parse("OpenAI API response contained no choices in response".to_string())
+        })?;
 
         // OpenAI uses null for content when tool_calls are present
         let content = choice.message.content.unwrap_or_default();

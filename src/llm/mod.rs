@@ -38,22 +38,32 @@ impl ToExitCode for LlmError {
 
 impl LlmError {
     /// Returns whether this error is likely retryable
+    ///
+    /// Classification reasoning:
+    /// - **Request/Timeout**: Network errors are transient (connection lost, DNS resolution failure, timeouts).
+    ///   Waiting and retrying may succeed if the service recovers or network stabilizes.
+    /// - **Parse**: Response parsing failures are permanent. If the LLM returned malformed content once,
+    ///   retrying the same request will produce the same invalid output.
+    /// - **Api**: Retryable only if the error indicates a transient server condition (rate limits,
+    ///   temporary overload). Detected by HTTP status codes (429, 502, 503) or text patterns.
     #[must_use]
     pub fn is_retryable(&self) -> bool {
         match self {
-            // Network errors and timeouts are usually transient
+            // Request/Timeout: Transient network failures
             Self::Request(_) | Self::Timeout(_) => true,
-            Self::Parse(_) => false, // Parse errors won't change on retry
+            // Parse: Permanent - malformed response won't improve on retry
+            Self::Parse(_) => false,
+            // Api: Retryable only if server indicates transient overload/rate-limit
             Self::Api(msg) => {
-                // Check for rate limit or overload messages
                 let lower = msg.to_lowercase();
+                // Check for rate limit or overload status codes and messages
                 lower.contains("rate")
                     || lower.contains("limit")
                     || lower.contains("overload")
                     || lower.contains("capacity")
-                    || lower.contains("429")
-                    || lower.contains("503")
-                    || lower.contains("502")
+                    || lower.contains("429") // HTTP 429 Too Many Requests
+                    || lower.contains("503") // HTTP 503 Service Unavailable
+                    || lower.contains("502") // HTTP 502 Bad Gateway
             }
         }
     }

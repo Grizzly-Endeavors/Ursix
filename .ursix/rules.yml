@@ -1,6 +1,172 @@
+# Ursix semantic linting rules
+# These rules are natural language instructions the LLM applies contextually during code review.
+# Derived from CLAUDE.md style guide and codebase patterns.
+#
+# IMPORTANT: Rules are applied per-file without cross-file context. Rules should focus on
+# patterns detectable within a single file. Avoid flagging issues that require seeing
+# how code is used elsewhere (e.g., don't flag error conversions without seeing error creation sites).
+
 categories:
+  error-handling:
+    - name: contextual-error-messages
+      description: "Error messages created with anyhow::anyhow!(), thiserror, or string literals must include context (file paths, operation names, values). Flag only the ERROR CREATION site - messages like anyhow::anyhow!(\"parse error\") or LlmError::Parse(\"invalid\".into()). Do NOT flag error conversion/mapping code that transforms existing errors."
+      severity: error
+      files: "*.rs"
+
+    - name: no-silent-failures
+      description: "Every failure must be visible to the user. Flag empty catch blocks, ignored Result values (let _ = fallible()), or match arms that silently swallow errors. Debug/trace logging alone is NOT sufficient."
+      severity: error
+      files: "*.rs"
+
+    - name: retryability-classification
+      description: "is_retryable() methods should have doc comments explaining the reasoning for each match arm. Flag undocumented retryability logic."
+      severity: warning
+      files: "src/llm/**/*.rs"
+
+  output-guarantees:
+    - name: structural-json-output
+      description: "Structs with #[derive(Serialize)] that represent command output must have all fields serializable. Flag Option types without #[serde(skip_serializing_if)] if they should be omitted when None."
+      severity: error
+      files: "src/output/**/*.rs"
+
+    - name: serialization-fallback
+      description: "serde_json::to_string() calls must use ? or .unwrap_or_else() with error handling, never bare .unwrap(). Flag: serde_json::to_string(&x).unwrap()"
+      severity: error
+      files: "*.rs"
+
+  logging:
+    - name: structured-logging-fields
+      description: "All tracing macros (info!, warn!, error!, debug!, trace!) must use structured fields (key = value), not string interpolation. Flag patterns like info!(\"processing {}\", item) - should be info!(item = %item, \"processing\")."
+      severity: error
+      files: "*.rs"
+
+    - name: log-level-semantics
+      description: "Log levels must match semantics: error = failures that stop operation, warn = recoverable issues, info = major operations (LLM calls, chunking), debug = internal state, trace = verbose diagnostics. Flag error! with fallback behavior or info! for internal details."
+      severity: warning
+      files: "*.rs"
+
+    - name: stderr-for-user-warnings
+      description: "User-facing warnings (that should be visible without RUST_LOG) must use eprintln!(), not tracing. This preserves stdout for JSON output piping."
+      severity: warning
+      files: "*.rs"
+
   style:
     - name: why-not-what-comments
       description: "Comments should explain WHY, not WHAT. The code shows what it does; comments should explain non-obvious reasoning, edge cases, or design decisions. Flag comments that merely restate what the code does (e.g., '// increment counter' above 'counter += 1')."
       severity: warning
+      files: "*.rs"
+
+    - name: domain-specific-naming
+      description: "Prefer descriptive names that match the domain (send_chat_completion over generic run). Common abbreviations like cfg, dir, msg, ctx, cmd are OK; avoid obscure ones."
+      severity: info
+      files: "*.rs"
+
+    - name: doc-comment-coverage
+      description: "Public functions and types should have doc comments. One-line /// summary for public items; expand only for complex behavior."
+      severity: warning
+      files: "*.rs"
+
+    - name: no-unexplained-allow
+      description: "Every #[allow(...)] macro must have a comment explaining WHY the lint is suppressed. Flag bare allows without justification. Exception: #[allow(clippy::unwrap_used)] in test modules is pre-approved. Unnecessary allows (suppressing lints that don't fire) should be removed."
+      severity: error
+      files: "*.rs"
+
+  visibility:
+    - name: private-first
+      description: "Helper functions only called within the same file should not be pub or pub(crate). Flag pub on small utility functions that appear to be internal (e.g., single-use helpers, functions with impl-detail names)."
+      severity: warning
+      files: "*.rs"
+
+  api-design:
+    - name: string-parameter-flexibility
+      description: "Functions that store strings should accept `impl Into<String>`, not just `&str`. This allows callers to pass String, &str, or Cow<str> without conversion."
+      severity: info
+      files: "*.rs"
+
+    - name: default-trait-for-config
+      description: "Config structs should implement Default with sensible values. Provide named helper methods for common configurations (e.g., no_retry() for RetryConfig)."
+      severity: info
+      files: "*.rs"
+
+    - name: must-use-constructors
+      description: "Constructors (new()) and utility functions that return values for side-effect-free computation should have #[must_use]. Prevents silently discarded results."
+      severity: warning
+      files: "*.rs"
+
+    - name: avoid-builder-abuse
+      description: "Prefer new() with required args + Default trait. Use builder pattern only for structs with many (5+) optional fields. Multiple constructor variants (new, with_api_key, with_http_client) are cleaner for simple cases."
+      severity: info
+      files: "*.rs"
+
+  async-patterns:
+    - name: async-first-io
+      description: "File I/O and network operations must be async. Use tokio::fs, not std::fs in async functions. Flag std::fs::read_to_string in async contexts."
+      severity: error
+      files: "*.rs"
+
+    - name: no-blocking-in-async
+      description: "Never use blocking calls in async context: no std::thread::sleep() (use tokio::time::sleep), no .block_on() from async, no reqwest::blocking::Client."
+      severity: error
+      files: "*.rs"
+
+    - name: bounded-concurrency
+      description: "Concurrent operations should be limited via semaphore, buffered(), or concurrency parameter. Flag unbounded join_all() on user-controlled collections."
+      severity: warning
+      files: "*.rs"
+
+    - name: async-retry-sleep
+      description: "Retry loops must use tokio::time::sleep().await with exponential backoff and jitter, not std::thread::sleep()."
+      severity: error
+      files: "src/llm/**/*.rs"
+
+  testing:
+    - name: test-module-organization
+      description: "Unit tests should be in #[cfg(test)] mod tests at file bottom. Test modules should have #[allow(clippy::unwrap_used)] for readability. Flag test functions outside of mod tests."
+      severity: info
+      files: "*.rs"
+
+    - name: deterministic-timing-tests
+      description: "Timing assertions (e.g., assert!(elapsed < Duration::from_millis(100))) need 2-3x safety margin. Flag tight timing bounds without explanatory comments."
+      severity: warning
+      files: "*.rs"
+
+    - name: test-isolation
+      description: "Tests doing file I/O should use tempfile::tempdir() or similar, not hardcoded paths. Flag std::fs operations on fixed paths like \"/tmp/test\" or \"./test_output\"."
+      severity: error
+      files: "*.rs"
+
+  validation:
+    - name: explicit-empty-input-errors
+      description: "Functions that check .is_empty() should return an error or log a warning, not silently continue. Flag: if input.is_empty() { return Ok(default) } without warning."
+      severity: error
+      files: "*.rs"
+
+    - name: specific-validation-errors
+      description: "Error messages for validation failures must name the specific field or value. Flag generic messages like \"validation failed\" or \"invalid input\" without specifics."
+      severity: warning
+      files: "*.rs"
+
+  commands:
+    - name: output-mode-respect
+      description: "Command functions receiving output_mode should use it. Flag println! or eprintln! for data output (not warnings) in functions that have output_mode in scope."
+      severity: error
+      files: "src/commands/**/*.rs"
+
+    - name: dry-run-check
+      description: "Functions with a dry_run parameter should check it before making LLM calls or network requests. Flag run_pipeline() calls without a preceding dry_run check."
+      severity: warning
+      files: "src/commands/**/*.rs"
+
+  security:
+    - name: no-hardcoded-secrets
+      description: "Never hardcode API keys, passwords, tokens, or secrets. Flag string literals that look like credentials or environment variable fallbacks to hardcoded values."
+      severity: error
+
+    - name: input-validation-at-boundaries
+      description: "Validate and sanitize external input (user input, API responses, file contents) before use. Trust internal code; validate at system boundaries."
+      severity: error
+
+    - name: no-unsafe-code
+      description: "Unsafe code is forbidden. Flag any use of unsafe blocks unless explicitly approved."
+      severity: error
       files: "*.rs"
