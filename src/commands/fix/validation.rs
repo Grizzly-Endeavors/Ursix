@@ -183,26 +183,47 @@ fn check_common_mistakes(code: &str, result: &mut ValidationResult) {
 /// Strip common LLM formatting issues from output
 ///
 /// Attempts to clean up the output by removing:
+/// - Leading/trailing blank lines
 /// - Leading/trailing markdown code fences
-/// - Leading/trailing whitespace
+///
+/// IMPORTANT: Preserves leading whitespace (indentation) on code lines.
+/// Only blank lines and fence lines are removed, not indentation.
 #[must_use]
 pub fn sanitize_replacement(raw: &str) -> String {
-    let mut result = raw.trim();
+    let mut lines: Vec<&str> = raw.lines().collect();
 
-    // Remove markdown code fences if present
-    if result.starts_with("```") {
-        // Find the end of the first line (language specifier)
-        if let Some(newline_pos) = result.find('\n') {
-            result = &result[newline_pos + 1..];
-        }
+    // Remove blank lines from the start
+    while lines.first().is_some_and(|l| l.trim().is_empty()) {
+        lines.remove(0);
     }
 
-    // Remove trailing code fence
-    if result.ends_with("```") {
-        result = result.trim_end_matches("```").trim_end();
+    // Remove blank lines from the end
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
     }
 
-    result.to_string()
+    // Handle markdown code fence at start (e.g., "```rust" or "```")
+    if lines
+        .first()
+        .is_some_and(|l| l.trim_start().starts_with("```"))
+    {
+        lines.remove(0);
+    }
+
+    // Handle markdown code fence at end
+    if lines.last().is_some_and(|l| l.trim() == "```") {
+        lines.pop();
+    }
+
+    // Remove any blank lines that were adjacent to the fences
+    while lines.first().is_some_and(|l| l.trim().is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+
+    lines.join("\n")
 }
 
 #[cfg(test)]
@@ -297,15 +318,39 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_replacement_with_whitespace() {
-        let input = "  \n  let x = 1;  \n  ";
-        assert_eq!(sanitize_replacement(input), "let x = 1;");
+    fn test_sanitize_replacement_preserves_indentation() {
+        // Leading whitespace (indentation) should be preserved
+        let input = "    let x = 1;";
+        assert_eq!(sanitize_replacement(input), "    let x = 1;");
+    }
+
+    #[test]
+    fn test_sanitize_replacement_removes_blank_lines() {
+        // Blank lines at start/end should be removed, but indentation preserved
+        let input = "\n\n    let x = 1;\n\n";
+        assert_eq!(sanitize_replacement(input), "    let x = 1;");
     }
 
     #[test]
     fn test_sanitize_replacement_fence_no_language() {
         let input = "```\nlet x = 1;\n```";
         assert_eq!(sanitize_replacement(input), "let x = 1;");
+    }
+
+    #[test]
+    fn test_sanitize_replacement_indented_with_fences() {
+        // Indentation inside fences should be preserved
+        let input = "```rust\n    let x = 1;\n```";
+        assert_eq!(sanitize_replacement(input), "    let x = 1;");
+    }
+
+    #[test]
+    fn test_sanitize_replacement_multiline_indented() {
+        let input = "    fn foo() {\n        bar();\n    }";
+        assert_eq!(
+            sanitize_replacement(input),
+            "    fn foo() {\n        bar();\n    }"
+        );
     }
 
     #[test]

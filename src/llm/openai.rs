@@ -123,10 +123,13 @@ impl OpenAiClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_body = response
-                .json::<OpenAiErrorResponse>()
+            // Get raw body first, then try to parse as OpenAI error format
+            let raw_body = response
+                .text()
                 .await
-                .map_or_else(|_| "unknown error".to_string(), |e| e.error.message);
+                .unwrap_or_else(|_| "failed to read response body".to_string());
+            let error_body = serde_json::from_str::<OpenAiErrorResponse>(&raw_body)
+                .map_or_else(|_| raw_body, |e| e.error.message);
             return Err(LlmError::Api(format!("{status}: {error_body}")));
         }
 
@@ -192,10 +195,13 @@ impl LlmClient for OpenAiClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_body = response
-                .json::<OpenAiErrorResponse>()
+            // Get raw body first, then try to parse as OpenAI error format
+            let raw_body = response
+                .text()
                 .await
-                .map_or_else(|_| "unknown error".to_string(), |e| e.error.message);
+                .unwrap_or_else(|_| "failed to read response body".to_string());
+            let error_body = serde_json::from_str::<OpenAiErrorResponse>(&raw_body)
+                .map_or_else(|_| raw_body, |e| e.error.message);
             return Err(LlmError::Api(format!("{status}: {error_body}")));
         }
 
