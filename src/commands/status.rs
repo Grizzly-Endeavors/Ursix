@@ -6,7 +6,8 @@ use std::time::Instant;
 
 use anyhow::Result;
 
-use crate::config::{Config, DEFAULT_OPENAI_URL, Provider};
+use crate::config::{Config, DEFAULT_GEMINI_URL, DEFAULT_OPENAI_URL, Provider};
+use crate::llm::gemini::GeminiClient;
 use crate::llm::ollama::OllamaClient;
 use crate::llm::openai::OpenAiClient;
 use crate::llm::{HttpClientConfig, SharedHttpClient};
@@ -106,6 +107,22 @@ fn check_api_key(config: &Config, provider_url: &str) -> StatusCheck {
                 )
             }
         }
+        Provider::Gemini => {
+            // Gemini always requires an API key (no local server option)
+            let is_official_gemini = provider_url.starts_with(DEFAULT_GEMINI_URL);
+
+            if config.api_key.is_some() {
+                StatusCheck::pass("api_key", "API key is set")
+            } else {
+                let details = if is_official_gemini {
+                    "Set URSIX_API_KEY or GOOGLE_API_KEY environment variable"
+                } else {
+                    "Set URSIX_API_KEY environment variable"
+                };
+                StatusCheck::fail("api_key", "API key required for Gemini API")
+                    .with_details(details)
+            }
+        }
     }
 }
 
@@ -135,6 +152,12 @@ async fn check_connectivity(
             } else {
                 OpenAiClient::with_http_client(http, provider_url, &config.model)
             };
+            client.list_models().await
+        }
+        Provider::Gemini => {
+            // Gemini always requires an API key; if we get here, api_key check passed
+            let key = config.api_key.as_ref().map_or("", String::as_str);
+            let client = GeminiClient::with_http_client(http, provider_url, &config.model, key);
             client.list_models().await
         }
     };
@@ -286,6 +309,30 @@ mod tests {
         let check = check_api_key(&config, "http://localhost:8080/v1");
         assert!(check.passed);
         assert!(check.message.contains("optional"));
+    }
+
+    #[test]
+    fn test_check_api_key_gemini_without_key() {
+        let config = Config {
+            provider: Provider::Gemini,
+            api_key: None,
+            ..Config::default()
+        };
+        let check = check_api_key(&config, "https://generativelanguage.googleapis.com/v1beta");
+        assert!(!check.passed);
+        assert!(check.message.contains("required"));
+    }
+
+    #[test]
+    fn test_check_api_key_gemini_with_key() {
+        let config = Config {
+            provider: Provider::Gemini,
+            api_key: Some("test-key".to_string()),
+            ..Config::default()
+        };
+        let check = check_api_key(&config, "https://generativelanguage.googleapis.com/v1beta");
+        assert!(check.passed);
+        assert!(check.message.contains("set"));
     }
 
     #[test]

@@ -8,6 +8,7 @@ use anyhow::Result;
 use super::CliError;
 use crate::config::{Config, Provider};
 use crate::context::InputContext;
+use crate::llm::gemini::GeminiClient;
 use crate::llm::ollama::OllamaClient;
 use crate::llm::openai::OpenAiClient;
 use crate::llm::{HttpClientConfig, LlmClient, RetryConfig, SharedHttpClient};
@@ -70,6 +71,31 @@ pub(crate) fn create_openai_client(config: &Config, url: &str) -> Result<OpenAiC
     }
 }
 
+/// Create a [`GeminiClient`] from config with a shared HTTP client
+///
+/// Gemini always requires an API key (no local server option).
+fn create_gemini_client_with_http(
+    config: &Config,
+    http: &SharedHttpClient,
+    url: &str,
+) -> Result<GeminiClient> {
+    if let Some(ref key) = config.api_key {
+        Ok(GeminiClient::with_http_client(
+            http.clone(),
+            url,
+            &config.model,
+            key,
+        ))
+    } else {
+        Err(CliError::Config(anyhow::anyhow!(
+            "API key required for Gemini API. \
+             Set URSIX_API_KEY or GOOGLE_API_KEY environment variable, \
+             or pass it via --provider gemini URL API-KEY."
+        ))
+        .into())
+    }
+}
+
 /// Run the pipeline with the appropriate provider
 pub(crate) async fn run_pipeline(
     config: &Config,
@@ -96,6 +122,18 @@ pub(crate) async fn run_pipeline(
         }
         Provider::OpenAi => {
             let client = create_openai_client_with_http(config, &http, provider_url)?;
+            run_pipeline_with_client(
+                client,
+                system_prompt,
+                context,
+                user_request,
+                json_mode,
+                &config.retry_config,
+            )
+            .await
+        }
+        Provider::Gemini => {
+            let client = create_gemini_client_with_http(config, &http, provider_url)?;
             run_pipeline_with_client(
                 client,
                 system_prompt,

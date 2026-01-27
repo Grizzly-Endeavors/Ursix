@@ -60,10 +60,10 @@ pub async fn cmd_init(options: InitOptions, output_mode: OutputMode) -> Result<E
     let provider = select_provider(ollama_available)?;
 
     // Model selection with sensible defaults
-    let default_model = if provider == Provider::Ollama {
-        DEFAULT_MODEL.to_string()
-    } else {
-        "gpt-4o-mini".to_string()
+    let default_model = match provider {
+        Provider::Ollama => DEFAULT_MODEL.to_string(),
+        Provider::OpenAi => "gpt-4o-mini".to_string(),
+        Provider::Gemini => "gemini-2.0-flash".to_string(),
     };
 
     let model: String = Input::new()
@@ -72,9 +72,11 @@ pub async fn cmd_init(options: InitOptions, output_mode: OutputMode) -> Result<E
         .interact_text()
         .context("failed to read model input")?;
 
-    // For OpenAI, guide API key setup
+    // For cloud providers, guide API key setup
     if provider == Provider::OpenAi {
-        guide_api_key_setup(&mut warnings);
+        guide_api_key_setup(&mut warnings, "OpenAI", "OPENAI_API_KEY", "sk-...");
+    } else if provider == Provider::Gemini {
+        guide_api_key_setup(&mut warnings, "Gemini", "GOOGLE_API_KEY", "AIza...");
     }
 
     // Create config file
@@ -141,11 +143,13 @@ fn select_provider(ollama_available: bool) -> Result<Provider> {
         vec![
             "ollama (local) - Recommended, detected on your system",
             "openai (cloud) - Requires API key",
+            "gemini (cloud) - Requires API key",
         ]
     } else {
         vec![
             "ollama (local) - Not detected, but you can configure it",
             "openai (cloud) - Requires API key",
+            "gemini (cloud) - Requires API key",
         ]
     };
 
@@ -158,26 +162,34 @@ fn select_provider(ollama_available: bool) -> Result<Provider> {
         .interact()
         .context("failed to read provider selection")?;
 
-    Ok(if selection == 0 {
-        Provider::Ollama
-    } else {
-        Provider::OpenAi
+    Ok(match selection {
+        0 => Provider::Ollama,
+        1 => Provider::OpenAi,
+        _ => Provider::Gemini,
     })
 }
 
-/// Guide user through API key setup for `OpenAI`
-fn guide_api_key_setup(warnings: &mut Vec<String>) {
+/// Guide user through API key setup for cloud providers
+fn guide_api_key_setup(
+    warnings: &mut Vec<String>,
+    provider_name: &str,
+    fallback_env: &str,
+    key_prefix: &str,
+) {
     println!();
-    println!("For OpenAI, you need to set the URSIX_API_KEY environment variable.");
+    println!("For {provider_name}, you need to set the URSIX_API_KEY environment variable.");
     println!();
     println!("Options:");
-    println!("  1. Create a .env file in this directory with: URSIX_API_KEY=sk-...");
-    println!("  2. Export in your shell: export URSIX_API_KEY=sk-...");
-    println!("  3. Pass via CLI: --provider openai URL sk-...");
+    println!("  1. Create a .env file in this directory with: URSIX_API_KEY={key_prefix}");
+    println!("  2. Export in your shell: export URSIX_API_KEY={key_prefix}");
+    println!(
+        "  3. Pass via CLI: --provider {provider} URL {key_prefix}",
+        provider = provider_name.to_lowercase()
+    );
     println!();
 
     // Check if API key is already set
-    if std::env::var("URSIX_API_KEY").is_err() && std::env::var("OPENAI_API_KEY").is_err() {
+    if std::env::var("URSIX_API_KEY").is_err() && std::env::var(fallback_env).is_err() {
         warnings.push("URSIX_API_KEY not set; set it before running commands".to_string());
     }
 }
@@ -196,6 +208,11 @@ async fn test_connectivity(provider: Provider, model: &str) -> bool {
             // For OpenAI, we just check if API key is set
             // We don't actually make a test call to avoid consuming quota
             std::env::var("URSIX_API_KEY").is_ok() || std::env::var("OPENAI_API_KEY").is_ok()
+        }
+        Provider::Gemini => {
+            // For Gemini, we just check if API key is set
+            // We don't actually make a test call to avoid consuming quota
+            std::env::var("URSIX_API_KEY").is_ok() || std::env::var("GOOGLE_API_KEY").is_ok()
         }
     };
 

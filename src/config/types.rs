@@ -75,6 +75,7 @@ pub enum Provider {
     #[default]
     Ollama,
     OpenAi,
+    Gemini,
 }
 
 impl fmt::Display for Provider {
@@ -82,6 +83,7 @@ impl fmt::Display for Provider {
         match self {
             Self::Ollama => write!(f, "ollama"),
             Self::OpenAi => write!(f, "openai"),
+            Self::Gemini => write!(f, "gemini"),
         }
     }
 }
@@ -93,8 +95,9 @@ impl FromStr for Provider {
         match s.to_lowercase().as_str() {
             "ollama" => Ok(Self::Ollama),
             "openai" => Ok(Self::OpenAi),
+            "gemini" => Ok(Self::Gemini),
             _ => Err(format!(
-                "unknown provider: {s} (expected 'ollama' or 'openai')"
+                "unknown provider: {s} (expected 'ollama', 'openai', or 'gemini')"
             )),
         }
     }
@@ -177,8 +180,10 @@ mod tests {
     fn test_provider_parse() {
         assert_eq!(Provider::from_str("ollama").unwrap(), Provider::Ollama);
         assert_eq!(Provider::from_str("openai").unwrap(), Provider::OpenAi);
+        assert_eq!(Provider::from_str("gemini").unwrap(), Provider::Gemini);
         assert_eq!(Provider::from_str("OLLAMA").unwrap(), Provider::Ollama);
         assert_eq!(Provider::from_str("OpenAI").unwrap(), Provider::OpenAi);
+        assert_eq!(Provider::from_str("GEMINI").unwrap(), Provider::Gemini);
         assert!(Provider::from_str("unknown").is_err());
     }
 
@@ -186,6 +191,7 @@ mod tests {
     fn test_provider_display() {
         assert_eq!(Provider::Ollama.to_string(), "ollama");
         assert_eq!(Provider::OpenAi.to_string(), "openai");
+        assert_eq!(Provider::Gemini.to_string(), "gemini");
     }
 
     #[test]
@@ -196,6 +202,13 @@ mod tests {
 
         let deserialized: Provider = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, Provider::OpenAi);
+
+        let provider = Provider::Gemini;
+        let json = serde_json::to_string(&provider).unwrap();
+        assert_eq!(json, "\"gemini\"");
+
+        let deserialized: Provider = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, Provider::Gemini);
     }
 
     #[test]

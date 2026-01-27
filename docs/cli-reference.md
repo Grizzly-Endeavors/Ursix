@@ -28,6 +28,9 @@ usx review --provider ollama http://localhost:11434
 
 # Provider with URL and API key
 usx review --provider openai https://api.openai.com/v1 sk-xxx
+
+# Gemini provider (API key required)
+usx review --provider gemini
 ```
 
 ### Environment Variables
@@ -37,6 +40,7 @@ usx review --provider openai https://api.openai.com/v1 sk-xxx
 | `URSIX_API_KEY` | API key for authenticated providers |
 | `URSIX_PROVIDER_URL` | Provider API base URL |
 | `OPENAI_API_KEY` | Fallback API key (if `URSIX_API_KEY` not set) |
+| `GOOGLE_API_KEY` | Fallback API key for Gemini (if `URSIX_API_KEY` not set) |
 
 ## Commands
 
@@ -222,7 +226,7 @@ The `.env` file is loaded automatically from the current directory.
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `provider` | enum | LLM provider (`ollama`, `openai`) |
+| `provider` | enum | LLM provider (`ollama`, `openai`, `gemini`) |
 | `model` | string | Model name to use |
 | `provider_url` | string | Provider API base URL (overrides default for selected provider) |
 | `tokenizer_mode` | enum | Token counting mode (`heuristic`, `full`) |

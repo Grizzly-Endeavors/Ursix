@@ -27,6 +27,9 @@ pub const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
 /// Default URL for OpenAI-compatible API
 pub const DEFAULT_OPENAI_URL: &str = "https://api.openai.com/v1";
 
+/// Default URL for Gemini API
+pub const DEFAULT_GEMINI_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+
 /// Default timeout for LLM requests in seconds
 ///
 /// This timeout applies to individual LLM API calls. For chunked operations,
@@ -153,10 +156,12 @@ impl Config {
         if let Ok(url) = std::env::var("URSIX_PROVIDER_URL") {
             self.provider_url = Some(url);
         }
-        // Check both URSIX_API_KEY and standard OPENAI_API_KEY
+        // Check URSIX_API_KEY, then provider-specific keys as fallback
         if let Ok(key) = std::env::var("URSIX_API_KEY") {
             self.api_key = Some(key);
         } else if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+            self.api_key = Some(key);
+        } else if let Ok(key) = std::env::var("GOOGLE_API_KEY") {
             self.api_key = Some(key);
         }
         if let Ok(mode) = std::env::var("URSIX_TOKENIZER_MODE")
@@ -177,6 +182,7 @@ impl Config {
         self.provider_url.as_deref().unwrap_or(match self.provider {
             Provider::Ollama => DEFAULT_OLLAMA_URL,
             Provider::OpenAi => DEFAULT_OPENAI_URL,
+            Provider::Gemini => DEFAULT_GEMINI_URL,
         })
     }
 }
@@ -270,6 +276,15 @@ mod tests {
             ..Config::default()
         };
         assert_eq!(config.effective_provider_url(), DEFAULT_OPENAI_URL);
+    }
+
+    #[test]
+    fn test_effective_provider_url_default_gemini() {
+        let config = Config {
+            provider: Provider::Gemini,
+            ..Config::default()
+        };
+        assert_eq!(config.effective_provider_url(), DEFAULT_GEMINI_URL);
     }
 
     #[test]

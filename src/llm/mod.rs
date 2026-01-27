@@ -1,3 +1,4 @@
+pub mod gemini;
 mod http;
 pub mod ollama;
 pub mod openai;
