@@ -34,6 +34,7 @@ src/
 │   │   ├── input.rs     # JSON input parsing and validation
 │   │   ├── diff.rs      # Unified diff generation
 │   │   └── validation.rs
+│   ├── status.rs        # status command (config and connectivity validation)
 │   ├── config.rs        # config command
 │   └── common.rs        # Shared command helpers
 ├── output/
@@ -41,6 +42,7 @@ src/
 │   ├── derive.rs
 │   ├── review.rs
 │   ├── fix.rs
+│   ├── status.rs        # Status check output types
 │   ├── config.rs
 │   ├── dry_run.rs       # --dry-run output formatting
 │   └── error.rs         # Typed error JSON output
@@ -61,6 +63,7 @@ src/
 
 Single LLM call with piped input. No tools, no message history.
 ```bash
+usx status                                  # Validate config and connectivity
 cat src/main.rs | usx derive explanation    # Explain code
 git diff --staged | usx derive commit-msg   # Generate commit message
 git diff --staged | usx review              # Review staged changes

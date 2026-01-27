@@ -72,7 +72,7 @@ Verify:
 
 ```bash
 usx --version
-usx config --list
+usx status --text
 ```
 
 ### Quick Start
@@ -80,6 +80,9 @@ usx config --list
 ```bash
 # Start Ollama if using local models
 ollama serve
+
+# Verify connectivity
+usx status --text
 
 # Explain a file
 cat src/main.rs | usx derive explanation --text
@@ -219,6 +222,51 @@ usx fix input.json | jq -r '.diff' | patch -p1
 | `--retry` | Retry on validation failure |
 | `--partial` | Return partial results on failure |
 | `--dry-run` | Validate input without LLM call |
+
+---
+
+### `usx status` — Pre-flight Check
+
+Validate configuration and test provider connectivity. Returns exit code 0 when all checks pass.
+
+```bash
+usx status                                   # JSON output
+usx status --text                            # Human-readable output
+usx status --verbose --text                  # Include response time and model list
+```
+
+**Human output:**
+```
+Ursix Status: OK
+
+Provider:  ollama (http://localhost:11434)
+Model:     llama3.2
+API Key:   not set
+
+Checks:
+  [ok] config: configuration loaded successfully
+  [ok] provider: ollama at http://localhost:11434
+  [ok] api_key: not required for Ollama
+  [ok] connectivity: connected, model 'llama3.2' available
+```
+
+**Use in scripts:**
+```bash
+# Pre-flight check before running commands
+usx status || exit 1
+
+# CI/CD validation
+if ! usx status > /dev/null 2>&1; then
+  echo "Ursix not configured correctly"
+  exit 1
+fi
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--verbose` | Show response time and available models |
+| `--text` | Human-readable output instead of JSON |
 
 ---
 
