@@ -119,6 +119,55 @@ impl<'de> Deserialize<'de> for Provider {
     }
 }
 
+/// Custom prompts configuration
+///
+/// Allows overriding default system prompts for each command type.
+/// If a prompt is not set, the hardcoded default is used.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PromptsConfig {
+    /// Custom prompt for the review command
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review: Option<String>,
+
+    /// Custom prompt for commit-msg derive type
+    #[serde(rename = "commit-msg", skip_serializing_if = "Option::is_none")]
+    pub commit_msg: Option<String>,
+
+    /// Custom prompt for explanation derive type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
+
+    /// Custom prompt for summary derive type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+
+    /// Custom prompt for fix command
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<String>,
+}
+
+impl PromptsConfig {
+    /// Merge another prompts config into this one.
+    /// Only non-None values from `other` override values in `self`.
+    pub fn merge(&mut self, other: &Self) {
+        if other.review.is_some() {
+            self.review.clone_from(&other.review);
+        }
+        if other.commit_msg.is_some() {
+            self.commit_msg.clone_from(&other.commit_msg);
+        }
+        if other.explanation.is_some() {
+            self.explanation.clone_from(&other.explanation);
+        }
+        if other.summary.is_some() {
+            self.summary.clone_from(&other.summary);
+        }
+        if other.fix.is_some() {
+            self.fix.clone_from(&other.fix);
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -189,5 +238,81 @@ mod tests {
 
         let deserialized: TokenizerMode = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, TokenizerMode::Full);
+    }
+
+    #[test]
+    fn test_prompts_config_default() {
+        let config = PromptsConfig::default();
+        assert!(config.review.is_none());
+        assert!(config.commit_msg.is_none());
+        assert!(config.explanation.is_none());
+        assert!(config.summary.is_none());
+        assert!(config.fix.is_none());
+    }
+
+    #[test]
+    fn test_prompts_config_merge() {
+        let mut config = PromptsConfig {
+            review: Some("original review".to_string()),
+            commit_msg: None,
+            explanation: None,
+            summary: None,
+            fix: None,
+        };
+
+        let other = PromptsConfig {
+            review: None,
+            commit_msg: Some("new commit".to_string()),
+            explanation: Some("new explain".to_string()),
+            summary: None,
+            fix: None,
+        };
+
+        config.merge(&other);
+
+        // Original review should be preserved (other.review is None)
+        assert_eq!(config.review, Some("original review".to_string()));
+        // New values should be set
+        assert_eq!(config.commit_msg, Some("new commit".to_string()));
+        assert_eq!(config.explanation, Some("new explain".to_string()));
+        // Still None
+        assert!(config.summary.is_none());
+        assert!(config.fix.is_none());
+    }
+
+    #[test]
+    fn test_prompts_config_merge_overwrite() {
+        let mut config = PromptsConfig {
+            review: Some("original review".to_string()),
+            ..Default::default()
+        };
+
+        let other = PromptsConfig {
+            review: Some("new review".to_string()),
+            ..Default::default()
+        };
+
+        config.merge(&other);
+
+        // Review should be overwritten
+        assert_eq!(config.review, Some("new review".to_string()));
+    }
+
+    #[test]
+    fn test_prompts_config_serialize_deserialize() {
+        let config = PromptsConfig {
+            review: Some("custom review".to_string()),
+            commit_msg: Some("custom commit".to_string()),
+            explanation: None,
+            summary: None,
+            fix: None,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: PromptsConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.review, Some("custom review".to_string()));
+        assert_eq!(deserialized.commit_msg, Some("custom commit".to_string()));
+        assert!(deserialized.explanation.is_none());
     }
 }

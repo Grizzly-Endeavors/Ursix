@@ -14,8 +14,8 @@ pub use args::{Cli, Command, FixMode, RetryOptions};
 pub(crate) use dispatch::run_pipeline;
 
 use crate::commands::{
-    DeriveOptions, DeriveType, FixOptions, ReviewOptions, cmd_config, cmd_derive, cmd_fix,
-    cmd_review,
+    DeriveOptions, DeriveType, FixOptions, InitOptions, ReviewOptions, cmd_config, cmd_derive,
+    cmd_fix, cmd_init, cmd_review,
 };
 use crate::config::Config;
 use crate::output::{ExitCode, OutputMode, ToExitCode};
@@ -145,6 +145,10 @@ pub async fn run() -> Result<ExitCode> {
             cmd_fix(&config, options, file, output_mode).await
         }
         Command::Config { key, list } => cmd_config(&config, key, list, output_mode),
+        Command::Init { skip_test, force } => {
+            let options = InitOptions { skip_test, force };
+            cmd_init(options, output_mode).await
+        }
     }
 }
 

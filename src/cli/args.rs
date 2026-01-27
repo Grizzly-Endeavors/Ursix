@@ -131,6 +131,17 @@ pub enum Command {
         #[arg(long)]
         list: bool,
     },
+
+    /// Initialize Ursix configuration in current directory
+    Init {
+        /// Skip connectivity test after setup
+        #[arg(long)]
+        skip_test: bool,
+
+        /// Force overwrite existing config files
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 /// Options for retry behavior

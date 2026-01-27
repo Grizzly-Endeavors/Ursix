@@ -6,6 +6,7 @@ Comprehensive documentation for the Ursix CLI tool.
 
 - [CLI Reference](cli-reference.md) - Complete command and flag reference
 - [Commands](commands/) - Detailed documentation for each command:
+  - [init](commands/init.md) - Initialize Ursix configuration
   - [derive](commands/derive.md) - Derive content from input (commit-msg, explanation, summary)
   - [review](commands/review.md) - Review code changes from stdin or file
   - [fix](commands/fix.md) - Transform code snippets using structured input
@@ -24,6 +25,16 @@ Single LLM call with piped input. No tools, no iteration, no message history. Sa
 ```bash
 cargo install ursix
 ```
+
+### Getting Started
+
+Run the interactive setup wizard:
+
+```bash
+usx init
+```
+
+This creates `.ursix.toml` (configuration) and `.ursix/rules.yml` (review rules).
 
 ### Basic Usage
 

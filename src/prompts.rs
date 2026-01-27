@@ -2,6 +2,55 @@
 //!
 //! Each command gets an optimized system prompt tailored to its specific task.
 //! Pipeline prompts are for single LLM calls with JSON output.
+//!
+//! Custom prompts can be configured in `.ursix.toml` under the `[prompts]` section.
+//! If a custom prompt is set, it overrides the default for that command.
+
+use crate::config::PromptsConfig;
+
+// =============================================================================
+// Custom Prompt Resolution
+// =============================================================================
+
+/// Get the effective prompt for a command, checking config overrides first.
+///
+/// If a custom prompt is configured, returns a reference to it.
+/// Otherwise, returns the default prompt for that command.
+#[must_use]
+pub fn get_prompt<'a>(command: &str, config: &'a PromptsConfig) -> &'a str {
+    match command {
+        "review" => config.review.as_deref().unwrap_or(REVIEW_PIPELINE_PROMPT),
+        "commit-msg" | "commit" => config
+            .commit_msg
+            .as_deref()
+            .unwrap_or(COMMIT_PIPELINE_PROMPT),
+        "explanation" | "explain" => config
+            .explanation
+            .as_deref()
+            .unwrap_or(EXPLAIN_PIPELINE_PROMPT),
+        "summary" => config.summary.as_deref().unwrap_or(DERIVE_SUMMARY_PROMPT),
+        "fix" => config.fix.as_deref().unwrap_or(FIX_PIPELINE_PROMPT),
+        _ => ASK_PIPELINE_PROMPT,
+    }
+}
+
+/// Get the effective review prompt, with optional custom base prompt.
+///
+/// If `custom_base` is provided, uses it instead of the default review prompt.
+/// Rules are still injected into the prompt regardless of which base is used.
+#[must_use]
+pub fn get_review_prompt(config: &PromptsConfig, rules_section: &str) -> String {
+    if let Some(ref custom) = config.review {
+        // Custom prompt replaces base, but we still inject rules
+        if rules_section.is_empty() {
+            custom.clone()
+        } else {
+            format!("{custom}\n\n{rules_section}")
+        }
+    } else {
+        build_review_prompt(rules_section)
+    }
+}
 
 // =============================================================================
 // Pipeline Mode Prompts
@@ -509,5 +558,62 @@ mod tests {
         assert_eq!(capitalize_first(""), "");
         assert_eq!(capitalize_first("a"), "A");
         assert_eq!(capitalize_first("security"), "Security");
+    }
+
+    #[test]
+    fn test_get_prompt_defaults() {
+        let config = PromptsConfig::default();
+        assert_eq!(get_prompt("review", &config), REVIEW_PIPELINE_PROMPT);
+        assert_eq!(get_prompt("commit-msg", &config), COMMIT_PIPELINE_PROMPT);
+        assert_eq!(get_prompt("commit", &config), COMMIT_PIPELINE_PROMPT);
+        assert_eq!(get_prompt("explanation", &config), EXPLAIN_PIPELINE_PROMPT);
+        assert_eq!(get_prompt("explain", &config), EXPLAIN_PIPELINE_PROMPT);
+        assert_eq!(get_prompt("summary", &config), DERIVE_SUMMARY_PROMPT);
+        assert_eq!(get_prompt("fix", &config), FIX_PIPELINE_PROMPT);
+        assert_eq!(get_prompt("unknown", &config), ASK_PIPELINE_PROMPT);
+    }
+
+    #[test]
+    fn test_get_prompt_custom() {
+        let config = PromptsConfig {
+            review: Some("Custom review prompt".to_string()),
+            commit_msg: Some("Custom commit prompt".to_string()),
+            explanation: Some("Custom explain prompt".to_string()),
+            summary: Some("Custom summary prompt".to_string()),
+            fix: Some("Custom fix prompt".to_string()),
+        };
+        assert_eq!(get_prompt("review", &config), "Custom review prompt");
+        assert_eq!(get_prompt("commit-msg", &config), "Custom commit prompt");
+        assert_eq!(get_prompt("explanation", &config), "Custom explain prompt");
+        assert_eq!(get_prompt("summary", &config), "Custom summary prompt");
+        assert_eq!(get_prompt("fix", &config), "Custom fix prompt");
+    }
+
+    #[test]
+    fn test_get_review_prompt_default() {
+        let config = PromptsConfig::default();
+        let prompt = get_review_prompt(&config, "");
+        assert!(prompt.contains("code reviewer"));
+    }
+
+    #[test]
+    fn test_get_review_prompt_custom_with_rules() {
+        let config = PromptsConfig {
+            review: Some("Custom reviewer".to_string()),
+            ..Default::default()
+        };
+        let prompt = get_review_prompt(&config, "## Rules\n- test rule");
+        assert!(prompt.contains("Custom reviewer"));
+        assert!(prompt.contains("## Rules"));
+    }
+
+    #[test]
+    fn test_get_review_prompt_custom_no_rules() {
+        let config = PromptsConfig {
+            review: Some("Custom reviewer".to_string()),
+            ..Default::default()
+        };
+        let prompt = get_review_prompt(&config, "");
+        assert_eq!(prompt, "Custom reviewer");
     }
 }

@@ -47,9 +47,11 @@ impl RulesConfig {
             }
         }
 
-        // Use defaults if no rules found
+        // Error if no rules found - require explicit rules file
         if !found_any {
-            return Ok(Self::defaults());
+            return Err(anyhow::anyhow!(
+                "no rules.yml found; run 'usx init' to create starter rules, or create .ursix/rules.yml manually"
+            ));
         }
 
         Ok(config)
@@ -122,10 +124,13 @@ mod tests {
     }
 
     #[test]
-    fn test_load_uses_defaults_when_no_files() {
+    fn test_load_errors_when_no_files() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let config = RulesConfig::load(temp_dir.path()).unwrap();
-        // Should have default rules
-        assert!(!config.categories.is_empty());
+        let result = RulesConfig::load(temp_dir.path());
+        // Should error with helpful message
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("no rules.yml found"));
+        assert!(err.contains("usx init"));
     }
 }

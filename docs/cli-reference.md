@@ -40,6 +40,7 @@ usx review --provider openai https://api.openai.com/v1 sk-xxx
 
 ## Commands
 
+- [`init`](commands/init.md) - Initialize Ursix configuration
 - [`derive`](commands/derive.md) - Derive content from input (commit-msg, explanation, summary)
 - [`review`](commands/review.md) - Review code changes from stdin or file
 - [`fix`](commands/fix.md) - Transform code snippets using structured input
@@ -196,9 +197,25 @@ model = "gpt-4"
 provider_url = "https://api.openai.com/v1"
 tokenizer_mode = "heuristic"
 timeout_secs = 60
+
+# Custom prompts (optional)
+[prompts]
+review = "Custom review instructions..."
+commit-msg = "Custom commit message instructions..."
 ```
 
 Note: API keys should be set via environment variables (`URSIX_API_KEY`) for security, not in config files.
+
+### .env File Support
+
+Ursix supports `.env` files for API keys:
+
+```bash
+# .env
+URSIX_API_KEY=sk-...
+```
+
+The `.env` file is loaded automatically from the current directory.
 
 ### Available Settings
 
@@ -209,3 +226,8 @@ Note: API keys should be set via environment variables (`URSIX_API_KEY`) for sec
 | `provider_url` | string | Provider API base URL (overrides default for selected provider) |
 | `tokenizer_mode` | enum | Token counting mode (`heuristic`, `full`) |
 | `timeout_secs` | u64 | Timeout for LLM requests in seconds |
+| `prompts.review` | string | Custom system prompt for review command |
+| `prompts.commit-msg` | string | Custom system prompt for commit-msg derive type |
+| `prompts.explanation` | string | Custom system prompt for explanation derive type |
+| `prompts.summary` | string | Custom system prompt for summary derive type |
+| `prompts.fix` | string | Custom system prompt for fix command |

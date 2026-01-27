@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-pub use types::{Provider, TokenizerMode};
+pub use types::{PromptsConfig, Provider, TokenizerMode};
 
 use crate::llm::RetryConfig;
 
@@ -61,6 +61,9 @@ pub struct Config {
 
     /// Timeout for LLM requests in seconds (default: 60)
     pub timeout_secs: u64,
+
+    /// Custom prompts configuration
+    pub prompts: PromptsConfig,
 }
 
 impl Config {
@@ -71,6 +74,9 @@ impl Config {
     /// # Errors
     /// Returns error if config files exist but cannot be parsed
     pub fn load() -> Result<Self> {
+        // Load .env file if present (silent failure OK - file may not exist)
+        let _ = dotenvy::dotenv();
+
         let mut config = Self::default();
 
         // Load global config
@@ -129,6 +135,9 @@ impl Config {
         if let Some(timeout) = file.timeout_secs {
             self.timeout_secs = timeout;
         }
+        if let Some(ref prompts) = file.prompts {
+            self.prompts.merge(prompts);
+        }
     }
 
     /// Apply environment variable overrides
@@ -186,6 +195,7 @@ impl Default for Config {
             tokenizer_mode: TokenizerMode::default(),
             retry_config: RetryConfig::default(),
             timeout_secs: DEFAULT_TIMEOUT_SECS,
+            prompts: PromptsConfig::default(),
         }
     }
 }
@@ -212,6 +222,10 @@ pub struct ConfigFile {
     /// Timeout for LLM requests in seconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
+
+    /// Custom prompts configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompts: Option<PromptsConfig>,
     // Note: API keys are NOT stored in config files for security
 }
 
@@ -277,6 +291,7 @@ mod tests {
             provider_url: Some("http://custom:8000/v1".to_string()),
             tokenizer_mode: None,
             timeout_secs: None,
+            prompts: None,
         };
 
         config.merge_file(&file);
@@ -300,6 +315,7 @@ mod tests {
             provider_url: None,
             tokenizer_mode: None,
             timeout_secs: Some(120),
+            prompts: None,
         };
 
         config.merge_file(&file);
@@ -353,6 +369,7 @@ mod tests {
             provider_url: None,
             tokenizer_mode: Some(TokenizerMode::Full),
             timeout_secs: None,
+            prompts: None,
         };
 
         config.merge_file(&file);
