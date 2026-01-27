@@ -110,7 +110,7 @@ categories:
       files: "*.rs"
 
     - name: bounded-concurrency
-      description: "Concurrent operations should be limited via semaphore, buffered(), or concurrency parameter. Flag unbounded join_all() on user-controlled collections."
+      description: "Concurrent operations should be limited via semaphore, buffered(), buffer_unordered(), or concurrency parameter. Flag only truly unbounded patterns like join_all() or FuturesUnordered without limits on user-controlled collections. Do NOT flag code using buffer_unordered(n) or buffered(n) - these are the correct bounded patterns."
       severity: warning
       files: "*.rs"
 
