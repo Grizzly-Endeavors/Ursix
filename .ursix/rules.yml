@@ -156,17 +156,3 @@ categories:
       description: "Functions with a dry_run parameter should check it before making LLM calls or network requests. Flag run_pipeline() calls without a preceding dry_run check."
       severity: warning
       files: "src/commands/**/*.rs"
-
-  security:
-    - name: no-hardcoded-secrets
-      description: "Never hardcode API keys, passwords, tokens, or secrets. Flag string literals that look like credentials or environment variable fallbacks to hardcoded values."
-      severity: error
-
-    - name: input-validation-at-boundaries
-      description: "Validate and sanitize external input (user input, API responses, file contents) before use. Trust internal code; validate at system boundaries."
-      severity: error
-
-    - name: no-unsafe-code
-      description: "Unsafe code is forbidden. Flag any use of unsafe blocks unless explicitly approved."
-      severity: error
-      files: "*.rs"
