@@ -387,7 +387,15 @@ When category has 10+ rules, sub-chunk to avoid overwhelming LLM.
 
 ## Completed
 
-### Recent (2026-01-25)
+### Recent (2026-01-26)
+- [x] Phase 2: Review command file-based chunking with --chunk flag
+- [x] Refactored fix command for atomic transformations with structured JSON input
+- [x] Added whole-file mode to fix command for multi-issue fixes
+- [x] Consolidated provider flags into single multi-arg `--provider NAME [URL] [API-KEY]`
+- [x] Simplified CLI flags and switched to positional file arguments
+- [x] Reorganized modules for improved navigation
+
+### Earlier (2026-01-25)
 - [x] Phase 2: Consolidated commit/explain into unified derive command
 - [x] Phase 2: Added --chunk-recursive support for large inputs
 - [x] Phase 2: Removed global --chunk and --partial flags (derive-specific now)
@@ -404,7 +412,7 @@ When category has 10+ rules, sub-chunk to avoid overwhelming LLM.
 - [x] Phase 2: Token estimation and --dry-run flag for all commands
 - [x] Add warnings for silent failure fallbacks in error paths
 
-### Earlier
+### Older
 - [x] Remove config command setter (was stub printing "not yet implemented")
 - [x] Remove unused `--context` flag from explain command
 - [x] Add signal handling for graceful Ctrl+C interruption
