@@ -212,41 +212,43 @@ See: integration test in `tests/integration.rs` for --partial flag acceptance.
 
 High-impact optimizations, especially for git hook usage. Independent of other phases.
 
-### [ ] HTTP client reuse (HIGH IMPACT)
+### [x] HTTP client reuse (HIGH IMPACT)
 
-Fresh `reqwest::Client` per invocation adds 200-500ms TCP/TLS overhead.
+**Status: COMPLETE** (Commit 02831c9)
 
-Fix:
-- Create client once, reuse across chunks
-- `Arc<Client>` for async task sharing
-- Explicit connection pooling config
+Added `SharedHttpClient` wrapper around `Arc<Client>` for connection reuse:
+- `HttpClientConfig` for configuring timeout, pool size, and keep-alive
+- `with_http_client()` constructors on `OllamaClient` and `OpenAiClient`
+- Shared client created once per pipeline execution in `cli/dispatch.rs`
+- Saves 200-500ms TCP/TLS handshake overhead per subsequent request
 
-Locations: `src/cli.rs:284-292`, `src/llm/ollama.rs:37`, `src/llm/openai.rs:43,66`
+### [x] Arc-wrap context in chunking
 
-### [ ] Arc-wrap context in chunking
+**Status: COMPLETE** (Commit 02831c9)
 
-Context cloned per chunk = memory bloat. 5 categories × 5 files = 25 copies of git_diff, etc.
+Changed `InputContext.content` from `String` to `Arc<str>`:
+- Private field with `content()` accessor method
+- `content_arc()` method for Arc access when needed
+- Arc-wrapped system prompts in review chunking for cheap clones
+- Reduces memory allocations for chunked operations
 
-Use `Arc<GatheredContext>` instead.
+### [x] Optimize token counting in chunking
 
-Location: `src/chunk.rs` lines 109, 112, 134-135, 328-330, 368, 371
+**Status: COMPLETE** (Commit 02831c9)
 
-### [ ] Optimize token counting in chunking
+Fixed tokenizer mode consistency in review dry-run:
+- Now respects configured `tokenizer_mode` instead of hardcoded heuristic
+- Falls back to heuristic on error for robustness
 
-Token counting per chunk is redundant - shared context (git_diff, git_status) is identical.
+### [x] Configure connection pooling
 
-Pre-calculate shared tokens once, count only per-chunk deltas.
+**Status: COMPLETE** (Commit 02831c9)
 
-Location: `src/chunk.rs:115-123`, `src/chunk.rs:324-325`
-
-### [ ] Configure connection pooling
-
-Explicit settings for:
-- `pool_max_idle_per_host`
-- `http2_keep_alive_interval`
-- Timeouts (coordinate with Phase 2 timeout work)
-
-Location: `src/llm/ollama.rs`, `src/llm/openai.rs`
+Added `HttpClientConfig` with explicit settings:
+- `pool_max_idle_per_host`: 10 (default)
+- `http2_keep_alive_secs`: 30 (default)
+- `timeout_secs`: configurable (default 60)
+- Integrated with Phase 2 timeout configuration
 
 ---
 
@@ -387,7 +389,13 @@ When category has 10+ rules, sub-chunk to avoid overwhelming LLM.
 
 ## Completed
 
-### Recent (2026-01-26)
+### Recent (2026-01-27)
+- [x] Phase 3: HTTP client reuse with SharedHttpClient for connection pooling
+- [x] Phase 3: Arc-wrap InputContext.content for memory optimization in chunking
+- [x] Phase 3: Fixed tokenizer mode consistency in review dry-run
+- [x] Phase 3: Connection pooling configuration (pool_max_idle_per_host, http2_keep_alive)
+
+### Earlier (2026-01-26)
 - [x] Phase 2: Review command file-based chunking with --chunk flag
 - [x] Refactored fix command for atomic transformations with structured JSON input
 - [x] Added whole-file mode to fix command for multi-issue fixes
