@@ -94,7 +94,7 @@ pub enum Command {
         #[arg(long, default_value = "4")]
         concurrency: usize,
 
-        /// Continue when some chunks fail
+        /// Return partial results when some chunks fail instead of failing entirely
         #[arg(long)]
         partial: bool,
     },
@@ -117,7 +117,7 @@ pub enum Command {
         #[arg(long)]
         retry: bool,
 
-        /// Return partial results on failure
+        /// Return partial results on validation failure instead of failing entirely
         #[arg(long)]
         partial: bool,
     },

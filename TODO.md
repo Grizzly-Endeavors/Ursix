@@ -325,9 +325,11 @@ Extract from CLAUDE.md:
 - Code style
 - PR process
 
-### [ ] Example configuration files
+### [x] Example configuration files
 
-Provide `.ursix.toml.example` and `rules.example.yml` for onboarding.
+**Status: COMPLETE**
+
+Created `.ursix.toml.example` and `rules.example.yml` for onboarding.
 
 ### [ ] CHANGELOG.md
 
@@ -339,21 +341,23 @@ Track changes between versions for upgrade visibility.
 
 Defer until ready to publish. Not blocking current development.
 
-### [ ] Add LICENSE file
+### [x] Add LICENSE file
 
-MIT license is specified in Cargo.toml but no LICENSE file exists.
+**Status: COMPLETE**
 
-### [ ] Complete Cargo.toml metadata
+MIT LICENSE file added to repository root.
 
-For crates.io: `repository`, `authors`, `keywords`, `categories`, `readme`, `rust-version`.
+### [x] Complete Cargo.toml metadata
+
+**Status: COMPLETE**
+
+Added: `repository`, `keywords`, `categories`, `readme`, `rust-version`.
 
 ### [ ] Enable CI workflow triggers
 
-`.github/workflows/ci.yml` triggers are commented out (lines 3-7).
+`.github/workflows/ci.yml` triggers are commented out (lines 3-7). Enable when ready for public PRs.
 
-### [ ] Switch to GitHub-hosted runners
-
-Change `[self-hosted, kubernetes]` to `ubuntu-latest` for public accessibility.
+**Note:** CI will continue to use self-hosted runners. GitHub-hosted runners will not be used.
 
 ---
 

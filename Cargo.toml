@@ -2,8 +2,13 @@
 name = "ursix"
 version = "0.1.0"
 edition = "2024"
-description = "Ursix - An extensible agentic CLI for LLM-powered development"
+rust-version = "1.85"
+description = "Unix utilities powered by LLMs. Stateless, composable, automation-first."
 license = "MIT"
+readme = "README.md"
+repository = "https://github.com/grizzly-endeavors/ursix"
+keywords = ["cli", "llm", "code-review", "developer-tools", "automation"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "usx"

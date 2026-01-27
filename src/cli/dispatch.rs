@@ -41,7 +41,7 @@ fn create_openai_client_with_http(
     } else {
         Err(CliError::Config(anyhow::anyhow!(
             "API key required for remote OpenAI endpoints. \
-             Set URSIX_API_KEY environment variable or use --api-key flag."
+             Set URSIX_API_KEY environment variable or pass it via --provider NAME URL API-KEY."
         ))
         .into())
     }
@@ -64,7 +64,7 @@ pub(crate) fn create_openai_client(config: &Config, url: &str) -> Result<OpenAiC
     } else {
         Err(CliError::Config(anyhow::anyhow!(
             "API key required for remote OpenAI endpoints. \
-             Set URSIX_API_KEY environment variable or use --api-key flag."
+             Set URSIX_API_KEY environment variable or pass it via --provider NAME URL API-KEY."
         ))
         .into())
     }
