@@ -69,7 +69,7 @@ impl<L: LlmClient + Clone + 'static> Pipeline<L> {
         let user_content = if context.is_empty() {
             user_request.to_string()
         } else {
-            format!("{}\n\n{}", context.content, user_request)
+            format!("{}\n\n{}", context.content(), user_request)
         };
 
         let messages = vec![
@@ -95,7 +95,7 @@ impl<L: LlmClient + Clone + 'static> Pipeline<L> {
 
         tracing::info!(
             model = %self.client.model_name(),
-            content_len = context.content.len(),
+            content_len = context.content().len(),
             json_mode,
             max_retries = retry_config.max_retries,
             "executing pipeline"

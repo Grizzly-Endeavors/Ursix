@@ -3,10 +3,9 @@
 //! Supports various providers including Azure, vLLM, LM Studio, and other compatible endpoints.
 
 use async_trait::async_trait;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::http::{build_http_client, map_request_error, warn_if_insecure_remote};
+use super::http::{HttpClientConfig, SharedHttpClient, map_request_error, warn_if_insecure_remote};
 use super::{
     ChatOptions, LlmClient, LlmError, LlmResponse, Message, Role, ToolCall, ToolDefinition,
 };
@@ -14,29 +13,34 @@ use super::{
 /// OpenAI-compatible API client
 #[derive(Clone)]
 pub struct OpenAiClient {
-    client: Client,
+    http: SharedHttpClient,
     base_url: String,
     api_key: Option<String>,
     model: String,
-    timeout_secs: u64,
 }
 
 impl OpenAiClient {
     /// Create a new client without authentication (for local servers)
+    ///
+    /// This creates a new HTTP client internally. For connection reuse across
+    /// multiple clients, use [`with_http_client`](Self::with_http_client) instead.
     pub fn new(base_url: impl Into<String>, model: impl Into<String>, timeout_secs: u64) -> Self {
         let base_url = base_url.into();
         warn_if_insecure_remote(&base_url);
+        let http = SharedHttpClient::new(&HttpClientConfig::with_timeout(timeout_secs));
 
         Self {
-            client: build_http_client(timeout_secs),
+            http,
             base_url,
             api_key: None,
             model: model.into(),
-            timeout_secs,
         }
     }
 
     /// Create a new client with API key authentication
+    ///
+    /// This creates a new HTTP client internally. For connection reuse across
+    /// multiple clients, use [`with_http_client_and_api_key`](Self::with_http_client_and_api_key) instead.
     pub fn with_api_key(
         base_url: impl Into<String>,
         model: impl Into<String>,
@@ -45,14 +49,58 @@ impl OpenAiClient {
     ) -> Self {
         let base_url = base_url.into();
         warn_if_insecure_remote(&base_url);
+        let http = SharedHttpClient::new(&HttpClientConfig::with_timeout(timeout_secs));
 
         Self {
-            client: build_http_client(timeout_secs),
+            http,
             base_url,
             api_key: Some(api_key.into()),
             model: model.into(),
-            timeout_secs,
         }
+    }
+
+    /// Create a new client with a shared HTTP client (no authentication)
+    ///
+    /// Use this constructor to share connection pools across multiple LLM clients.
+    pub fn with_http_client(
+        http: SharedHttpClient,
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        let base_url = base_url.into();
+        warn_if_insecure_remote(&base_url);
+
+        Self {
+            http,
+            base_url,
+            api_key: None,
+            model: model.into(),
+        }
+    }
+
+    /// Create a new client with a shared HTTP client and API key authentication
+    ///
+    /// Use this constructor to share connection pools across multiple LLM clients.
+    pub fn with_http_client_and_api_key(
+        http: SharedHttpClient,
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
+        let base_url = base_url.into();
+        warn_if_insecure_remote(&base_url);
+
+        Self {
+            http,
+            base_url,
+            api_key: Some(api_key.into()),
+            model: model.into(),
+        }
+    }
+
+    // Helper to get timeout from the shared client
+    fn timeout_secs(&self) -> u64 {
+        self.http.timeout_secs()
     }
 }
 
@@ -100,7 +148,7 @@ impl LlmClient for OpenAiClient {
             response_format,
         };
 
-        let mut req_builder = self.client.post(&url).json(&request);
+        let mut req_builder = self.http.client().post(&url).json(&request);
 
         if let Some(ref key) = self.api_key {
             req_builder = req_builder.header("Authorization", format!("Bearer {key}"));
@@ -109,7 +157,7 @@ impl LlmClient for OpenAiClient {
         let response = req_builder
             .send()
             .await
-            .map_err(|e| map_request_error(e, self.timeout_secs))?;
+            .map_err(|e| map_request_error(e, self.timeout_secs()))?;
 
         if !response.status().is_success() {
             let status = response.status();

@@ -44,7 +44,7 @@ impl Default for ChunkOptions {
 /// # Errors
 /// Returns error if token counting fails (only possible with Full tokenizer mode).
 pub fn create_chunk(context: &InputContext, mode: TokenizerMode) -> Result<Chunk> {
-    let token_count = count_tokens(&context.content, mode)?;
+    let token_count = count_tokens(context.content(), mode)?;
 
     Ok(Chunk {
         id: "input-0".to_string(),
@@ -155,7 +155,7 @@ mod tests {
         let chunk = create_chunk(&context, TokenizerMode::Heuristic).unwrap();
 
         assert_eq!(chunk.id, "input-0");
-        assert_eq!(chunk.context.content, "fn main() {}");
+        assert_eq!(chunk.context.content(), "fn main() {}");
         assert!(chunk.token_count.count > 0);
     }
 

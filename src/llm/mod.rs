@@ -3,6 +3,7 @@ pub mod ollama;
 pub mod openai;
 pub mod retry;
 
+pub use http::{HttpClientConfig, SharedHttpClient};
 pub use retry::{RetryConfig, with_retry};
 
 use async_trait::async_trait;

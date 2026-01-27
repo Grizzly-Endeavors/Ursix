@@ -1,8 +1,7 @@
 use async_trait::async_trait;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::http::{build_http_client, map_request_error, warn_if_insecure_remote};
+use super::http::{HttpClientConfig, SharedHttpClient, map_request_error, warn_if_insecure_remote};
 use super::{
     ChatOptions, LlmClient, LlmError, LlmResponse, Message, Role, ToolCall, ToolDefinition,
 };
@@ -10,24 +9,60 @@ use super::{
 /// Ollama API client
 #[derive(Clone)]
 pub struct OllamaClient {
-    client: Client,
+    http: SharedHttpClient,
     base_url: String,
     model: String,
-    timeout_secs: u64,
 }
 
 impl OllamaClient {
     /// Create a new Ollama client with the specified timeout
+    ///
+    /// This creates a new HTTP client internally. For connection reuse across
+    /// multiple clients, use [`with_http_client`](Self::with_http_client) instead.
     pub fn new(base_url: impl Into<String>, model: impl Into<String>, timeout_secs: u64) -> Self {
+        let base_url = base_url.into();
+        warn_if_insecure_remote(&base_url);
+        let http = SharedHttpClient::new(&HttpClientConfig::with_timeout(timeout_secs));
+
+        Self {
+            http,
+            base_url,
+            model: model.into(),
+        }
+    }
+
+    /// Create a new Ollama client with a shared HTTP client
+    ///
+    /// Use this constructor to share connection pools across multiple LLM clients.
+    pub fn with_http_client(
+        http: SharedHttpClient,
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
         let base_url = base_url.into();
         warn_if_insecure_remote(&base_url);
 
         Self {
-            client: build_http_client(timeout_secs),
+            http,
             base_url,
             model: model.into(),
-            timeout_secs,
         }
+    }
+
+    /// Create a new Ollama client from an existing HTTP client (deprecated alias)
+    #[doc(hidden)]
+    #[deprecated(since = "0.1.0", note = "Use with_http_client instead")]
+    pub fn from_http_client(
+        http: SharedHttpClient,
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self::with_http_client(http, base_url, model)
+    }
+
+    // Helper to get timeout from the shared client
+    fn timeout_secs(&self) -> u64 {
+        self.http.timeout_secs()
     }
 
     /// List available models from Ollama
@@ -37,11 +72,12 @@ impl OllamaClient {
     pub async fn list_models(&self) -> Result<Vec<String>, LlmError> {
         let url = format!("{}/api/tags", self.base_url);
         let response = self
-            .client
+            .http
+            .client()
             .get(&url)
             .send()
             .await
-            .map_err(|e| map_request_error(e, self.timeout_secs))?;
+            .map_err(|e| map_request_error(e, self.timeout_secs()))?;
 
         if !response.status().is_success() {
             let error_body = response
@@ -97,12 +133,13 @@ impl LlmClient for OllamaClient {
         };
 
         let response = self
-            .client
+            .http
+            .client()
             .post(&url)
             .json(&request)
             .send()
             .await
-            .map_err(|e| map_request_error(e, self.timeout_secs))?;
+            .map_err(|e| map_request_error(e, self.timeout_secs()))?;
 
         if !response.status().is_success() {
             let error_body = response

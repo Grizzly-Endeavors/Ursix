@@ -159,7 +159,7 @@ pub fn count_tokens(content: &str, mode: TokenizerMode) -> Result<TokenCount> {
 /// # Errors
 /// Returns error if full tokenizer mode is used and the tokenizer cannot be loaded.
 pub fn count_context_tokens(context: &InputContext, mode: TokenizerMode) -> Result<TokenCount> {
-    count_tokens(&context.content, mode)
+    count_tokens(context.content(), mode)
 }
 
 /// Check token count against limits

@@ -178,7 +178,7 @@ async fn execute_chunked(
     ctx: &InputContext,
 ) -> Result<DeriveResult> {
     // Split input into chunks
-    let chunks = split_by_tokens(&ctx.content, TARGET_CHUNK_TOKENS);
+    let chunks = split_by_tokens(ctx.content(), TARGET_CHUNK_TOKENS);
 
     if chunks.len() == 1 {
         // Input fits in single chunk, use single-pass

@@ -1,6 +1,7 @@
 //! The `review` command implementation
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
@@ -171,13 +172,16 @@ async fn execute_chunked_diff_review(
     let chunk_count = chunks.len();
     tracing::info!(chunks = chunk_count, "starting chunked review");
 
+    // Arc-wrap the system prompt for cheap sharing across chunk tasks (16 bytes vs full string clone)
+    let shared_prompt: Arc<str> = Arc::from(system_prompt);
+
     // Process chunks with bounded concurrency
     let results: Vec<(String, Result<ReviewResult, String>)> = stream::iter(chunks)
         .map(|chunk| {
             let file_path = chunk.file_path.clone();
-            let system_prompt = system_prompt.to_string();
+            let prompt = Arc::clone(&shared_prompt);
             async move {
-                let result = process_single_chunk(config, &system_prompt, &chunk).await;
+                let result = process_single_chunk(config, &prompt, &chunk).await;
                 (file_path, result)
             }
         })
@@ -290,14 +294,18 @@ fn handle_review_dry_run(
                 chunks: vec![],
             }
         } else {
-            // Estimate tokens for each chunk
+            // Estimate tokens for each chunk, respecting configured tokenizer mode
             let chunk_infos: Vec<ChunkInfo> = diff_chunks
                 .iter()
                 .map(|c| {
-                    let chunk_tokens = crate::tokens::count_tokens_heuristic(&c.content);
+                    let chunk_tokens =
+                        crate::tokens::count_tokens(&c.content, config.tokenizer_mode).map_or_else(
+                            |_| crate::tokens::count_tokens_heuristic(&c.content).count,
+                            |tc| tc.count,
+                        );
                     ChunkInfo {
                         id: c.file_path.clone(),
-                        tokens_estimated: chunk_tokens.count,
+                        tokens_estimated: chunk_tokens,
                         files: vec![c.file_path.clone()],
                     }
                 })
