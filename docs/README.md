@@ -5,6 +5,7 @@ Comprehensive documentation for the Ursix CLI tool.
 ## Quick Links
 
 - [CLI Reference](cli-reference.md) - Complete command and flag reference
+- [Writing Effective Rules](writing-effective-rules.md) - Best practices for LLM-based review rules
 - [Commands](commands/) - Detailed documentation for each command:
   - [init](commands/init.md) - Initialize Ursix configuration
   - [status](commands/status.md) - Check configuration and provider connectivity

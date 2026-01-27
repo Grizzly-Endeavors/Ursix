@@ -219,7 +219,8 @@ Return your review as JSON in this exact format:
 
 Notes:
 - The "issues" array can be empty if no issues were found
-- The "file" and "line" fields are optional if the issue is general
+- The "line" field MUST reference actual line numbers from the code provided (the code is numbered for reference)
+- The "file" field is optional - omit it, the caller will fill it in
 - The "rule" field is optional - include it when the issue relates to a specific rule from above
 - Use "error" sparingly, only for critical bugs or security issues
 - IMPORTANT: Each issue MUST be its own object in the array. Do NOT combine multiple issues into one object. This output is parsed by downstream pipelines.
@@ -268,7 +269,8 @@ Return your review as JSON in this exact format:
 
 Notes:
 - The "issues" array can be empty if no {category} issues were found
-- The "file" and "line" fields are optional if the issue is general
+- The "line" field MUST reference actual line numbers from the code provided (the code is numbered for reference)
+- The "file" field is optional - omit it, the caller will fill it in
 - The "rule" field is optional - include it when the issue relates to a specific rule from above
 - Use "error" sparingly, only for critical problems
 - ONLY report {category} issues - ignore issues that belong to other categories

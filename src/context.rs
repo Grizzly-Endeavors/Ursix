@@ -43,6 +43,20 @@ impl InputContext {
     pub fn content_arc(&self) -> &Arc<str> {
         &self.content
     }
+
+    /// Format content with line numbers for LLM review
+    ///
+    /// Returns content with each line prefixed by its line number,
+    /// making it easier for the LLM to reference specific lines accurately.
+    #[must_use]
+    pub fn content_with_line_numbers(&self) -> String {
+        self.content
+            .lines()
+            .enumerate()
+            .map(|(i, line)| format!("{:>4}| {}", i + 1, line))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 #[cfg(test)]

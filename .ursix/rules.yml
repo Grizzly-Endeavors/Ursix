@@ -52,7 +52,7 @@ categories:
 
   style:
     - name: why-not-what-comments
-      description: "Comments should explain WHY, not WHAT. Flag comments that merely restate obvious code behavior in different words. Only flag comments where the text adds no information beyond what the code already shows. Do NOT flag: doc comments (///), comments explaining non-obvious logic, or comments in #[cfg(test)] modules (test comments often serve as spec documentation)."
+      description: "Flag inline comments (//) that merely restate obvious code behavior. ONLY applies to inline comments within function bodies. Do NOT flag: (1) doc comments (/// or //!) - these are API documentation and should exist on public items, (2) comments explaining non-obvious logic or 'why' reasoning, (3) comments in #[cfg(test)] modules. If it starts with /// or //!, skip it entirely."
       severity: warning
       files: "*.rs"
 

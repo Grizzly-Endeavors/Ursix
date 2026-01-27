@@ -108,7 +108,17 @@ pub async fn cmd_review(
         }
     }
 
+    // For single-file reviews, add line numbers and filename header to help LLM reference accurately
+    // Diffs already have line context via @@ markers
     let ctx = InputContext::new(&input);
+    let review_ctx = match &input_type {
+        InputType::SingleFile(path) => {
+            let numbered = ctx.content_with_line_numbers();
+            let with_header = format!("// FILE: {}\n{}", path.display(), numbered);
+            InputContext::new(with_header)
+        }
+        InputType::Diff => ctx.clone(),
+    };
 
     // Dry-run mode: output token estimation without LLM calls
     if dry_run {
@@ -144,16 +154,27 @@ pub async fn cmd_review(
     // Check token limits
     validate_token_limits(config, &ctx)?;
 
+    let user_request = "Review this code.";
+
     let response = run_pipeline(
         config,
         &system_prompt,
-        &ctx,
-        "Review this code.",
+        &review_ctx,
+        user_request,
         true, // enforce JSON output at API level
     )
     .await?;
 
-    let result = parse_review_response(&response)?;
+    let mut result = parse_review_response(&response)?;
+
+    // For single-file reviews, inject the actual filename into all issues
+    // (LLMs often hallucinate filenames, so we override with the known correct path)
+    if let InputType::SingleFile(path) = &input_type {
+        let file_str = path.display().to_string();
+        for issue in &mut result.issues {
+            issue.file = Some(file_str.clone());
+        }
+    }
 
     let exit_code = result.exit_code();
     println!("{}", result.render(output_mode));

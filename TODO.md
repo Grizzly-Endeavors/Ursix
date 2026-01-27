@@ -376,6 +376,17 @@ usx apply --from fixes.json  # New command?
 
 Alternatively, the apply functionality could be a simple shell script since fixes are now JSON.
 
+### Improve diff format detection for single-file review
+
+Files with embedded diff examples (test data, documentation) are incorrectly detected as diff format when passed as positional arguments to `usx review`. This causes the filename injection to be skipped.
+
+Potential solutions:
+- Check if file extension indicates source code (.rs, .py, .js, etc.) and prefer file mode
+- Require diff markers to appear at start of content, not just anywhere
+- Add `--file-mode` / `--diff-mode` flags to override detection
+
+See: `docs/writing-effective-rules.md` "Known Limitations" section.
+
 ### Rate limiting handling
 
 HTTP 429 handling: specific messaging, exponential backoff, Retry-After parsing.
