@@ -99,9 +99,12 @@ When chunked processing is enabled:
 
 ### Review Command
 
-The `review` command supports `--chunk` for file-based diff chunking:
+The `review` command supports `--diff` to explicitly treat input as unified diff format, and `--chunk` for file-based diff chunking:
 
 ```bash
+# Force diff mode for a file argument
+usx review changes.diff --diff
+
 # Chunked review of large diff
 git diff HEAD~10 | usx review --chunk
 

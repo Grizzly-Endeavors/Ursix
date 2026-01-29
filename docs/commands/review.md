@@ -19,6 +19,7 @@ git diff | usx review
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
+| `--diff` | boolean | false | Treat input as unified diff format |
 | `--checks` | string[] | empty | Comma-separated checks to perform |
 | `--chunk` | boolean | false | Split by file, process in parallel |
 | `--concurrency` | usize | 4 | Max concurrent chunk executions |
@@ -32,8 +33,21 @@ Plus all [global flags](../cli-reference.md#global-flags).
 
 The review command accepts two types of input:
 
-1. **Diff format** (stdin or file) - Unified diff format is auto-detected
-2. **Single file** (positional argument) - Review a specific file
+1. **Diff format** — Unified diff auto-detected from stdin, or explicitly requested with `--diff`
+2. **Single file** (positional argument) — Review a specific file with line numbers and filename context
+
+**Input detection behavior:**
+
+| Source | `--diff` | Content looks like diff | Result |
+|--------|----------|------------------------|--------|
+| File arg | yes | any | Diff |
+| File arg | no | yes | SingleFile + stderr warning |
+| File arg | no | no | SingleFile |
+| Stdin | yes | any | Diff |
+| Stdin | no | yes | Diff (auto-detected) |
+| Stdin | no | no | Error |
+
+File arguments default to single-file mode regardless of content. If the file content looks like a diff, a warning is printed to stderr suggesting `--diff`. This prevents files with embedded diff examples (test data, documentation) from being misclassified.
 
 **Not supported:**
 - Arbitrary text piped via stdin (use `usx derive explanation` instead)
@@ -153,8 +167,11 @@ git diff HEAD~3 | usx review
 # Review with specific checks
 git diff | usx review --checks style,security
 
-# Read from file (positional argument)
+# Read from file (positional argument, treated as single file by default)
 usx review changes.diff
+
+# Force diff mode for a file argument
+usx review changes.diff --diff
 
 # Review a single source file
 usx review src/main.rs
@@ -178,6 +195,10 @@ git diff | usx review --chunk --dry-run
 # Error: arbitrary stdin is not supported
 echo "fn main() {}" | usx review
 # error: review expects diff input or FILE; use 'usx derive explanation' for arbitrary text
+
+# Warning: file with diff content but no --diff flag
+usx review changes.diff
+# warning: changes.diff looks like a diff but --diff was not set; treating as single file. Pass --diff to review as diff format.
 
 # Error: --chunk requires diff input
 usx review src/main.rs --chunk

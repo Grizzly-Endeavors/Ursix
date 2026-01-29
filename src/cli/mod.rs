@@ -14,8 +14,8 @@ pub use args::{Cli, Command, FixMode, RetryOptions};
 pub(crate) use dispatch::run_pipeline;
 
 use crate::commands::{
-    DeriveOptions, DeriveType, FixOptions, InitOptions, ReviewOptions, StatusOptions, cmd_config,
-    cmd_derive, cmd_fix, cmd_init, cmd_review, cmd_status,
+    DeriveOptions, DeriveType, DiffDetection, FixOptions, InitOptions, ReviewOptions,
+    StatusOptions, cmd_config, cmd_derive, cmd_fix, cmd_init, cmd_review, cmd_status,
 };
 use crate::config::Config;
 use crate::output::{ExitCode, OutputMode, ToExitCode};
@@ -115,12 +115,19 @@ pub async fn run() -> Result<ExitCode> {
         }
         Command::Review {
             file,
+            diff,
             checks,
             chunk,
             concurrency,
             partial,
         } => {
+            let diff_detection = if diff {
+                DiffDetection::ForceDiff
+            } else {
+                DiffDetection::Auto
+            };
             let options = ReviewOptions {
+                diff_detection,
                 chunk,
                 concurrency,
                 partial,

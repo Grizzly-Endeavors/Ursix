@@ -82,6 +82,10 @@ pub enum Command {
         #[arg(value_name = "FILE")]
         file: Option<PathBuf>,
 
+        /// Treat input as unified diff format (required for diff file arguments)
+        #[arg(long)]
+        diff: bool,
+
         /// Checks to perform (e.g., style, security, performance)
         #[arg(long, value_delimiter = ',')]
         checks: Vec<String>,

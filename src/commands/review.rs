@@ -21,8 +21,19 @@ use crate::prompts::{build_category_review_prompt, build_review_prompt};
 use crate::rules::RulesConfig;
 use crate::tokens::{TokenCheck, TokenLimits, check_token_limits, count_context_tokens};
 
+/// How diff format is determined for review input
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffDetection {
+    /// Auto-detect diff format from content (default)
+    Auto,
+    /// Force diff format (`--diff` flag)
+    ForceDiff,
+}
+
 /// Options for the review command
 pub struct ReviewOptions {
+    /// How to detect diff format
+    pub diff_detection: DiffDetection,
     /// Enable chunked processing
     pub chunk: bool,
     /// Maximum concurrent chunk executions
@@ -44,19 +55,41 @@ enum InputType {
 
 /// Validate input and determine its type
 ///
+/// When `force_diff` is true (`--diff` flag), input is always treated as diff format.
+/// When false, file arguments default to single-file mode even if content looks like
+/// a diff (with a stderr warning). Stdin auto-detection is preserved for backward
+/// compatibility.
+///
 /// # Errors
 /// Returns error if:
-/// - stdin content is not diff format and no --from is provided
-fn validate_input(content: &str, from: Option<&PathBuf>) -> Result<InputType, &'static str> {
+/// - stdin content is not diff format, `--diff` is not set, and no file argument is provided
+fn validate_input(
+    content: &str,
+    from: Option<&PathBuf>,
+    force_diff: bool,
+) -> Result<InputType, &'static str> {
+    // --diff flag forces diff mode regardless of content or source
+    if force_diff {
+        return Ok(InputType::Diff);
+    }
+
     let is_diff = is_diff_format(content);
 
-    match (is_diff, from) {
-        // Diff format is always OK
-        (true, _) => Ok(InputType::Diff),
-        // Non-diff with --from is a single file review
-        (false, Some(path)) => Ok(InputType::SingleFile(path.clone())),
-        // Non-diff from stdin without --from is an error
-        (false, None) => Err(
+    match (from, is_diff) {
+        // File arg: default to single-file mode, warn if content looks like diff
+        (Some(path), true) => {
+            eprintln!(
+                "warning: {} looks like a diff but --diff was not set; treating as single file. Pass --diff to review as diff format.",
+                path.display()
+            );
+            Ok(InputType::SingleFile(path.clone()))
+        }
+        // File arg with non-diff content: single-file review
+        (Some(path), false) => Ok(InputType::SingleFile(path.clone())),
+        // Stdin with diff content: auto-detect (backward compatible)
+        (None, true) => Ok(InputType::Diff),
+        // Stdin with non-diff content: error
+        (None, false) => Err(
             "review expects diff input or --from FILE; use 'usx derive explanation' for arbitrary text",
         ),
     }
@@ -70,11 +103,13 @@ pub async fn cmd_review(
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let ReviewOptions {
+        diff_detection,
         chunk: chunk_mode,
         concurrency,
         partial,
         dry_run,
     } = options;
+    let force_diff = diff_detection == DiffDetection::ForceDiff;
 
     // Load rules config for --checks filtering
     let rules_config =
@@ -86,7 +121,8 @@ pub async fn cmd_review(
         .context("failed to read code to review")?;
 
     // Validate input type
-    let input_type = validate_input(&input, file.as_ref()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let input_type =
+        validate_input(&input, file.as_ref(), force_diff).map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Handle --chunk with single file (not supported)
     if chunk_mode {
@@ -122,7 +158,7 @@ pub async fn cmd_review(
 
     // Dry-run mode: output token estimation without LLM calls
     if dry_run {
-        return handle_review_dry_run(config, &ctx, chunk_mode, &input, output_mode);
+        return handle_review_dry_run(config, &ctx, chunk_mode, force_diff, &input, output_mode);
     }
 
     // Build system prompt with rules (same for all chunks)
@@ -300,13 +336,15 @@ fn handle_review_dry_run(
     config: &Config,
     context: &InputContext,
     chunk_mode: bool,
+    force_diff: bool,
     raw_input: &str,
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let token_count = count_context_tokens(context, config.tokenizer_mode)?;
 
     // Determine chunk plan
-    let chunk_plan = if chunk_mode && is_diff_format(raw_input) {
+    let is_diff = force_diff || is_diff_format(raw_input);
+    let chunk_plan = if chunk_mode && is_diff {
         let diff_chunks = chunk_diff_by_file(raw_input);
         if diff_chunks.is_empty() {
             ChunkPlan {
@@ -367,31 +405,71 @@ mod tests {
     #[test]
     fn test_validate_input_diff_stdin() {
         let diff = "diff --git a/file.rs b/file.rs\n--- a/file.rs\n+++ b/file.rs\n";
-        let result = validate_input(diff, None);
+        let result = validate_input(diff, None, false);
         assert!(matches!(result, Ok(InputType::Diff)));
     }
 
     #[test]
     fn test_validate_input_diff_with_from() {
+        // File arg with diff content but no --diff flag: treated as single file (with warning)
         let diff = "diff --git a/file.rs b/file.rs\n--- a/file.rs\n+++ b/file.rs\n";
         let from = PathBuf::from("changes.diff");
-        let result = validate_input(diff, Some(&from));
-        assert!(matches!(result, Ok(InputType::Diff)));
+        let result = validate_input(diff, Some(&from), false);
+        assert!(matches!(result, Ok(InputType::SingleFile(_))));
     }
 
     #[test]
     fn test_validate_input_single_file() {
         let code = "fn main() { println!(\"hello\"); }";
         let from = PathBuf::from("src/main.rs");
-        let result = validate_input(code, Some(&from));
+        let result = validate_input(code, Some(&from), false);
         assert!(matches!(result, Ok(InputType::SingleFile(_))));
     }
 
     #[test]
     fn test_validate_input_invalid_stdin() {
         let code = "fn main() { println!(\"hello\"); }";
-        let result = validate_input(code, None);
+        let result = validate_input(code, None, false);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("review expects diff input"));
+    }
+
+    #[test]
+    fn test_validate_input_force_diff_stdin() {
+        // --diff forces diff mode even for non-diff stdin content
+        let code = "fn main() { println!(\"hello\"); }";
+        let result = validate_input(code, None, true);
+        assert!(matches!(result, Ok(InputType::Diff)));
+    }
+
+    #[test]
+    fn test_validate_input_force_diff_file() {
+        // --diff forces diff mode for file argument with non-diff content
+        let code = "fn main() { println!(\"hello\"); }";
+        let from = PathBuf::from("src/main.rs");
+        let result = validate_input(code, Some(&from), true);
+        assert!(matches!(result, Ok(InputType::Diff)));
+    }
+
+    #[test]
+    fn test_validate_input_file_with_embedded_diff() {
+        // File with embedded diff examples should be treated as single file (not diff)
+        let content = r#"fn test_diff_parsing() {
+    let example = "diff --git a/file.rs b/file.rs\n--- a/file.rs\n+++ b/file.rs\n";
+    assert!(is_diff(example));
+}
+"#;
+        let from = PathBuf::from("src/tests.rs");
+        let result = validate_input(content, Some(&from), false);
+        assert!(matches!(result, Ok(InputType::SingleFile(_))));
+    }
+
+    #[test]
+    fn test_validate_input_diff_with_from_force_diff() {
+        // File arg + --diff forces diff mode
+        let diff = "diff --git a/file.rs b/file.rs\n--- a/file.rs\n+++ b/file.rs\n";
+        let from = PathBuf::from("changes.diff");
+        let result = validate_input(diff, Some(&from), true);
+        assert!(matches!(result, Ok(InputType::Diff)));
     }
 }

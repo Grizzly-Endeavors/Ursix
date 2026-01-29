@@ -101,19 +101,6 @@ Test code often has different standards (using `unwrap()`, simpler error handlin
 
 Use `error` sparingly - if everything is an error, nothing is.
 
-## Known Limitations
-
-### Single-File Review with Embedded Content
-
-When reviewing a single file (not a diff), Ursix adds line numbers and a filename header to help the LLM reference locations accurately. However, if a file contains embedded diff examples (e.g., in test data or documentation), it may be incorrectly detected as diff format.
-
-**Workaround**: For files with embedded diff content, pipe them through stdin with context:
-```bash
-cat src/chunk.rs | usx review --checks style
-```
-
-This is a known limitation tracked for improvement.
-
 ## Debugging False Positives
 
 If a rule produces false positives:

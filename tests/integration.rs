@@ -271,6 +271,41 @@ fn cli_derive_empty_stdin_errors() -> TestResult {
 }
 
 #[test]
+fn cli_review_shows_diff_flag_in_help() -> TestResult {
+    Command::cargo_bin("usx")?
+        .args(["review", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--diff"));
+    Ok(())
+}
+
+#[test]
+fn cli_review_accepts_diff_flag() -> TestResult {
+    // Pipe diff content with --diff flag - verifies flag is accepted
+    let mut child = Command::cargo_bin("usx")?
+        .args(["review", "--diff"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(b"diff --git a/test.rs b/test.rs\n+fn new_func() {}\n")?;
+    }
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "review should accept --diff flag"
+    );
+    Ok(())
+}
+
+#[test]
 fn cli_derive_shows_help() -> TestResult {
     // Verify derive command shows help with available types
     let result = Command::cargo_bin("usx")?
