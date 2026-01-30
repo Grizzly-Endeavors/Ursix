@@ -128,10 +128,13 @@ impl OpenAiClient {
         if !response.status().is_success() {
             let status = response.status();
             // Get raw body first, then try to parse as OpenAI error format
-            let raw_body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "failed to read response body".to_string());
+            let raw_body = match response.text().await {
+                Ok(body) => body,
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to read error response body");
+                    format!("failed to read response body: {e}")
+                }
+            };
             let error_body = serde_json::from_str::<OpenAiErrorResponse>(&raw_body)
                 .map_or_else(|_| raw_body, |e| e.error.message);
             return Err(LlmError::Api(format!("{status}: {error_body}")));
@@ -196,10 +199,13 @@ impl LlmClient for OpenAiClient {
         if !response.status().is_success() {
             let status = response.status();
             // Get raw body first, then try to parse as OpenAI error format
-            let raw_body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "failed to read response body".to_string());
+            let raw_body = match response.text().await {
+                Ok(body) => body,
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to read error response body");
+                    format!("failed to read response body: {e}")
+                }
+            };
             let error_body = serde_json::from_str::<OpenAiErrorResponse>(&raw_body)
                 .map_or_else(|_| raw_body, |e| e.error.message);
             return Err(LlmError::Api(format!("{status}: {error_body}")));

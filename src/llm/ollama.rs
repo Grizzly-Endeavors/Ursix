@@ -84,10 +84,11 @@ impl OllamaClient {
             .map_err(|e| map_request_error(e, self.timeout_secs()))?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_body = response
                 .json::<OllamaErrorResponse>()
                 .await
-                .map_or_else(|_| "unknown error".to_string(), |e| e.error);
+                .map_or_else(|_| format!("{status}: unknown error"), |e| e.error);
             return Err(LlmError::Api(error_body));
         }
 
@@ -142,10 +143,11 @@ impl LlmClient for OllamaClient {
             .map_err(|e| map_request_error(e, self.timeout_secs()))?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_body = response
                 .json::<OllamaErrorResponse>()
                 .await
-                .map_or_else(|_| "unknown error".to_string(), |e| e.error);
+                .map_or_else(|_| format!("{status}: unknown error"), |e| e.error);
             return Err(LlmError::Api(error_body));
         }
 

@@ -7,13 +7,17 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
-/// Read content from stdin (blocking)
-fn read_stdin() -> Result<String> {
-    let mut buffer = String::new();
-    io::stdin()
-        .read_to_string(&mut buffer)
-        .context("failed to read from stdin")?;
-    Ok(buffer)
+/// Read content from stdin, offloading the blocking read to a separate thread
+async fn read_stdin() -> Result<String> {
+    tokio::task::spawn_blocking(|| {
+        let mut buffer = String::new();
+        io::stdin()
+            .read_to_string(&mut buffer)
+            .context("failed to read from stdin")?;
+        Ok(buffer)
+    })
+    .await
+    .context("stdin read task panicked")?
 }
 
 /// Check if content appears to be a git diff format
@@ -51,11 +55,11 @@ pub(crate) fn is_diff_format(content: &str) -> bool {
 /// - Input is empty
 pub(crate) async fn read_input(from: Option<&PathBuf>) -> Result<String> {
     let content = match from {
-        Some(path) if path.as_os_str() == "-" => read_stdin()?,
+        Some(path) if path.as_os_str() == "-" => read_stdin().await?,
         Some(path) => tokio::fs::read_to_string(path)
             .await
             .with_context(|| format!("failed to read from {}", path.display()))?,
-        None => read_stdin()?,
+        None => read_stdin().await?,
     };
 
     if content.trim().is_empty() {

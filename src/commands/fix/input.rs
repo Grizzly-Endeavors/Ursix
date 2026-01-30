@@ -82,7 +82,7 @@ impl FixInput {
     ///
     /// # Errors
     /// Returns appropriate `InputValidationError` if any validation fails.
-    pub(crate) fn validate(
+    pub(crate) async fn validate(
         &self,
         working_dir: &Path,
     ) -> Result<ValidatedFixInput, InputValidationError> {
@@ -111,7 +111,7 @@ impl FixInput {
         }
 
         // Read file content
-        let content = std::fs::read_to_string(&file_path).map_err(|e| {
+        let content = tokio::fs::read_to_string(&file_path).await.map_err(|e| {
             InputValidationError::FileUnreadable {
                 path: self.file.clone(),
                 reason: e.to_string(),
@@ -260,7 +260,7 @@ impl WholeFileInput {
     ///
     /// # Errors
     /// Returns appropriate `InputValidationError` if any validation fails.
-    pub(crate) fn validate(
+    pub(crate) async fn validate(
         &self,
         working_dir: &Path,
     ) -> Result<ValidatedWholeFileInput, InputValidationError> {
@@ -307,7 +307,7 @@ impl WholeFileInput {
         }
 
         // Read file content
-        let content = std::fs::read_to_string(&file_path).map_err(|e| {
+        let content = tokio::fs::read_to_string(&file_path).await.map_err(|e| {
             InputValidationError::FileUnreadable {
                 path: self.file.clone(),
                 reason: e.to_string(),
@@ -405,8 +405,8 @@ mod tests {
         assert!(FixInput::parse(json).is_err());
     }
 
-    #[test]
-    fn test_validate_success() {
+    #[tokio::test]
+    async fn test_validate_success() {
         let content = "fn main() {\n    let x = 1;\n    println!(\"{}\", x);\n}";
         let (dir, file_name) = setup_test_file(content);
 
@@ -416,14 +416,14 @@ mod tests {
             lines: (2, 2),
         };
 
-        let validated = input.validate(dir.path()).unwrap();
+        let validated = input.validate(dir.path()).await.unwrap();
         assert_eq!(validated.issue, "unused variable");
         assert_eq!(validated.lines, (2, 2));
         assert_eq!(validated.snippet, "    let x = 1;");
     }
 
-    #[test]
-    fn test_validate_multiline_snippet() {
+    #[tokio::test]
+    async fn test_validate_multiline_snippet() {
         let content =
             "fn main() {\n    let x = 1;\n    let y = 2;\n    println!(\"{}\", x + y);\n}";
         let (dir, file_name) = setup_test_file(content);
@@ -434,13 +434,13 @@ mod tests {
             lines: (2, 3),
         };
 
-        let validated = input.validate(dir.path()).unwrap();
+        let validated = input.validate(dir.path()).await.unwrap();
         assert_eq!(validated.lines, (2, 3));
         assert_eq!(validated.snippet, "    let x = 1;\n    let y = 2;");
     }
 
-    #[test]
-    fn test_validate_file_not_found() {
+    #[tokio::test]
+    async fn test_validate_file_not_found() {
         let dir = TempDir::new().unwrap();
         let input = FixInput {
             issue: "test".to_string(),
@@ -448,15 +448,15 @@ mod tests {
             lines: (1, 1),
         };
 
-        let result = input.validate(dir.path());
+        let result = input.validate(dir.path()).await;
         assert!(matches!(
             result,
             Err(InputValidationError::FileNotFound { .. })
         ));
     }
 
-    #[test]
-    fn test_validate_invalid_line_range() {
+    #[tokio::test]
+    async fn test_validate_invalid_line_range() {
         let (dir, file_name) = setup_test_file("line 1\nline 2");
 
         let input = FixInput {
@@ -465,15 +465,15 @@ mod tests {
             lines: (5, 3), // start > end
         };
 
-        let result = input.validate(dir.path());
+        let result = input.validate(dir.path()).await;
         assert!(matches!(
             result,
             Err(InputValidationError::InvalidLineRange { .. })
         ));
     }
 
-    #[test]
-    fn test_validate_zero_line_number() {
+    #[tokio::test]
+    async fn test_validate_zero_line_number() {
         let (dir, file_name) = setup_test_file("line 1");
 
         let input = FixInput {
@@ -482,15 +482,15 @@ mod tests {
             lines: (0, 1),
         };
 
-        let result = input.validate(dir.path());
+        let result = input.validate(dir.path()).await;
         assert!(matches!(
             result,
             Err(InputValidationError::ZeroLineNumber { .. })
         ));
     }
 
-    #[test]
-    fn test_validate_line_range_out_of_bounds() {
+    #[tokio::test]
+    async fn test_validate_line_range_out_of_bounds() {
         let (dir, file_name) = setup_test_file("line 1\nline 2");
 
         let input = FixInput {
@@ -499,15 +499,15 @@ mod tests {
             lines: (1, 10),
         };
 
-        let result = input.validate(dir.path());
+        let result = input.validate(dir.path()).await;
         assert!(matches!(
             result,
             Err(InputValidationError::LineRangeOutOfBounds { .. })
         ));
     }
 
-    #[test]
-    fn test_validate_empty_issue() {
+    #[tokio::test]
+    async fn test_validate_empty_issue() {
         let (dir, file_name) = setup_test_file("content");
 
         let input = FixInput {
@@ -516,12 +516,12 @@ mod tests {
             lines: (1, 1),
         };
 
-        let result = input.validate(dir.path());
+        let result = input.validate(dir.path()).await;
         assert!(matches!(result, Err(InputValidationError::EmptyIssue)));
     }
 
-    #[test]
-    fn test_snippet_inferred_from_file() {
+    #[tokio::test]
+    async fn test_snippet_inferred_from_file() {
         let content = "line 1\nline 2\nline 3";
         let (dir, file_name) = setup_test_file(content);
 
@@ -531,7 +531,7 @@ mod tests {
             lines: (1, 2),
         };
 
-        let validated = input.validate(dir.path()).unwrap();
+        let validated = input.validate(dir.path()).await.unwrap();
         assert_eq!(validated.snippet, "line 1\nline 2");
     }
 
@@ -563,8 +563,8 @@ mod tests {
         assert_eq!(input.issues.get(1).map(|i| i.lines), Some((25, 28)));
     }
 
-    #[test]
-    fn test_validate_whole_file_success() {
+    #[tokio::test]
+    async fn test_validate_whole_file_success() {
         let content = "line 1\nline 2\nline 3\nline 4\nline 5";
         let (dir, file_name) = setup_test_file(content);
 
@@ -582,7 +582,7 @@ mod tests {
             ],
         };
 
-        let validated = input.validate(dir.path()).unwrap();
+        let validated = input.validate(dir.path()).await.unwrap();
         assert_eq!(validated.issues.len(), 2);
         // Should be sorted descending by line number
         assert_eq!(validated.issues.get(0).map(|i| i.lines), Some((4, 5)));
@@ -598,8 +598,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_validate_whole_file_empty_issues() {
+    #[tokio::test]
+    async fn test_validate_whole_file_empty_issues() {
         let (dir, file_name) = setup_test_file("content");
 
         let input = WholeFileInput {
@@ -607,12 +607,12 @@ mod tests {
             issues: vec![],
         };
 
-        let result = input.validate(dir.path());
+        let result = input.validate(dir.path()).await;
         assert!(matches!(result, Err(InputValidationError::EmptyIssues)));
     }
 
-    #[test]
-    fn test_validate_whole_file_overlapping_ranges() {
+    #[tokio::test]
+    async fn test_validate_whole_file_overlapping_ranges() {
         let (dir, file_name) = setup_test_file("line 1\nline 2\nline 3\nline 4");
 
         let input = WholeFileInput {
@@ -629,15 +629,15 @@ mod tests {
             ],
         };
 
-        let result = input.validate(dir.path());
+        let result = input.validate(dir.path()).await;
         assert!(matches!(
             result,
             Err(InputValidationError::OverlappingRanges { .. })
         ));
     }
 
-    #[test]
-    fn test_validate_whole_file_adjacent_ranges_ok() {
+    #[tokio::test]
+    async fn test_validate_whole_file_adjacent_ranges_ok() {
         let content = "line 1\nline 2\nline 3\nline 4";
         let (dir, file_name) = setup_test_file(content);
 
@@ -656,7 +656,7 @@ mod tests {
         };
 
         // Adjacent ranges should not overlap
-        let result = input.validate(dir.path());
+        let result = input.validate(dir.path()).await;
         assert!(result.is_ok());
     }
 

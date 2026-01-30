@@ -85,7 +85,7 @@ async fn cmd_fix_atomic(
     };
 
     // Validate input against file system
-    let validated = match fix_input.validate(&config.working_dir) {
+    let validated = match fix_input.validate(&config.working_dir).await {
         Ok(v) => v,
         Err(e) => {
             let error = FixError::input_validation(e.to_string());
@@ -126,7 +126,7 @@ async fn cmd_fix_whole_file(
     };
 
     // Validate input against file system
-    let validated = match whole_file_input.validate(&config.working_dir) {
+    let validated = match whole_file_input.validate(&config.working_dir).await {
         Ok(v) => v,
         Err(e) => {
             let error = FixError::input_validation(e.to_string());

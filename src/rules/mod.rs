@@ -165,7 +165,7 @@ impl RulesConfig {
     /// 2. Project rules from `.ursix/rules.yml` or `rules.yml`
     ///
     /// Project rules extend global rules (same category adds rules).
-    /// If no rules are found, returns default built-in rules.
+    /// If no rules files are found, returns an error directing the user to run `usx init`.
     ///
     /// # Errors
     /// Returns error if a rules file exists but cannot be parsed.
