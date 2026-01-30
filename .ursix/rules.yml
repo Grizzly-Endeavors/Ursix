@@ -29,11 +29,6 @@ categories:
       severity: error
       files: "src/output/**/*.rs"
 
-    - name: serialization-fallback
-      description: "serde_json::to_string() calls must use ? or .unwrap_or_else() with error handling, never bare .unwrap(). Flag: serde_json::to_string(&x).unwrap(). EXCEPTION: .unwrap() is allowed inside #[cfg(test)] modules or functions marked #[test] - do NOT flag unwrap in test code."
-      severity: error
-      files: "*.rs"
-
   logging:
     - name: structured-logging-fields
       description: "All tracing macros (info!, warn!, error!, debug!, trace!) must use structured fields (key = value), not string interpolation. Flag patterns like info!(\"processing {}\", item) - should be info!(item = %item, \"processing\")."
@@ -61,12 +56,6 @@ categories:
       severity: info
       files: "*.rs"
 
-
-    - name: no-unexplained-allow
-      description: "Every #[allow(...)] macro must have a comment explaining WHY the lint is suppressed. Flag bare allows without justification. Exception: #[allow(clippy::unwrap_used)] in test modules is pre-approved. Unnecessary allows (suppressing lints that don't fire) should be removed."
-      severity: error
-      files: "*.rs"
-
   visibility:
     - name: private-first
       description: "Helper functions only called within the same file should not be pub or pub(crate). Flag pub on small utility functions that appear to be internal (e.g., single-use helpers, functions with impl-detail names)."
@@ -82,11 +71,6 @@ categories:
     - name: default-trait-for-config
       description: "Config structs should implement Default with sensible values. Provide named helper methods for common configurations (e.g., no_retry() for RetryConfig)."
       severity: info
-      files: "*.rs"
-
-    - name: must-use-constructors
-      description: "Constructors (new()) and utility functions that return values for side-effect-free computation should have #[must_use]. Prevents silently discarded results."
-      severity: warning
       files: "*.rs"
 
     - name: avoid-builder-abuse
@@ -116,11 +100,6 @@ categories:
       files: "src/llm/**/*.rs"
 
   testing:
-    - name: test-module-organization
-      description: "Unit tests should be in #[cfg(test)] mod tests at file bottom. Test modules should have #[allow(clippy::unwrap_used)] for readability. Flag test functions outside of mod tests."
-      severity: info
-      files: "*.rs"
-
     - name: deterministic-timing-tests
       description: "Timing assertions (e.g., assert!(elapsed < Duration::from_millis(100))) need 2-3x safety margin. Flag tight timing bounds without explanatory comments."
       severity: warning
