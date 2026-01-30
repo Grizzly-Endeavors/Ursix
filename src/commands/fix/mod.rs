@@ -152,11 +152,19 @@ async fn execute_fix(
     output_mode: OutputMode,
     retry_context: Option<&str>,
 ) -> Result<ExitCode> {
-    // Build the user request
-    let user_request = build_user_request(validated, retry_context);
+    // Build the user request with file path, language, and surrounding context
+    let file_path = validated.relative_path(&config.working_dir);
+    let user_request = build_fix_user_request(
+        &file_path,
+        &validated.file_content,
+        &validated.snippet,
+        &validated.issue,
+        validated.lines,
+        retry_context,
+    );
 
-    // Build context with the snippet
-    let ctx = InputContext::new(&validated.snippet);
+    // Empty context — all context is in the user request to avoid duplication
+    let ctx = InputContext::default();
 
     // Call the LLM (no JSON mode - we want raw code output)
     let llm_response = match run_pipeline(
@@ -237,11 +245,65 @@ async fn execute_fix(
     Ok(ExitCode::Success)
 }
 
-/// Build the user request for the LLM
-fn build_user_request(validated: &ValidatedFixInput, retry_context: Option<&str>) -> String {
+/// Infer programming language from file extension for code fence annotations
+fn language_from_path(path: &str) -> &'static str {
+    match path.rsplit('.').next() {
+        Some("rs") => "rust",
+        Some("py") => "python",
+        Some("js") => "javascript",
+        Some("ts") => "typescript",
+        Some("tsx") => "tsx",
+        Some("jsx") => "jsx",
+        Some("go") => "go",
+        Some("java") => "java",
+        Some("c" | "h") => "c",
+        Some("cpp" | "cc" | "cxx" | "hpp") => "cpp",
+        Some("rb") => "ruby",
+        Some("sh" | "bash") => "bash",
+        Some("yml" | "yaml") => "yaml",
+        Some("json") => "json",
+        Some("toml") => "toml",
+        Some("md") => "markdown",
+        _ => "",
+    }
+}
+
+/// Extract lines surrounding the target range for LLM context
+fn extract_surrounding_context(content: &str, lines: (usize, usize), window: usize) -> String {
+    let all_lines: Vec<&str> = content.lines().collect();
+    let ctx_start = (lines.0 - 1).saturating_sub(window);
+    let ctx_end = (lines.1 + window).min(all_lines.len());
+
+    let ctx_lines = all_lines.get(ctx_start..ctx_end).unwrap_or(&[]);
+    ctx_lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| format!("{:>4}| {}", ctx_start + i + 1, line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Build the user request for the fix LLM call with full context
+///
+/// Includes file path, language-annotated code fences, surrounding context
+/// with line numbers, and the specific snippet to fix.
+fn build_fix_user_request(
+    file_path: &str,
+    file_content: &str,
+    snippet: &str,
+    issue: &str,
+    lines: (usize, usize),
+    retry_context: Option<&str>,
+) -> String {
+    let lang = language_from_path(file_path);
+    let surrounding = extract_surrounding_context(file_content, lines, 15);
+
     let mut request = format!(
-        "Issue: {}\n\nCode to fix:\n```\n{}\n```",
-        validated.issue, validated.snippet
+        "File: {file_path}\n\n\
+         Issue: {issue}\n\n\
+         Surrounding context (with line numbers):\n```{lang}\n{surrounding}\n```\n\n\
+         Code to fix (lines {}-{}):\n```{lang}\n{snippet}\n```",
+        lines.0, lines.1
     );
 
     if let Some(ctx) = retry_context {
@@ -367,6 +429,7 @@ async fn execute_whole_file_fix(
     output_mode: OutputMode,
 ) -> Result<ExitCode> {
     let mut current_content = validated.file_content.clone();
+    let file_path = validated.relative_path(&config.working_dir);
     let mut issues_fixed = 0;
     let mut issue_failures: Vec<IssueFailure> = Vec::new();
     let mut total_lines_added: usize = 0;
@@ -374,7 +437,7 @@ async fn execute_whole_file_fix(
 
     // Process issues in order (already sorted descending by line number)
     for issue in &validated.issues {
-        match execute_single_issue_fix(config, options, issue, &current_content).await {
+        match execute_single_issue_fix(config, options, issue, &current_content, &file_path).await {
             Ok((new_content, lines_added, lines_removed)) => {
                 current_content = new_content;
                 issues_fixed += 1;
@@ -437,15 +500,20 @@ async fn execute_single_issue_fix(
     options: &FixOptions,
     issue: &ValidatedIssue,
     file_content: &str,
+    file_path: &str,
 ) -> Result<(String, usize, usize), String> {
-    // Build the user request
-    let user_request = format!(
-        "Issue: {}\n\nCode to fix:\n```\n{}\n```",
-        issue.issue, issue.snippet
+    // Build the user request with file path, language, and surrounding context
+    let user_request = build_fix_user_request(
+        file_path,
+        file_content,
+        &issue.snippet,
+        &issue.issue,
+        issue.lines,
+        None,
     );
 
-    // Build context with the snippet
-    let ctx = InputContext::new(&issue.snippet);
+    // Empty context — all context is in the user request to avoid duplication
+    let ctx = InputContext::default();
 
     // Call the LLM
     let llm_response = run_pipeline(config, FIX_PIPELINE_PROMPT, &ctx, &user_request, false)
@@ -494,31 +562,66 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_user_request_basic() {
-        let validated = ValidatedFixInput {
-            issue: "unused variable".to_string(),
-            snippet: "let x = 1;".to_string(),
-            file_path: PathBuf::from("/tmp/test.rs"),
-            file_content: "let x = 1;".to_string(),
-            lines: (1, 1),
-        };
-
-        let request = build_user_request(&validated, None);
+    fn test_build_fix_user_request_includes_file_and_language() {
+        let request = build_fix_user_request(
+            "src/main.rs",
+            "fn main() {\n    let x = 1;\n    println!(\"{}\", x);\n}",
+            "    let x = 1;",
+            "unused variable",
+            (2, 2),
+            None,
+        );
+        assert!(request.contains("File: src/main.rs"));
         assert!(request.contains("Issue: unused variable"));
+        assert!(request.contains("```rust"));
         assert!(request.contains("let x = 1;"));
+        // Surrounding context should include adjacent lines
+        assert!(request.contains("fn main()"));
     }
 
     #[test]
-    fn test_build_user_request_with_retry_context() {
-        let validated = ValidatedFixInput {
-            issue: "test".to_string(),
-            snippet: "code".to_string(),
-            file_path: PathBuf::from("/tmp/test.rs"),
-            file_content: "code".to_string(),
-            lines: (1, 1),
-        };
-
-        let request = build_user_request(&validated, Some("Previous attempt failed"));
+    fn test_build_fix_user_request_with_retry_context() {
+        let request = build_fix_user_request(
+            "test.rs",
+            "code",
+            "code",
+            "test issue",
+            (1, 1),
+            Some("Previous attempt failed"),
+        );
         assert!(request.contains("Previous attempt failed"));
+        assert!(request.contains("File: test.rs"));
+    }
+
+    #[test]
+    fn test_language_from_path() {
+        assert_eq!(language_from_path("src/main.rs"), "rust");
+        assert_eq!(language_from_path("app.py"), "python");
+        assert_eq!(language_from_path("index.js"), "javascript");
+        assert_eq!(language_from_path("config.toml"), "toml");
+        assert_eq!(language_from_path("unknown.xyz"), "");
+    }
+
+    #[test]
+    fn test_extract_surrounding_context_includes_window() {
+        let content = "line 1\nline 2\nline 3\nline 4\nline 5";
+        let ctx = extract_surrounding_context(content, (3, 3), 1);
+        assert!(ctx.contains("line 2"));
+        assert!(ctx.contains("line 3"));
+        assert!(ctx.contains("line 4"));
+        // Line numbers should be present
+        assert!(ctx.contains("   2| "));
+        assert!(ctx.contains("   3| "));
+        assert!(ctx.contains("   4| "));
+    }
+
+    #[test]
+    fn test_extract_surrounding_context_clamps_to_bounds() {
+        let content = "line 1\nline 2\nline 3";
+        let ctx = extract_surrounding_context(content, (1, 1), 10);
+        // Should include all lines without panicking
+        assert!(ctx.contains("line 1"));
+        assert!(ctx.contains("line 2"));
+        assert!(ctx.contains("line 3"));
     }
 }

@@ -34,7 +34,7 @@ impl HttpClientConfig {
     pub(crate) fn with_timeout(timeout_secs: u64) -> Self {
         Self {
             timeout_secs,
-            ..Default::default()
+            ..HttpClientConfig::default()
         }
     }
 }
