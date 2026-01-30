@@ -9,7 +9,7 @@ use super::LlmError;
 
 /// Configuration for retry behavior
 #[derive(Debug, Clone)]
-pub struct RetryConfig {
+pub(crate) struct RetryConfig {
     /// Maximum number of retry attempts (0 = no retries)
     pub max_retries: u32,
     /// Initial delay before first retry
@@ -34,7 +34,7 @@ impl Default for RetryConfig {
 impl RetryConfig {
     /// Create a config that disables retries
     #[must_use]
-    pub fn no_retry() -> Self {
+    pub(crate) fn no_retry() -> Self {
         Self {
             max_retries: 0,
             ..Self::default()
@@ -48,7 +48,7 @@ impl RetryConfig {
 ///
 /// # Errors
 /// Returns the last error if all retries are exhausted or if a non-retryable error occurs
-pub async fn with_retry<F, Fut, T>(config: &RetryConfig, operation: F) -> Result<T, LlmError>
+pub(crate) async fn with_retry<F, Fut, T>(config: &RetryConfig, operation: F) -> Result<T, LlmError>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T, LlmError>>,
@@ -79,26 +79,31 @@ where
                 );
 
                 // Add jitter (+-25%)
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    clippy::cast_precision_loss
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "precision loss acceptable for jitter calculation"
                 )]
                 let jitter = delay.as_millis() as f64 * (rand::random::<f64>() * 0.5 - 0.25);
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    clippy::cast_precision_loss
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "precision loss acceptable for duration calculation"
                 )]
                 let jittered_delay =
                     Duration::from_millis((delay.as_millis() as f64 + jitter) as u64);
                 sleep(jittered_delay).await;
 
                 // Exponential backoff
-                #[allow(
+                #[expect(
                     clippy::cast_possible_truncation,
+                    reason = "duration fits in u64 range"
+                )]
+                #[expect(
                     clippy::cast_sign_loss,
-                    clippy::cast_precision_loss
+                    reason = "unsigned conversion acceptable for duration"
+                )]
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "precision loss acceptable for backoff calculation"
                 )]
                 let next_delay = Duration::from_millis(
                     (delay.as_millis() as f64 * config.backoff_multiplier) as u64,
@@ -110,7 +115,7 @@ where
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};

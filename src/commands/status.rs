@@ -20,7 +20,7 @@ const STATUS_TIMEOUT_SECS: u64 = 10;
 
 /// Options for the status command
 #[derive(Debug, Clone)]
-pub struct StatusOptions {
+pub(crate) struct StatusOptions {
     /// Show detailed status information
     pub verbose: bool,
 }
@@ -30,7 +30,7 @@ pub struct StatusOptions {
 /// # Errors
 /// This function returns `Ok` with an appropriate exit code for all cases.
 /// Actual errors (e.g., failed checks) are reflected in the exit code, not as `Err`.
-pub async fn cmd_status(
+pub(crate) async fn cmd_status(
     config: &Config,
     options: StatusOptions,
     output_mode: OutputMode,
@@ -163,7 +163,10 @@ async fn check_connectivity(
     };
 
     // Response time in milliseconds - safe to truncate as u128 won't exceed u64 for realistic durations
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "elapsed milliseconds fit in u64 for realistic durations"
+    )]
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
     match models_result {
@@ -188,15 +191,11 @@ async fn check_connectivity(
                 StatusCheck::pass("connectivity", message)
             };
 
-            let verbose_info = if verbose {
-                Some(VerboseInfo {
-                    response_time_ms: Some(elapsed_ms),
-                    available_models: Some(models),
-                    model_available: Some(model_available),
-                })
-            } else {
-                None
-            };
+            let verbose_info = verbose.then_some(VerboseInfo {
+                response_time_ms: Some(elapsed_ms),
+                available_models: Some(models),
+                model_available: Some(model_available),
+            });
 
             ConnectivityResult {
                 check,
@@ -250,7 +249,6 @@ fn is_remote_url(url: &str) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

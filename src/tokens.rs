@@ -37,7 +37,7 @@ fn get_tokenizer() -> Result<&'static Tokenizer> {
         .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))?;
 
     // Store it (ignore if another thread beat us)
-    let _ = TOKENIZER.set(tokenizer);
+    TOKENIZER.set(tokenizer).ok();
 
     // Return the stored reference
     TOKENIZER
@@ -47,7 +47,7 @@ fn get_tokenizer() -> Result<&'static Tokenizer> {
 
 /// Token count result
 #[derive(Debug, Clone, Copy)]
-pub struct TokenCount {
+pub(crate) struct TokenCount {
     /// Number of tokens
     pub count: usize,
 }
@@ -55,14 +55,14 @@ pub struct TokenCount {
 impl TokenCount {
     /// Create a new token count
     #[must_use]
-    pub const fn new(count: usize) -> Self {
+    pub(crate) const fn new(count: usize) -> Self {
         Self { count }
     }
 }
 
 /// Token limit thresholds for warnings and errors
 #[derive(Debug, Clone)]
-pub struct TokenLimits {
+pub(crate) struct TokenLimits {
     /// Threshold above which to warn about quality/hallucination risk
     pub warn_threshold: usize,
     /// Threshold above which to error (require --chunk or shorter input)
@@ -80,7 +80,7 @@ impl Default for TokenLimits {
 
 /// Result of checking token count against limits
 #[derive(Debug)]
-pub enum TokenCheck {
+pub(crate) enum TokenCheck {
     /// Token count is within acceptable limits
     Ok(TokenCount),
     /// Token count exceeds warning threshold but not error threshold
@@ -109,7 +109,7 @@ pub enum TokenCheck {
 /// - Code: ~3-4 chars/token (more symbols)
 /// - Mixed content: ~4 chars/token
 #[must_use]
-pub fn count_tokens_heuristic(content: &str) -> TokenCount {
+pub(crate) fn count_tokens_heuristic(content: &str) -> TokenCount {
     // Use 4 characters per token as approximation
     // This is slightly conservative (may overcount) which is safer for limit checking
     let char_count = content.chars().count();
@@ -125,7 +125,7 @@ pub fn count_tokens_heuristic(content: &str) -> TokenCount {
 ///
 /// # Errors
 /// Returns error if the tokenizer cannot be loaded or encoding fails.
-pub fn count_tokens_full(content: &str) -> Result<TokenCount> {
+pub(crate) fn count_tokens_full(content: &str) -> Result<TokenCount> {
     let tokenizer = get_tokenizer()?;
     let encoding = tokenizer
         .encode(content, false)
@@ -137,7 +137,7 @@ pub fn count_tokens_full(content: &str) -> Result<TokenCount> {
 ///
 /// # Errors
 /// Returns error if full tokenizer mode is used and the tokenizer cannot be loaded.
-pub fn count_tokens(content: &str, mode: TokenizerMode) -> Result<TokenCount> {
+pub(crate) fn count_tokens(content: &str, mode: TokenizerMode) -> Result<TokenCount> {
     match mode {
         TokenizerMode::Heuristic => Ok(count_tokens_heuristic(content)),
         TokenizerMode::Full => {
@@ -158,13 +158,16 @@ pub fn count_tokens(content: &str, mode: TokenizerMode) -> Result<TokenCount> {
 ///
 /// # Errors
 /// Returns error if full tokenizer mode is used and the tokenizer cannot be loaded.
-pub fn count_context_tokens(context: &InputContext, mode: TokenizerMode) -> Result<TokenCount> {
+pub(crate) fn count_context_tokens(
+    context: &InputContext,
+    mode: TokenizerMode,
+) -> Result<TokenCount> {
     count_tokens(context.content(), mode)
 }
 
 /// Check token count against limits
 #[must_use]
-pub fn check_token_limits(count: TokenCount, limits: &TokenLimits) -> TokenCheck {
+pub(crate) fn check_token_limits(count: TokenCount, limits: &TokenLimits) -> TokenCheck {
     if count.count > limits.error_threshold {
         TokenCheck::Error {
             count,
@@ -187,7 +190,8 @@ pub fn check_token_limits(count: TokenCount, limits: &TokenLimits) -> TokenCheck
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
+#[expect(clippy::panic, reason = "test code uses panic for assertion")]
 mod tests {
     use super::*;
 
@@ -214,19 +218,19 @@ mod tests {
     #[test]
     fn test_count_tokens_heuristic_approximation() {
         // 100 chars should be ~25 tokens (100/4)
-        let content = "a".repeat(100);
-        let count = count_tokens_heuristic(&content);
-        assert_eq!(count.count, 25);
+        let content_100 = "a".repeat(100);
+        let count_100 = count_tokens_heuristic(&content_100);
+        assert_eq!(count_100.count, 25);
 
         // 99 chars should round up to 25 tokens ((99+3)/4)
-        let content = "a".repeat(99);
-        let count = count_tokens_heuristic(&content);
-        assert_eq!(count.count, 25);
+        let content_99 = "a".repeat(99);
+        let count_99 = count_tokens_heuristic(&content_99);
+        assert_eq!(count_99.count, 25);
 
         // 101 chars should be 26 tokens ((101+3)/4)
-        let content = "a".repeat(101);
-        let count = count_tokens_heuristic(&content);
-        assert_eq!(count.count, 26);
+        let content_101 = "a".repeat(101);
+        let count_101 = count_tokens_heuristic(&content_101);
+        assert_eq!(count_101.count, 26);
     }
 
     #[test]
@@ -252,12 +256,12 @@ mod tests {
     #[test]
     fn test_count_tokens_with_mode() {
         // Heuristic mode
-        let count = count_tokens("hello world", TokenizerMode::Heuristic).unwrap();
-        assert!(count.count > 0);
+        let count_heuristic = count_tokens("hello world", TokenizerMode::Heuristic).unwrap();
+        assert!(count_heuristic.count > 0);
 
         // Full mode
-        let count = count_tokens("hello world", TokenizerMode::Full).unwrap();
-        assert!(count.count > 0);
+        let count_full = count_tokens("hello world", TokenizerMode::Full).unwrap();
+        assert!(count_full.count > 0);
     }
 
     #[test]
@@ -273,7 +277,7 @@ mod tests {
         let count = TokenCount::new(1000);
         match check_token_limits(count, &limits) {
             TokenCheck::Ok(c) => assert_eq!(c.count, 1000),
-            _ => panic!("expected Ok"),
+            TokenCheck::Warning { .. } | TokenCheck::Error { .. } => panic!("expected Ok"),
         }
     }
 
@@ -287,7 +291,7 @@ mod tests {
                 assert!(message.contains("10000 tokens"));
                 assert!(message.contains("--chunk"));
             }
-            _ => panic!("expected Warning"),
+            TokenCheck::Ok(_) | TokenCheck::Error { .. } => panic!("expected Warning"),
         }
     }
 
@@ -301,7 +305,7 @@ mod tests {
                 assert!(message.contains("20000 tokens"));
                 assert!(message.contains("--chunk"));
             }
-            _ => panic!("expected Error"),
+            TokenCheck::Ok(_) | TokenCheck::Warning { .. } => panic!("expected Error"),
         }
     }
 
@@ -341,23 +345,23 @@ mod tests {
         ));
 
         // At error threshold - should be error
-        let count = TokenCount::new(201);
+        let count_error = TokenCount::new(201);
         assert!(matches!(
-            check_token_limits(count, &limits),
+            check_token_limits(count_error, &limits),
             TokenCheck::Error { .. }
         ));
 
         // Exactly at warn threshold - should be ok
-        let count = TokenCount::new(100);
+        let count_ok = TokenCount::new(100);
         assert!(matches!(
-            check_token_limits(count, &limits),
+            check_token_limits(count_ok, &limits),
             TokenCheck::Ok(_)
         ));
 
         // Exactly at error threshold - should be warning
-        let count = TokenCount::new(200);
+        let count_warn = TokenCount::new(200);
         assert!(matches!(
-            check_token_limits(count, &limits),
+            check_token_limits(count_warn, &limits),
             TokenCheck::Warning { .. }
         ));
     }

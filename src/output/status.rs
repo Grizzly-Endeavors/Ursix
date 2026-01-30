@@ -5,7 +5,7 @@ use serde::Serialize;
 
 /// A single status check result
 #[derive(Debug, Clone, Serialize)]
-pub struct StatusCheck {
+pub(crate) struct StatusCheck {
     /// Name of the check
     pub name: String,
     /// Whether the check passed
@@ -20,7 +20,7 @@ pub struct StatusCheck {
 impl StatusCheck {
     /// Create a passing check
     #[must_use]
-    pub fn pass(name: impl Into<String>, message: impl Into<String>) -> Self {
+    pub(crate) fn pass(name: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             passed: true,
@@ -31,7 +31,7 @@ impl StatusCheck {
 
     /// Create a failing check
     #[must_use]
-    pub fn fail(name: impl Into<String>, message: impl Into<String>) -> Self {
+    pub(crate) fn fail(name: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             passed: false,
@@ -42,7 +42,7 @@ impl StatusCheck {
 
     /// Add details to this check
     #[must_use]
-    pub fn with_details(mut self, details: impl Into<String>) -> Self {
+    pub(crate) fn with_details(mut self, details: impl Into<String>) -> Self {
         self.details = Some(details.into());
         self
     }
@@ -50,7 +50,7 @@ impl StatusCheck {
 
 /// Result from the `status` command
 #[derive(Debug, Clone, Serialize)]
-pub struct StatusResult {
+pub(crate) struct StatusResult {
     /// Overall status: true if all checks passed
     pub ok: bool,
     /// Provider name (ollama, openai)
@@ -73,7 +73,7 @@ pub struct StatusResult {
 
 /// Additional information shown in verbose mode
 #[derive(Debug, Clone, Serialize)]
-pub struct VerboseInfo {
+pub(crate) struct VerboseInfo {
     /// Response time in milliseconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_time_ms: Option<u64>,
@@ -88,7 +88,7 @@ pub struct VerboseInfo {
 impl StatusResult {
     /// Create a new status result
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         provider: impl Into<String>,
         provider_url: impl Into<String>,
         model: impl Into<String>,
@@ -107,7 +107,7 @@ impl StatusResult {
     }
 
     /// Add a check to the result
-    pub fn add_check(&mut self, check: StatusCheck) {
+    pub(crate) fn add_check(&mut self, check: StatusCheck) {
         if !check.passed {
             self.ok = false;
         }
@@ -115,12 +115,12 @@ impl StatusResult {
     }
 
     /// Add a warning
-    pub fn add_warning(&mut self, warning: impl Into<String>) {
+    pub(crate) fn add_warning(&mut self, warning: impl Into<String>) {
         self.warnings.push(warning.into());
     }
 
     /// Set verbose information
-    pub fn set_verbose(&mut self, verbose: VerboseInfo) {
+    pub(crate) fn set_verbose(&mut self, verbose: VerboseInfo) {
         self.verbose = Some(verbose);
     }
 }
@@ -187,9 +187,13 @@ impl CommandOutput for StatusResult {
                 let model_list = if models.len() <= display_count {
                     models.join(", ")
                 } else {
+                    let first_models = models
+                        .get(..display_count)
+                        .map(|slice| slice.join(", "))
+                        .unwrap_or_default();
                     format!(
                         "{}, ... and {} more",
-                        models[..display_count].join(", "),
+                        first_models,
                         models.len() - display_count
                     )
                 };
@@ -226,7 +230,7 @@ impl ExitStatus for StatusResult {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -326,10 +330,20 @@ mod tests {
         result.add_check(StatusCheck::pass("config", "ok"));
 
         let json = serde_json::to_value(&result).unwrap();
-        assert_eq!(json["ok"], true);
-        assert_eq!(json["provider"], "ollama");
-        assert_eq!(json["checks"][0]["name"], "config");
-        assert_eq!(json["checks"][0]["passed"], true);
+        assert_eq!(json.get("ok"), Some(&serde_json::json!(true)));
+        assert_eq!(json.get("provider"), Some(&serde_json::json!("ollama")));
+        assert_eq!(
+            json.get("checks")
+                .and_then(|checks| checks.get(0))
+                .and_then(|c| c.get("name")),
+            Some(&serde_json::json!("config"))
+        );
+        assert_eq!(
+            json.get("checks")
+                .and_then(|checks| checks.get(0))
+                .and_then(|c| c.get("passed")),
+            Some(&serde_json::json!(true))
+        );
     }
 
     #[test]

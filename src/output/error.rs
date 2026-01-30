@@ -15,7 +15,7 @@ use super::{ExitCode, OutputMeta};
 /// discriminant becomes a `code` field alongside the error data.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "code", rename_all = "snake_case")]
-pub enum TypedError {
+pub(crate) enum TypedError {
     /// Invalid CLI arguments
     InvalidArguments {
         message: String,
@@ -87,7 +87,7 @@ pub enum TypedError {
 impl TypedError {
     /// Returns the exit code category for this error
     #[must_use]
-    pub fn exit_code(&self) -> ExitCode {
+    pub(crate) fn exit_code(&self) -> ExitCode {
         match self {
             // User-fixable errors (exit 2)
             Self::InvalidArguments { .. }
@@ -118,7 +118,7 @@ impl TypedError {
 
     /// Returns whether this error is retryable
     #[must_use]
-    pub fn is_retryable(&self) -> bool {
+    pub(crate) fn is_retryable(&self) -> bool {
         matches!(self.exit_code(), ExitCode::TransientError)
     }
 
@@ -126,7 +126,7 @@ impl TypedError {
 
     /// Create an invalid arguments error
     #[must_use]
-    pub fn invalid_arguments(message: impl Into<String>) -> Self {
+    pub(crate) fn invalid_arguments(message: impl Into<String>) -> Self {
         Self::InvalidArguments {
             message: message.into(),
             argument: None,
@@ -135,7 +135,7 @@ impl TypedError {
 
     /// Create a config error
     #[must_use]
-    pub fn config(message: impl Into<String>) -> Self {
+    pub(crate) fn config(message: impl Into<String>) -> Self {
         Self::ConfigError {
             message: message.into(),
             path: None,
@@ -144,7 +144,7 @@ impl TypedError {
 
     /// Create an input error
     #[must_use]
-    pub fn input(message: impl Into<String>) -> Self {
+    pub(crate) fn input(message: impl Into<String>) -> Self {
         Self::InputError {
             message: message.into(),
             path: None,
@@ -153,7 +153,7 @@ impl TypedError {
 
     /// Create a git error
     #[must_use]
-    pub fn git(message: impl Into<String>) -> Self {
+    pub(crate) fn git(message: impl Into<String>) -> Self {
         Self::GitError {
             message: message.into(),
             command: None,
@@ -162,7 +162,7 @@ impl TypedError {
 
     /// Create a network error (defaults to retryable)
     #[must_use]
-    pub fn network(message: impl Into<String>) -> Self {
+    pub(crate) fn network(message: impl Into<String>) -> Self {
         Self::NetworkError {
             message: message.into(),
             url: None,
@@ -172,7 +172,7 @@ impl TypedError {
 
     /// Create an API error
     #[must_use]
-    pub fn api(message: impl Into<String>, retryable: bool) -> Self {
+    pub(crate) fn api(message: impl Into<String>, retryable: bool) -> Self {
         Self::ApiError {
             message: message.into(),
             provider: None,
@@ -183,7 +183,7 @@ impl TypedError {
 
     /// Create a parse error
     #[must_use]
-    pub fn parse(message: impl Into<String>) -> Self {
+    pub(crate) fn parse(message: impl Into<String>) -> Self {
         Self::ParseError {
             message: message.into(),
             context: None,
@@ -192,7 +192,7 @@ impl TypedError {
 
     /// Create a token limit error
     #[must_use]
-    pub fn token_limit(message: impl Into<String>) -> Self {
+    pub(crate) fn token_limit(message: impl Into<String>) -> Self {
         Self::TokenLimitError {
             message: message.into(),
             tokens: None,
@@ -202,7 +202,7 @@ impl TypedError {
 
     /// Create an internal error
     #[must_use]
-    pub fn internal(message: impl Into<String>) -> Self {
+    pub(crate) fn internal(message: impl Into<String>) -> Self {
         Self::InternalError {
             message: message.into(),
         }
@@ -232,7 +232,7 @@ impl std::error::Error for TypedError {}
 ///
 /// Contains metadata and the typed error, serialized to stderr.
 #[derive(Debug, Clone, Serialize)]
-pub struct ErrorResponse {
+pub(crate) struct ErrorResponse {
     /// Metadata (minimal for errors)
     #[serde(rename = "_meta")]
     pub meta: OutputMeta,
@@ -243,7 +243,7 @@ pub struct ErrorResponse {
 impl ErrorResponse {
     /// Create a new error response with minimal metadata
     #[must_use]
-    pub fn new(error: TypedError) -> Self {
+    pub(crate) fn new(error: TypedError) -> Self {
         Self {
             meta: OutputMeta::minimal(),
             error,
@@ -252,13 +252,13 @@ impl ErrorResponse {
 
     /// Create an error response with full metadata
     #[must_use]
-    pub fn with_meta(error: TypedError, meta: OutputMeta) -> Self {
+    pub(crate) fn with_meta(error: TypedError, meta: OutputMeta) -> Self {
         Self { meta, error }
     }
 
     /// Get the exit code for this error
     #[must_use]
-    pub fn exit_code(&self) -> ExitCode {
+    pub(crate) fn exit_code(&self) -> ExitCode {
         self.error.exit_code()
     }
 
@@ -266,13 +266,13 @@ impl ErrorResponse {
     ///
     /// # Errors
     /// Returns error if JSON serialization fails (should not happen).
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+    pub(crate) fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -346,10 +346,16 @@ mod tests {
         let json = serde_json::to_value(&error).unwrap();
 
         // Should have flat structure with code field
-        assert_eq!(json["code"], "network_error");
-        assert_eq!(json["message"], "connection failed");
-        assert_eq!(json["url"], "http://example.com");
-        assert_eq!(json["retryable"], true);
+        assert_eq!(json.get("code"), Some(&serde_json::json!("network_error")));
+        assert_eq!(
+            json.get("message"),
+            Some(&serde_json::json!("connection failed"))
+        );
+        assert_eq!(
+            json.get("url"),
+            Some(&serde_json::json!("http://example.com"))
+        );
+        assert_eq!(json.get("retryable"), Some(&serde_json::json!(true)));
     }
 
     #[test]
@@ -369,7 +375,8 @@ mod tests {
         for (error, expected_code) in variants {
             let json = serde_json::to_value(&error).unwrap();
             assert_eq!(
-                json["code"], expected_code,
+                json.get("code"),
+                Some(&serde_json::json!(expected_code)),
                 "wrong code for {expected_code:?}"
             );
         }
@@ -388,22 +395,28 @@ mod tests {
 
         // Meta should have schema_version
         assert_eq!(
-            json["_meta"]["schema_version"],
-            super::super::SCHEMA_VERSION
+            json.get("_meta").and_then(|m| m.get("schema_version")),
+            Some(&serde_json::json!(super::super::SCHEMA_VERSION))
         );
 
         // Error should have code field
-        assert_eq!(json["error"]["code"], "api_error");
-        assert_eq!(json["error"]["retryable"], true);
+        assert_eq!(
+            json.get("error").and_then(|e| e.get("code")),
+            Some(&serde_json::json!("api_error"))
+        );
+        assert_eq!(
+            json.get("error").and_then(|e| e.get("retryable")),
+            Some(&serde_json::json!(true))
+        );
     }
 
     #[test]
     fn test_error_response_exit_code() {
-        let response = ErrorResponse::new(TypedError::network("timeout"));
-        assert_eq!(response.exit_code(), ExitCode::TransientError);
+        let response_network = ErrorResponse::new(TypedError::network("timeout"));
+        assert_eq!(response_network.exit_code(), ExitCode::TransientError);
 
-        let response = ErrorResponse::new(TypedError::parse("bad json"));
-        assert_eq!(response.exit_code(), ExitCode::PermanentError);
+        let response_parse = ErrorResponse::new(TypedError::parse("bad json"));
+        assert_eq!(response_parse.exit_code(), ExitCode::PermanentError);
     }
 
     #[test]

@@ -12,7 +12,7 @@ use crate::tokens::{TokenCount, TokenLimits, count_tokens};
 
 /// A chunk of context to be processed independently
 #[derive(Debug, Clone)]
-pub struct Chunk {
+pub(crate) struct Chunk {
     /// Unique identifier for this chunk
     pub id: String,
     /// The context for this chunk
@@ -23,7 +23,7 @@ pub struct Chunk {
 
 /// Options for chunked execution
 #[derive(Debug, Clone)]
-pub struct ChunkOptions {
+pub(crate) struct ChunkOptions {
     /// Maximum number of concurrent chunk executions
     pub max_concurrency: usize,
     /// Token limits for individual chunks
@@ -43,7 +43,7 @@ impl Default for ChunkOptions {
 ///
 /// # Errors
 /// Returns error if token counting fails (only possible with Full tokenizer mode).
-pub fn create_chunk(context: &InputContext, mode: TokenizerMode) -> Result<Chunk> {
+pub(crate) fn create_chunk(context: &InputContext, mode: TokenizerMode) -> Result<Chunk> {
     let token_count = count_tokens(context.content(), mode)?;
 
     Ok(Chunk {
@@ -55,7 +55,7 @@ pub fn create_chunk(context: &InputContext, mode: TokenizerMode) -> Result<Chunk
 
 /// A chunk representing a single file's diff section
 #[derive(Debug, Clone)]
-pub struct DiffChunk {
+pub(crate) struct DiffChunk {
     /// The file path being modified
     pub file_path: String,
     /// The full diff section for this file
@@ -69,7 +69,7 @@ pub struct DiffChunk {
 ///
 /// Returns an empty vector if the input doesn't appear to be a valid diff.
 #[must_use]
-pub fn chunk_diff_by_file(diff_content: &str) -> Vec<DiffChunk> {
+pub(crate) fn chunk_diff_by_file(diff_content: &str) -> Vec<DiffChunk> {
     let mut chunks = Vec::new();
     let mut current_file: Option<String> = None;
     let mut current_content = String::new();
@@ -137,7 +137,7 @@ fn extract_file_path_from_diff_header(line: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -180,9 +180,20 @@ index 1234567..abcdefg 100644
 "#;
         let chunks = chunk_diff_by_file(diff);
         assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0].file_path, "src/main.rs");
-        assert!(chunks[0].content.contains("diff --git"));
-        assert!(chunks[0].content.contains("println"));
+        assert_eq!(
+            chunks.get(0).map(|c| &c.file_path),
+            Some(&"src/main.rs".to_string())
+        );
+        assert!(
+            chunks
+                .get(0)
+                .map_or(false, |c| c.content.contains("diff --git"))
+        );
+        assert!(
+            chunks
+                .get(0)
+                .map_or(false, |c| c.content.contains("println"))
+        );
     }
 
     #[test]
@@ -205,10 +216,20 @@ index 2222222..3333333 100644
 "#;
         let chunks = chunk_diff_by_file(diff);
         assert_eq!(chunks.len(), 2);
-        assert_eq!(chunks[0].file_path, "src/main.rs");
-        assert_eq!(chunks[1].file_path, "src/lib.rs");
-        assert!(chunks[0].content.contains("println"));
-        assert!(chunks[1].content.contains("utils"));
+        assert_eq!(
+            chunks.get(0).map(|c| &c.file_path),
+            Some(&"src/main.rs".to_string())
+        );
+        assert_eq!(
+            chunks.get(1).map(|c| &c.file_path),
+            Some(&"src/lib.rs".to_string())
+        );
+        assert!(
+            chunks
+                .get(0)
+                .map_or(false, |c| c.content.contains("println"))
+        );
+        assert!(chunks.get(1).map_or(false, |c| c.content.contains("utils")));
     }
 
     #[test]
@@ -226,7 +247,7 @@ index 2222222..3333333 100644
 
     #[test]
     fn test_chunk_diff_by_file_new_file() {
-        let diff = r"diff --git a/new_file.rs b/new_file.rs
+        let diff = "diff --git a/new_file.rs b/new_file.rs
 new file mode 100644
 index 0000000..1234567
 --- /dev/null
@@ -238,12 +259,15 @@ index 0000000..1234567
 ";
         let chunks = chunk_diff_by_file(diff);
         assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0].file_path, "new_file.rs");
+        assert_eq!(
+            chunks.get(0).map(|c| &c.file_path),
+            Some(&"new_file.rs".to_string())
+        );
     }
 
     #[test]
     fn test_chunk_diff_by_file_deleted_file() {
-        let diff = r"diff --git a/old_file.rs b/old_file.rs
+        let diff = "diff --git a/old_file.rs b/old_file.rs
 deleted file mode 100644
 index 1234567..0000000
 --- a/old_file.rs
@@ -255,7 +279,10 @@ index 1234567..0000000
 ";
         let chunks = chunk_diff_by_file(diff);
         assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0].file_path, "old_file.rs");
+        assert_eq!(
+            chunks.get(0).map(|c| &c.file_path),
+            Some(&"old_file.rs".to_string())
+        );
     }
 
     #[test]

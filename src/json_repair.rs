@@ -8,7 +8,7 @@ use std::fmt::{self, Write};
 
 /// Errors that can occur during JSON repair
 #[derive(Debug, Clone)]
-pub enum RepairError {
+pub(crate) enum RepairError {
     /// No JSON object found in the response
     NoJsonFound,
     /// JSON was truncated mid-value and cannot be recovered
@@ -45,7 +45,7 @@ impl std::error::Error for RepairError {}
 
 /// The result of a successful JSON repair operation
 #[derive(Debug, Clone)]
-pub struct RepairResult {
+pub(crate) struct RepairResult {
     /// The repaired JSON string
     pub json: String,
     /// List of repairs that were applied
@@ -56,7 +56,7 @@ pub struct RepairResult {
 
 /// Types of repairs that can be applied to JSON
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RepairKind {
+pub(crate) enum RepairKind {
     /// Removed markdown code fence
     RemovedCodeFence,
     /// Removed preamble text before JSON
@@ -103,7 +103,7 @@ impl fmt::Display for RepairKind {
 ///
 /// Applies repairs in order of safety, validating after each phase.
 /// Returns early once valid JSON is achieved.
-pub fn repair_json(response: &str) -> Result<RepairResult, RepairError> {
+pub(crate) fn repair_json(response: &str) -> Result<RepairResult, RepairError> {
     let trimmed = response.trim();
     if trimmed.is_empty() {
         return Err(RepairError::NoJsonFound);
@@ -254,7 +254,12 @@ fn extract_json_block(input: &str) -> (String, Vec<RepairKind>) {
         repairs.push(RepairKind::RemovedPostamble);
     }
 
-    (text[start..=end].to_string(), repairs)
+    // Use get() to safely extract the substring
+    let extracted = text
+        .get(start..=end)
+        .map_or_else(|| text.clone(), std::string::ToString::to_string);
+
+    (extracted, repairs)
 }
 
 /// Result of code fence removal
@@ -385,33 +390,37 @@ fn replace_outside_strings(input: &str, replacements: &[(&str, &str)]) -> String
     while i < chars.len() {
         if escape_next {
             escape_next = false;
-            result.push(chars[i]);
+            if let Some(&c) = chars.get(i) {
+                result.push(c);
+            }
             i += 1;
             continue;
         }
 
-        if chars[i] == '\\' && in_string {
-            escape_next = true;
-            result.push(chars[i]);
-            i += 1;
-            continue;
-        }
+        if let Some(&c) = chars.get(i) {
+            if c == '\\' && in_string {
+                escape_next = true;
+                result.push(c);
+                i += 1;
+                continue;
+            }
 
-        if chars[i] == '"' {
-            in_string = !in_string;
-            result.push(chars[i]);
-            i += 1;
-            continue;
-        }
+            if c == '"' {
+                in_string = !in_string;
+                result.push(c);
+                i += 1;
+                continue;
+            }
 
-        if in_string {
-            result.push(chars[i]);
-            i += 1;
-            continue;
+            if in_string {
+                result.push(c);
+                i += 1;
+                continue;
+            }
         }
 
         // Try to match replacements
-        let remaining: String = chars[i..].iter().collect();
+        let remaining: String = chars.get(i..).unwrap_or_default().iter().collect();
         let mut replaced = false;
 
         for (from, to) in replacements {
@@ -419,12 +428,14 @@ fn replace_outside_strings(input: &str, replacements: &[(&str, &str)]) -> String
                 // Ensure it's a complete token (not part of a longer identifier)
                 let after_idx = i + from.len();
                 let is_complete_token = after_idx >= chars.len()
-                    || !chars[after_idx].is_alphanumeric() && chars[after_idx] != '_';
+                    || (chars
+                        .get(after_idx)
+                        .is_none_or(|c| !c.is_alphanumeric() && *c != '_'));
 
                 let before_ok = i == 0
-                    || !chars[i - 1].is_alphanumeric()
-                        && chars[i - 1] != '_'
-                        && chars[i - 1] != '"';
+                    || chars
+                        .get(i.saturating_sub(1))
+                        .is_none_or(|c| !c.is_alphanumeric() && *c != '_' && *c != '"');
 
                 if is_complete_token && before_ok {
                     result.push_str(to);
@@ -436,7 +447,9 @@ fn replace_outside_strings(input: &str, replacements: &[(&str, &str)]) -> String
         }
 
         if !replaced {
-            result.push(chars[i]);
+            if let Some(&c) = chars.get(i) {
+                result.push(c);
+            }
             i += 1;
         }
     }
@@ -480,47 +493,51 @@ fn fix_single_quotes(input: &str) -> String {
             escape_next = false;
             // If escaping a single quote in what's becoming a double-quoted string,
             // we don't need the escape
-            if chars[i] == '\'' && in_single_string {
-                result.push('\'');
-            } else {
-                result.push(chars[i]);
+            if let Some(&c) = chars.get(i) {
+                if c == '\'' && in_single_string {
+                    result.push('\'');
+                } else {
+                    result.push(c);
+                }
             }
             i += 1;
             continue;
         }
 
-        if chars[i] == '\\' {
-            escape_next = true;
-            result.push(chars[i]);
-            i += 1;
-            continue;
-        }
+        if let Some(&c) = chars.get(i) {
+            if c == '\\' {
+                escape_next = true;
+                result.push(c);
+                i += 1;
+                continue;
+            }
 
-        if chars[i] == '"' && !in_single_string {
-            in_double_string = !in_double_string;
-            result.push(chars[i]);
-            i += 1;
-            continue;
-        }
+            if c == '"' && !in_single_string {
+                in_double_string = !in_double_string;
+                result.push(c);
+                i += 1;
+                continue;
+            }
 
-        if chars[i] == '\'' && !in_double_string {
-            // Convert single quote to double quote
-            result.push('"');
-            in_single_string = !in_single_string;
-            i += 1;
-            continue;
-        }
+            if c == '\'' && !in_double_string {
+                // Convert single quote to double quote
+                result.push('"');
+                in_single_string = !in_single_string;
+                i += 1;
+                continue;
+            }
 
-        // If we're in a single-quoted string and encounter a double quote, escape it
-        if chars[i] == '"' && in_single_string {
-            result.push('\\');
-            result.push('"');
-            i += 1;
-            continue;
-        }
+            // If we're in a single-quoted string and encounter a double quote, escape it
+            if c == '"' && in_single_string {
+                result.push('\\');
+                result.push('"');
+                i += 1;
+                continue;
+            }
 
-        result.push(chars[i]);
-        i += 1;
+            result.push(c);
+            i += 1;
+        }
     }
 
     result
@@ -598,7 +615,7 @@ fn escape_control_chars(input: &str) -> String {
                 '\t' => result.push_str("\\t"),
                 c if c.is_control() => {
                     // Escape other control chars as unicode - write! on String never fails
-                    let _ = write!(result, "\\u{:04x}", c as u32);
+                    write!(result, "\\u{:04x}", c as u32).ok();
                 }
                 _ => result.push(ch),
             }
@@ -739,11 +756,15 @@ fn truncation_context(input: &str) -> String {
     let preview_len = 50.min(len);
     let start = len.saturating_sub(preview_len);
 
-    format!("...{}", &trimmed[start..])
+    let preview = trimmed
+        .get(start..)
+        .map_or_else(|| trimmed.to_string(), std::string::ToString::to_string);
+
+    format!("...{preview}")
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -863,7 +884,7 @@ mod tests {
 
     #[test]
     fn test_single_quotes() {
-        let input = r"{'key': 'value'}";
+        let input = "{'key': 'value'}";
         let result = repair_json(input).unwrap();
         assert!(result.was_repaired);
         assert!(
@@ -1013,7 +1034,10 @@ Let me know if you need anything else!";
 
         // Verify we can parse the result
         let parsed: serde_json::Value = serde_json::from_str(&result.json).unwrap();
-        assert_eq!(parsed["title"], "feat: add new feature");
+        assert_eq!(
+            parsed.get("title"),
+            Some(&serde_json::json!("feat: add new feature"))
+        );
     }
 
     // === Error Cases ===
@@ -1043,21 +1067,41 @@ Let me know if you need anything else!";
 
     #[test]
     fn test_nested_objects() {
-        let input = r"{'outer': {'inner': True, 'value': None}}";
+        let input = "{'outer': {'inner': True, 'value': None}}";
         let result = repair_json(input).unwrap();
         assert!(result.was_repaired);
         let parsed: serde_json::Value = serde_json::from_str(&result.json).unwrap();
-        assert_eq!(parsed["outer"]["inner"], true);
-        assert!(parsed["outer"]["value"].is_null());
+        assert_eq!(
+            parsed.get("outer").and_then(|o| o.get("inner")),
+            Some(&serde_json::json!(true))
+        );
+        assert!(
+            parsed
+                .get("outer")
+                .and_then(|o| o.get("value"))
+                .map_or(false, |v| v.is_null())
+        );
     }
 
     #[test]
     fn test_array_of_objects() {
-        let input = r"{'items': [{'a': True}, {'b': False}]}";
+        let input = "{'items': [{'a': True}, {'b': False}]}";
         let result = repair_json(input).unwrap();
         assert!(result.was_repaired);
         let parsed: serde_json::Value = serde_json::from_str(&result.json).unwrap();
-        assert_eq!(parsed["items"][0]["a"], true);
-        assert_eq!(parsed["items"][1]["b"], false);
+        assert_eq!(
+            parsed
+                .get("items")
+                .and_then(|items| items.get(0))
+                .and_then(|item| item.get("a")),
+            Some(&serde_json::json!(true))
+        );
+        assert_eq!(
+            parsed
+                .get("items")
+                .and_then(|items| items.get(1))
+                .and_then(|item| item.get("b")),
+            Some(&serde_json::json!(false))
+        );
     }
 }

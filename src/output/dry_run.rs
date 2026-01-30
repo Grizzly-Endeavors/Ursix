@@ -7,7 +7,7 @@ use serde::Serialize;
 
 /// Information about how chunks would be organized
 #[derive(Debug, Clone, Serialize)]
-pub struct ChunkPlan {
+pub(crate) struct ChunkPlan {
     /// Whether chunking would be used
     pub enabled: bool,
     /// Number of chunks that would be created
@@ -20,7 +20,7 @@ pub struct ChunkPlan {
 
 /// Information about a single chunk
 #[derive(Debug, Clone, Serialize)]
-pub struct ChunkInfo {
+pub(crate) struct ChunkInfo {
     /// Chunk identifier (e.g., "security", "style", or file name)
     pub id: String,
     /// Estimated tokens for this chunk
@@ -32,7 +32,7 @@ pub struct ChunkInfo {
 
 /// Result from dry-run mode
 #[derive(Debug, Serialize)]
-pub struct DryRunResult {
+pub(crate) struct DryRunResult {
     /// Command that would be executed
     pub command: String,
     /// Estimated total input tokens
@@ -61,7 +61,7 @@ pub struct DryRunResult {
 impl DryRunResult {
     /// Create a new dry-run result
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         command: impl Into<String>,
         tokens_estimated: usize,
         provider: impl Into<String>,
@@ -93,14 +93,14 @@ impl DryRunResult {
 
     /// Set the files that would be processed
     #[must_use]
-    pub fn with_files(mut self, files: Vec<String>) -> Self {
+    pub(crate) fn with_files(mut self, files: Vec<String>) -> Self {
         self.files = files;
         self
     }
 
     /// Set the chunking plan
     #[must_use]
-    pub fn with_chunking(mut self, plan: ChunkPlan) -> Self {
+    pub(crate) fn with_chunking(mut self, plan: ChunkPlan) -> Self {
         self.chunking = plan;
         self
     }
@@ -111,17 +111,17 @@ impl CommandOutput for DryRunResult {
         use std::fmt::Write;
         let mut output = String::new();
 
-        let _ = writeln!(output, "Dry run: {}", self.command);
-        let _ = writeln!(output);
-        let _ = writeln!(output, "Configuration:");
-        let _ = writeln!(output, "  Provider: {}", self.provider);
-        let _ = writeln!(output, "  Model: {}", self.model);
-        let _ = writeln!(output, "  Timeout: {}s", self.timeout_secs);
-        let _ = writeln!(output);
+        writeln!(output, "Dry run: {}", self.command).ok();
+        writeln!(output).ok();
+        writeln!(output, "Configuration:").ok();
+        writeln!(output, "  Provider: {}", self.provider).ok();
+        writeln!(output, "  Model: {}", self.model).ok();
+        writeln!(output, "  Timeout: {}s", self.timeout_secs).ok();
+        writeln!(output).ok();
 
-        let _ = writeln!(output, "Token estimation:");
-        let _ = writeln!(output, "  Estimated tokens: {}", self.tokens_estimated);
-        let _ = writeln!(
+        writeln!(output, "Token estimation:").ok();
+        writeln!(output, "  Estimated tokens: {}", self.tokens_estimated).ok();
+        writeln!(
             output,
             "  Warning threshold: {} {}",
             self.warn_threshold,
@@ -131,7 +131,7 @@ impl CommandOutput for DryRunResult {
                 ""
             }
         );
-        let _ = writeln!(
+        writeln!(
             output,
             "  Error threshold: {} {}",
             self.error_threshold,
@@ -139,44 +139,44 @@ impl CommandOutput for DryRunResult {
         );
 
         if !self.files.is_empty() {
-            let _ = writeln!(output);
-            let _ = writeln!(output, "Files ({}):", self.files.len());
+            writeln!(output).ok();
+            writeln!(output, "Files ({}):", self.files.len()).ok();
             for file in &self.files {
-                let _ = writeln!(output, "  - {file}");
+                writeln!(output, "  - {file}").ok();
             }
         }
 
         if self.chunking.enabled {
-            let _ = writeln!(output);
-            let _ = writeln!(
+            writeln!(output).ok();
+            writeln!(
                 output,
                 "Chunking: {} chunks",
                 self.chunking.chunk_count.unwrap_or(0)
             );
             for chunk in &self.chunking.chunks {
-                let _ = writeln!(
+                writeln!(
                     output,
                     "  - {}: ~{} tokens",
                     chunk.id, chunk.tokens_estimated
                 );
                 for file in &chunk.files {
-                    let _ = writeln!(output, "      {file}");
+                    writeln!(output, "      {file}").ok();
                 }
             }
         } else {
-            let _ = writeln!(output);
-            let _ = writeln!(output, "Chunking: disabled (single LLM call)");
+            writeln!(output).ok();
+            writeln!(output, "Chunking: disabled (single LLM call)").ok();
         }
 
         if self.exceeds_error {
-            let _ = writeln!(output);
-            let _ = writeln!(
+            writeln!(output).ok();
+            writeln!(
                 output,
                 "WARNING: Input exceeds error threshold. Use --chunk or reduce input size."
             );
         } else if self.exceeds_warning {
-            let _ = writeln!(output);
-            let _ = writeln!(
+            writeln!(output).ok();
+            writeln!(
                 output,
                 "Note: Input exceeds warning threshold. Consider using --chunk for better results."
             );
@@ -194,7 +194,7 @@ impl ExitStatus for DryRunResult {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -206,13 +206,13 @@ mod tests {
 
     #[test]
     fn test_dry_run_result_exceeds_thresholds() {
-        let result = DryRunResult::new("explain", 10000, "ollama", "llama3.2", 60);
-        assert!(result.exceeds_warning);
-        assert!(!result.exceeds_error);
+        let result_warn = DryRunResult::new("explain", 10000, "ollama", "llama3.2", 60);
+        assert!(result_warn.exceeds_warning);
+        assert!(!result_warn.exceeds_error);
 
-        let result = DryRunResult::new("explain", 20000, "ollama", "llama3.2", 60);
-        assert!(result.exceeds_warning);
-        assert!(result.exceeds_error);
+        let result_error = DryRunResult::new("explain", 20000, "ollama", "llama3.2", 60);
+        assert!(result_error.exceeds_warning);
+        assert!(result_error.exceeds_error);
     }
 
     #[test]

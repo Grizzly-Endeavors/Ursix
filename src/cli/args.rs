@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 
 /// Mode for the fix command
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
-pub enum FixMode {
+pub(crate) enum FixMode {
     /// Fix a single issue (default)
     #[default]
     Atomic,
@@ -20,7 +20,7 @@ pub enum FixMode {
 #[command(name = "usx")]
 #[command(about = "Ursix - Unix utilities powered by LLMs")]
 #[command(version)]
-pub struct Cli {
+pub(crate) struct Cli {
     /// Output as plain text instead of JSON (default: JSON)
     #[arg(long, global = true)]
     pub text: bool,
@@ -56,7 +56,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum Command {
+pub(crate) enum Command {
     /// Derive content from input (commit-msg, explanation, summary)
     Derive {
         /// Type of content to derive: commit-msg, explanation, summary
@@ -157,7 +157,7 @@ pub enum Command {
 
 /// Options for retry behavior
 #[derive(Debug, Clone)]
-pub struct RetryOptions {
+pub(crate) struct RetryOptions {
     /// Maximum retry attempts (0 = disabled)
     pub max_retries: u32,
 }
@@ -165,7 +165,7 @@ pub struct RetryOptions {
 impl RetryOptions {
     /// Create retry options from CLI retries count
     #[must_use]
-    pub fn from_cli(retries: u32) -> Self {
+    pub(crate) fn from_cli(retries: u32) -> Self {
         Self {
             max_retries: retries,
         }
@@ -173,7 +173,7 @@ impl RetryOptions {
 
     /// Convert to [`RetryConfig`] for the retry infrastructure
     #[must_use]
-    pub fn to_config(&self) -> crate::llm::RetryConfig {
+    pub(crate) fn to_config(&self) -> crate::llm::RetryConfig {
         if self.max_retries > 0 {
             crate::llm::RetryConfig {
                 max_retries: self.max_retries,

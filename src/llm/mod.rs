@@ -1,11 +1,11 @@
-pub mod gemini;
+pub(crate) mod gemini;
 mod http;
-pub mod ollama;
-pub mod openai;
-pub mod retry;
+pub(crate) mod ollama;
+pub(crate) mod openai;
+pub(crate) mod retry;
 
-pub use http::{HttpClientConfig, SharedHttpClient};
-pub use retry::{RetryConfig, with_retry};
+pub(crate) use http::{HttpClientConfig, SharedHttpClient};
+pub(crate) use retry::{RetryConfig, with_retry};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::output::{ExitCode, ToExitCode};
 
 #[derive(Error, Debug)]
-pub enum LlmError {
+pub(crate) enum LlmError {
     #[error("HTTP request failed: {0}")]
     Request(#[from] reqwest::Error),
 
@@ -48,7 +48,7 @@ impl LlmError {
     /// - **Api**: Retryable only if the error indicates a transient server condition (rate limits,
     ///   temporary overload). Detected by HTTP status codes (429, 502, 503) or text patterns.
     #[must_use]
-    pub fn is_retryable(&self) -> bool {
+    pub(crate) fn is_retryable(&self) -> bool {
         match self {
             // Request/Timeout: Transient network failures
             Self::Request(_) | Self::Timeout(_) => true,
@@ -71,7 +71,7 @@ impl LlmError {
 
 /// A message in the conversation
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
+pub(crate) struct Message {
     pub role: Role,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,7 +82,7 @@ pub struct Message {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Role {
+pub(crate) enum Role {
     System,
     User,
     Assistant,
@@ -91,7 +91,7 @@ pub enum Role {
 
 /// A tool call requested by the LLM
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolCall {
+pub(crate) struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: serde_json::Value,
@@ -99,7 +99,7 @@ pub struct ToolCall {
 
 /// Definition of an available tool (sent to LLM)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolDefinition {
+pub(crate) struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub parameters: serde_json::Value,
@@ -107,7 +107,7 @@ pub struct ToolDefinition {
 
 /// Response from the LLM
 #[derive(Debug, Clone)]
-pub struct LlmResponse {
+pub(crate) struct LlmResponse {
     /// The assistant's text response (may be empty if only tool calls)
     pub content: String,
 
@@ -119,7 +119,7 @@ pub struct LlmResponse {
 }
 
 impl LlmResponse {
-    pub fn new(content: String, tool_calls: Vec<ToolCall>) -> Self {
+    pub(crate) fn new(content: String, tool_calls: Vec<ToolCall>) -> Self {
         let is_complete = tool_calls.is_empty() && !content.is_empty();
         Self {
             content,
@@ -131,7 +131,7 @@ impl LlmResponse {
 
 /// Options for LLM chat requests
 #[derive(Debug, Clone, Default)]
-pub struct ChatOptions {
+pub(crate) struct ChatOptions {
     /// Enable JSON mode for structured output
     ///
     /// When enabled, the API enforces that the model outputs valid JSON.
@@ -142,14 +142,14 @@ pub struct ChatOptions {
 impl ChatOptions {
     /// Create options with JSON mode enabled
     #[must_use]
-    pub fn json() -> Self {
+    pub(crate) fn json() -> Self {
         Self { json_mode: true }
     }
 }
 
 /// Trait for LLM client implementations
 #[async_trait]
-pub trait LlmClient: Send + Sync {
+pub(crate) trait LlmClient: Send + Sync {
     /// Send a conversation to the LLM and get a response
     async fn chat(
         &self,

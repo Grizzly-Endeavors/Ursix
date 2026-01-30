@@ -12,9 +12,9 @@ mod init;
 mod review;
 mod status;
 
-pub use config::cmd_config;
-pub use derive::{DeriveOptions, DeriveType, cmd_derive};
-pub use fix::{FixOptions, cmd_fix};
-pub use init::{InitOptions, cmd_init};
-pub use review::{DiffDetection, ReviewOptions, cmd_review};
-pub use status::{StatusOptions, cmd_status};
+pub(crate) use config::cmd_config;
+pub(crate) use derive::{DeriveOptions, DeriveType, cmd_derive};
+pub(crate) use fix::{FixOptions, cmd_fix};
+pub(crate) use init::{InitOptions, cmd_init};
+pub(crate) use review::{DiffDetection, ReviewOptions, cmd_review};
+pub(crate) use status::{StatusOptions, cmd_status};

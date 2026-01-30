@@ -14,32 +14,32 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-pub use types::{PromptsConfig, Provider, TokenizerMode};
+pub(crate) use types::{PromptsConfig, Provider, TokenizerMode};
 
 use crate::llm::RetryConfig;
 
 /// Default model to use
-pub const DEFAULT_MODEL: &str = "llama3.2";
+pub(crate) const DEFAULT_MODEL: &str = "llama3.2";
 
 /// Default Ollama API URL
-pub const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
+pub(crate) const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
 
 /// Default URL for OpenAI-compatible API
-pub const DEFAULT_OPENAI_URL: &str = "https://api.openai.com/v1";
+pub(crate) const DEFAULT_OPENAI_URL: &str = "https://api.openai.com/v1";
 
 /// Default URL for Gemini API
-pub const DEFAULT_GEMINI_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+pub(crate) const DEFAULT_GEMINI_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
 /// Default timeout for LLM requests in seconds
 ///
 /// This timeout applies to individual LLM API calls. For chunked operations,
 /// each chunk has its own timeout. A 60-second timeout provides reasonable
 /// protection against hung connections while allowing time for complex queries.
-pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
+pub(crate) const DEFAULT_TIMEOUT_SECS: u64 = 60;
 
 /// Runtime configuration
 #[derive(Debug, Clone)]
-pub struct Config {
+pub(crate) struct Config {
     /// LLM provider to use
     pub provider: Provider,
 
@@ -59,7 +59,10 @@ pub struct Config {
     pub tokenizer_mode: TokenizerMode,
 
     /// Retry configuration for transient failures
-    #[allow(clippy::struct_field_names)]
+    #[expect(
+        clippy::struct_field_names,
+        reason = "field name matches outer type name"
+    )]
     pub retry_config: RetryConfig,
 
     /// Timeout for LLM requests in seconds (default: 60)
@@ -76,9 +79,9 @@ impl Config {
     ///
     /// # Errors
     /// Returns error if config files exist but cannot be parsed
-    pub fn load() -> Result<Self> {
+    pub(crate) fn load() -> Result<Self> {
         // Load .env file if present (silent failure OK - file may not exist)
-        let _ = dotenvy::dotenv();
+        dotenvy::dotenv().ok();
 
         let mut config = Self::default();
 
@@ -178,7 +181,7 @@ impl Config {
 
     /// Get the effective provider URL based on provider type and overrides
     #[must_use]
-    pub fn effective_provider_url(&self) -> &str {
+    pub(crate) fn effective_provider_url(&self) -> &str {
         self.provider_url.as_deref().unwrap_or(match self.provider {
             Provider::Ollama => DEFAULT_OLLAMA_URL,
             Provider::OpenAi => DEFAULT_OPENAI_URL,
@@ -208,7 +211,7 @@ impl Default for Config {
 
 /// Configuration file format (TOML)
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct ConfigFile {
+pub(crate) struct ConfigFile {
     /// LLM provider
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<Provider>,
@@ -240,7 +243,7 @@ impl ConfigFile {
     ///
     /// # Errors
     /// Returns error if file cannot be read or parsed
-    pub fn load(path: &Path) -> Result<Self> {
+    pub(crate) fn load(path: &Path) -> Result<Self> {
         let content =
             std::fs::read_to_string(path).context(format!("failed to read {}", path.display()))?;
         toml::from_str(&content).context(format!("failed to parse {}", path.display()))
@@ -248,7 +251,7 @@ impl ConfigFile {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
     use tempfile::TempDir;

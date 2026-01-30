@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Controls how tokens are counted for input validation and chunking decisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TokenizerMode {
+pub(crate) enum TokenizerMode {
     /// Fast heuristic-based counting (~4 chars per token)
     ///
     /// This is the default and recommended mode. Uses a simple character-based
@@ -71,7 +71,7 @@ impl<'de> Deserialize<'de> for TokenizerMode {
 
 /// LLM provider selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Provider {
+pub(crate) enum Provider {
     #[default]
     Ollama,
     OpenAi,
@@ -127,7 +127,7 @@ impl<'de> Deserialize<'de> for Provider {
 /// Allows overriding default system prompts for each command type.
 /// If a prompt is not set, the hardcoded default is used.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct PromptsConfig {
+pub(crate) struct PromptsConfig {
     /// Custom prompt for the review command
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review: Option<String>,
@@ -152,7 +152,7 @@ pub struct PromptsConfig {
 impl PromptsConfig {
     /// Merge another prompts config into this one.
     /// Only non-None values from `other` override values in `self`.
-    pub fn merge(&mut self, other: &Self) {
+    pub(crate) fn merge(&mut self, other: &Self) {
         if other.review.is_some() {
             self.review.clone_from(&other.review);
         }
@@ -172,7 +172,7 @@ impl PromptsConfig {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -196,19 +196,19 @@ mod tests {
 
     #[test]
     fn test_provider_serialize_deserialize() {
-        let provider = Provider::OpenAi;
-        let json = serde_json::to_string(&provider).unwrap();
-        assert_eq!(json, "\"openai\"");
+        let provider_openai = Provider::OpenAi;
+        let json_openai = serde_json::to_string(&provider_openai).unwrap();
+        assert_eq!(json_openai, "\"openai\"");
 
-        let deserialized: Provider = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized, Provider::OpenAi);
+        let deserialized_openai: Provider = serde_json::from_str(&json_openai).unwrap();
+        assert_eq!(deserialized_openai, Provider::OpenAi);
 
-        let provider = Provider::Gemini;
-        let json = serde_json::to_string(&provider).unwrap();
-        assert_eq!(json, "\"gemini\"");
+        let provider_gemini = Provider::Gemini;
+        let json_gemini = serde_json::to_string(&provider_gemini).unwrap();
+        assert_eq!(json_gemini, "\"gemini\"");
 
-        let deserialized: Provider = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized, Provider::Gemini);
+        let deserialized_gemini: Provider = serde_json::from_str(&json_gemini).unwrap();
+        assert_eq!(deserialized_gemini, Provider::Gemini);
     }
 
     #[test]

@@ -6,25 +6,25 @@
 mod config;
 mod derive;
 mod dry_run;
-pub mod error;
+pub(crate) mod error;
 mod fix;
 mod init;
 mod review;
 mod status;
 
-pub use config::{ConfigEntry, ConfigResult};
-pub use derive::DeriveResult;
-pub use dry_run::{ChunkInfo, ChunkPlan, DryRunResult};
-pub use error::{ErrorResponse, TypedError};
-pub use fix::{FixError, FixResult, IssueFailure, WholeFileFixResult};
-pub use init::InitResult;
-pub use review::{ChunkFailure, ReviewIssue, ReviewResult};
-pub use status::{StatusCheck, StatusResult, VerboseInfo};
+pub(crate) use config::{ConfigEntry, ConfigResult};
+pub(crate) use derive::DeriveResult;
+pub(crate) use dry_run::{ChunkInfo, ChunkPlan, DryRunResult};
+pub(crate) use error::{ErrorResponse, TypedError};
+pub(crate) use fix::{FixError, FixResult, IssueFailure, WholeFileFixResult};
+pub(crate) use init::InitResult;
+pub(crate) use review::{ChunkFailure, ReviewIssue, ReviewResult};
+pub(crate) use status::{StatusCheck, StatusResult, VerboseInfo};
 
 use serde::Serialize;
 
 /// Current schema version for JSON output
-pub const SCHEMA_VERSION: &str = "1";
+pub(crate) const SCHEMA_VERSION: &str = "1";
 
 /// Exit codes for CLI commands
 ///
@@ -36,7 +36,7 @@ pub const SCHEMA_VERSION: &str = "1";
 /// - 4: Permanent error (auth, parse, internal - retry won't help)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum ExitCode {
+pub(crate) enum ExitCode {
     /// Command completed successfully with no issues
     Success = 0,
     /// Command completed but found issues (e.g., review found problems)
@@ -50,7 +50,7 @@ pub enum ExitCode {
 }
 
 /// Trait for error types that can map to an exit code
-pub trait ToExitCode {
+pub(crate) trait ToExitCode {
     /// Returns the appropriate exit code for this error
     fn to_exit_code(&self) -> ExitCode;
 }
@@ -71,7 +71,7 @@ impl From<ExitCode> for i32 {
 ///
 /// Provides consistent context for automation and debugging.
 #[derive(Debug, Clone, Serialize)]
-pub struct OutputMeta {
+pub(crate) struct OutputMeta {
     /// Schema version for output format compatibility
     pub schema_version: &'static str,
     /// Model used for generation
@@ -92,7 +92,7 @@ pub struct OutputMeta {
 impl OutputMeta {
     /// Create metadata with just schema version (for errors)
     #[must_use]
-    pub fn minimal() -> Self {
+    pub(crate) fn minimal() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
             model: None,
@@ -105,7 +105,7 @@ impl OutputMeta {
 
     /// Create full metadata for successful operations
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         model: impl Into<String>,
         provider: impl Into<String>,
         duration_ms: u64,
@@ -123,7 +123,7 @@ impl OutputMeta {
 
     /// Add token usage information
     #[must_use]
-    pub fn with_tokens(mut self, tokens: usize) -> Self {
+    pub(crate) fn with_tokens(mut self, tokens: usize) -> Self {
         self.tokens_used = Some(tokens);
         self
     }
@@ -139,7 +139,7 @@ impl Default for OutputMeta {
 ///
 /// Uses `#[serde(flatten)]` to merge the result fields at the top level.
 #[derive(Debug, Clone, Serialize)]
-pub struct WithMeta<T: Serialize> {
+pub(crate) struct WithMeta<T: Serialize> {
     /// Metadata about the operation
     #[serde(rename = "_meta")]
     pub meta: OutputMeta,
@@ -151,20 +151,20 @@ pub struct WithMeta<T: Serialize> {
 impl<T: Serialize> WithMeta<T> {
     /// Wrap a result with metadata
     #[must_use]
-    pub fn new(result: T, meta: OutputMeta) -> Self {
+    pub(crate) fn new(result: T, meta: OutputMeta) -> Self {
         Self { meta, result }
     }
 }
 
 /// Trait for types that can report an exit status
-pub trait ExitStatus {
+pub(crate) trait ExitStatus {
     /// Returns the exit code for this result
     fn exit_code(&self) -> ExitCode;
 }
 
 /// Output mode for command results
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputMode {
+pub(crate) enum OutputMode {
     /// Human-readable text output
     Human,
     /// JSON output for scripting
@@ -172,7 +172,7 @@ pub enum OutputMode {
 }
 
 /// Trait for command outputs that can be rendered in multiple formats
-pub trait CommandOutput: Serialize {
+pub(crate) trait CommandOutput: Serialize {
     /// Render as human-readable text
     fn render_human(&self) -> String;
 
@@ -199,7 +199,7 @@ pub trait CommandOutput: Serialize {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -267,11 +267,14 @@ mod tests {
 
         // Check that _meta is present
         assert!(json.get("_meta").is_some());
-        assert_eq!(json["_meta"]["schema_version"], SCHEMA_VERSION);
+        assert_eq!(
+            json.get("_meta").and_then(|m| m.get("schema_version")),
+            Some(&serde_json::json!(SCHEMA_VERSION))
+        );
 
         // Check that result fields are flattened (not nested)
-        assert_eq!(json["value"], 42);
-        assert_eq!(json["name"], "test");
+        assert_eq!(json.get("value"), Some(&serde_json::json!(42)));
+        assert_eq!(json.get("name"), Some(&serde_json::json!("test")));
     }
 
     #[test]
@@ -287,9 +290,16 @@ mod tests {
         let json = serde_json::to_value(&with_meta).unwrap();
 
         // Minimal meta should not include optional fields
-        assert_eq!(json["_meta"]["schema_version"], SCHEMA_VERSION);
-        assert!(json["_meta"].get("model").is_none());
-        assert!(json["_meta"].get("provider").is_none());
-        assert!(json["_meta"].get("tokens_used").is_none());
+        assert_eq!(
+            json.get("_meta").and_then(|m| m.get("schema_version")),
+            Some(&serde_json::json!(SCHEMA_VERSION))
+        );
+        assert!(json.get("_meta").and_then(|m| m.get("model")).is_none());
+        assert!(json.get("_meta").and_then(|m| m.get("provider")).is_none());
+        assert!(
+            json.get("_meta")
+                .and_then(|m| m.get("tokens_used"))
+                .is_none()
+        );
     }
 }

@@ -10,7 +10,7 @@ use std::sync::Arc;
 /// Uses `Arc<str>` internally to allow cheap cloning when sharing
 /// the same content across multiple parallel operations (e.g., chunked processing).
 #[derive(Debug, Clone, Default)]
-pub struct InputContext {
+pub(crate) struct InputContext {
     /// The raw input content from stdin or --from
     content: Arc<str>,
 }
@@ -18,7 +18,7 @@ pub struct InputContext {
 impl InputContext {
     /// Create a new input context from content
     #[must_use]
-    pub fn new(content: impl AsRef<str>) -> Self {
+    pub(crate) fn new(content: impl AsRef<str>) -> Self {
         Self {
             content: Arc::from(content.as_ref()),
         }
@@ -26,13 +26,13 @@ impl InputContext {
 
     /// Get the content as a string slice
     #[must_use]
-    pub fn content(&self) -> &str {
+    pub(crate) fn content(&self) -> &str {
         &self.content
     }
 
     /// Check if the context is empty
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.content.trim().is_empty()
     }
 
@@ -40,7 +40,7 @@ impl InputContext {
     ///
     /// Useful for verifying Arc sharing in tests.
     #[must_use]
-    pub fn content_arc(&self) -> &Arc<str> {
+    pub(crate) fn content_arc(&self) -> &Arc<str> {
         &self.content
     }
 
@@ -49,7 +49,7 @@ impl InputContext {
     /// Returns content with each line prefixed by its line number,
     /// making it easier for the LLM to reference specific lines accurately.
     #[must_use]
-    pub fn content_with_line_numbers(&self) -> String {
+    pub(crate) fn content_with_line_numbers(&self) -> String {
         self.content
             .lines()
             .enumerate()
@@ -60,7 +60,6 @@ impl InputContext {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

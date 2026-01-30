@@ -52,7 +52,7 @@ fn extract_and_repair_json(response: &str) -> Result<String> {
 }
 
 /// Parse the LLM JSON response into commit message components
-pub fn parse_commit_response(response: &str) -> Result<ParsedCommit> {
+pub(crate) fn parse_commit_response(response: &str) -> Result<ParsedCommit> {
     #[derive(serde::Deserialize)]
     struct CommitJson {
         message: String,
@@ -72,7 +72,7 @@ pub fn parse_commit_response(response: &str) -> Result<ParsedCommit> {
 }
 
 /// Parse the LLM JSON response into a [`ReviewResult`]
-pub fn parse_review_response(response: &str) -> Result<ReviewResult> {
+pub(crate) fn parse_review_response(response: &str) -> Result<ReviewResult> {
     #[derive(serde::Deserialize)]
     struct ReviewJson {
         summary: String,
@@ -119,7 +119,7 @@ pub fn parse_review_response(response: &str) -> Result<ReviewResult> {
 }
 
 /// Parse the LLM JSON response into explanation components
-pub fn parse_explain_response(response: &str) -> Result<ParsedExplanation> {
+pub(crate) fn parse_explain_response(response: &str) -> Result<ParsedExplanation> {
     #[derive(serde::Deserialize)]
     struct ExplainJson {
         explanation: String,
@@ -135,7 +135,10 @@ pub fn parse_explain_response(response: &str) -> Result<ParsedExplanation> {
 }
 
 /// Parse the LLM JSON response into a [`DeriveResult`] based on derive type
-pub fn parse_derive_response(derive_type: DeriveType, response: &str) -> Result<DeriveResult> {
+pub(crate) fn parse_derive_response(
+    derive_type: DeriveType,
+    response: &str,
+) -> Result<DeriveResult> {
     match derive_type {
         DeriveType::CommitMsg => {
             let commit = parse_commit_response(response)?;
@@ -169,7 +172,7 @@ pub fn parse_derive_response(derive_type: DeriveType, response: &str) -> Result<
 }
 
 /// Parse a summary JSON response (used by chunked processing)
-pub fn parse_summary_response(response: &str) -> Result<String> {
+pub(crate) fn parse_summary_response(response: &str) -> Result<String> {
     #[derive(serde::Deserialize)]
     struct SummaryJson {
         summary: String,
@@ -183,7 +186,7 @@ pub fn parse_summary_response(response: &str) -> Result<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -262,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_parse_explain_with_single_quotes() {
-        let input = r"{'explanation': 'This function does something'}";
+        let input = "{'explanation': 'This function does something'}";
         let result = parse_explain_response(input).unwrap();
         assert_eq!(result.explanation, "This function does something");
     }
@@ -270,7 +273,7 @@ mod tests {
     #[test]
     fn test_parse_commit_real_world_llm_response() {
         // Simulates a typical messy LLM response
-        let input = r"Here's your commit message:
+        let input = "Here's your commit message:
 
 ```json
 {

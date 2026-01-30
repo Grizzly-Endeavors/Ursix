@@ -12,7 +12,7 @@ use super::{
 
 /// OpenAI-compatible API client
 #[derive(Clone)]
-pub struct OpenAiClient {
+pub(crate) struct OpenAiClient {
     http: SharedHttpClient,
     base_url: String,
     api_key: Option<String>,
@@ -24,7 +24,11 @@ impl OpenAiClient {
     ///
     /// This creates a new HTTP client internally. For connection reuse across
     /// multiple clients, use [`with_http_client`](Self::with_http_client) instead.
-    pub fn new(base_url: impl Into<String>, model: impl Into<String>, timeout_secs: u64) -> Self {
+    pub(crate) fn new(
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        timeout_secs: u64,
+    ) -> Self {
         let base_url = base_url.into();
         warn_if_insecure_remote(&base_url);
         let http = SharedHttpClient::new(&HttpClientConfig::with_timeout(timeout_secs));
@@ -41,7 +45,7 @@ impl OpenAiClient {
     ///
     /// This creates a new HTTP client internally. For connection reuse across
     /// multiple clients, use [`with_http_client_and_api_key`](Self::with_http_client_and_api_key) instead.
-    pub fn with_api_key(
+    pub(crate) fn with_api_key(
         base_url: impl Into<String>,
         model: impl Into<String>,
         api_key: impl Into<String>,
@@ -62,7 +66,7 @@ impl OpenAiClient {
     /// Create a new client with a shared HTTP client (no authentication)
     ///
     /// Use this constructor to share connection pools across multiple LLM clients.
-    pub fn with_http_client(
+    pub(crate) fn with_http_client(
         http: SharedHttpClient,
         base_url: impl Into<String>,
         model: impl Into<String>,
@@ -81,7 +85,7 @@ impl OpenAiClient {
     /// Create a new client with a shared HTTP client and API key authentication
     ///
     /// Use this constructor to share connection pools across multiple LLM clients.
-    pub fn with_http_client_and_api_key(
+    pub(crate) fn with_http_client_and_api_key(
         http: SharedHttpClient,
         base_url: impl Into<String>,
         model: impl Into<String>,
@@ -107,7 +111,7 @@ impl OpenAiClient {
     ///
     /// # Errors
     /// Returns error if the API request fails or response cannot be parsed
-    pub async fn list_models(&self) -> Result<Vec<String>, LlmError> {
+    pub(crate) async fn list_models(&self) -> Result<Vec<String>, LlmError> {
         let url = format!("{}/models", self.base_url);
 
         let mut req_builder = self.http.client().get(&url);
@@ -162,13 +166,9 @@ impl LlmClient for OpenAiClient {
             })
             .collect();
 
-        let response_format = if options.json_mode {
-            Some(ResponseFormat {
-                r#type: "json_object".to_string(),
-            })
-        } else {
-            None
-        };
+        let response_format = options.json_mode.then(|| ResponseFormat {
+            r#type: "json_object".to_string(),
+        });
 
         let request = ChatCompletionRequest {
             model: &self.model,
@@ -380,7 +380,7 @@ struct ModelInfo {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
     use crate::llm::ChatOptions;
@@ -420,10 +420,19 @@ mod tests {
         assert!(openai_msg.content.is_none()); // Empty content becomes None
         let tool_calls = openai_msg.tool_calls.unwrap();
         assert_eq!(tool_calls.len(), 1);
-        assert_eq!(tool_calls[0].id, "call_123");
-        assert_eq!(tool_calls[0].function.name, "bash");
+        assert_eq!(
+            tool_calls.get(0).map(|t| &t.id),
+            Some(&"call_123".to_string())
+        );
+        assert_eq!(
+            tool_calls.get(0).map(|t| &t.function.name),
+            Some(&"bash".to_string())
+        );
         // Arguments should be JSON string
-        assert_eq!(tool_calls[0].function.arguments, r#"{"command":"ls"}"#);
+        assert_eq!(
+            tool_calls.get(0).map(|t| &t.function.arguments),
+            Some(&r#"{"command":"ls"}"#.to_string())
+        );
     }
 
     #[test]
@@ -547,11 +556,17 @@ mod tests {
             .unwrap();
         assert!(response.content.is_empty()); // null becomes empty string
         assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].id, "call_abc123");
-        assert_eq!(response.tool_calls[0].name, "bash");
         assert_eq!(
-            response.tool_calls[0].arguments,
-            serde_json::json!({"command": "ls -la"})
+            response.tool_calls.get(0).map(|t| &t.id),
+            Some(&"call_abc123".to_string())
+        );
+        assert_eq!(
+            response.tool_calls.get(0).map(|t| &t.name),
+            Some(&"bash".to_string())
+        );
+        assert_eq!(
+            response.tool_calls.get(0).map(|t| &t.arguments),
+            Some(&serde_json::json!({"command": "ls -la"}))
         );
         assert!(!response.is_complete); // Has tool calls, so not complete
     }
@@ -682,7 +697,10 @@ mod tests {
 
         // Should still succeed with empty arguments object
         assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].arguments, serde_json::json!({}));
+        assert_eq!(
+            response.tool_calls.get(0).map(|t| &t.arguments),
+            Some(&serde_json::json!({}))
+        );
     }
 
     #[tokio::test]
@@ -781,7 +799,7 @@ mod tests {
         let models = client.list_models().await.unwrap();
 
         assert_eq!(models.len(), 1);
-        assert_eq!(models[0], "gpt-4");
+        assert_eq!(models.get(0), Some(&"gpt-4".to_string()));
     }
 
     #[tokio::test]

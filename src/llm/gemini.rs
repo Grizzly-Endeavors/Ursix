@@ -12,7 +12,7 @@ use super::{
 
 /// Gemini API client
 #[derive(Clone)]
-pub struct GeminiClient {
+pub(crate) struct GeminiClient {
     http: SharedHttpClient,
     base_url: String,
     api_key: String,
@@ -30,7 +30,7 @@ impl GeminiClient {
     /// * `model` - Model identifier (e.g., "gemini-2.0-flash")
     /// * `api_key` - Google API key (always required)
     /// * `timeout_secs` - Request timeout in seconds
-    pub fn new(
+    pub(crate) fn new(
         base_url: impl Into<String>,
         model: impl Into<String>,
         api_key: impl Into<String>,
@@ -51,7 +51,7 @@ impl GeminiClient {
     /// Create a new client with a shared HTTP client
     ///
     /// Use this constructor to share connection pools across multiple LLM clients.
-    pub fn with_http_client(
+    pub(crate) fn with_http_client(
         http: SharedHttpClient,
         base_url: impl Into<String>,
         model: impl Into<String>,
@@ -76,7 +76,7 @@ impl GeminiClient {
     ///
     /// # Errors
     /// Returns error if the API request fails or response cannot be parsed
-    pub async fn list_models(&self) -> Result<Vec<String>, LlmError> {
+    pub(crate) async fn list_models(&self) -> Result<Vec<String>, LlmError> {
         let url = format!("{}/models?key={}", self.base_url, self.api_key);
 
         let response = self
@@ -148,13 +148,9 @@ impl LlmClient for GeminiClient {
             }]
         };
 
-        let generation_config = if options.json_mode {
-            Some(GenerationConfig {
-                response_mime_type: Some("application/json".to_string()),
-            })
-        } else {
-            None
-        };
+        let generation_config = options.json_mode.then(|| GenerationConfig {
+            response_mime_type: Some("application/json".to_string()),
+        });
 
         let request = GenerateContentRequest {
             contents,
@@ -403,7 +399,8 @@ struct ModelInfo {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
+#[expect(clippy::panic, reason = "test code uses panic for assertion")]
 mod tests {
     use super::*;
     use crate::llm::ChatOptions;
@@ -422,8 +419,8 @@ mod tests {
         let gemini_content: GeminiContent = (&msg).into();
         assert_eq!(gemini_content.role, "user");
         assert_eq!(gemini_content.parts.len(), 1);
-        match &gemini_content.parts[0] {
-            GeminiPart::Text { text } => assert_eq!(text, "Hello"),
+        match gemini_content.parts.get(0) {
+            Some(GeminiPart::Text { text }) => assert_eq!(text, "Hello"),
             _ => panic!("expected text part"),
         }
     }
@@ -457,8 +454,8 @@ mod tests {
         let gemini_content: GeminiContent = (&msg).into();
         assert_eq!(gemini_content.role, "model");
         assert_eq!(gemini_content.parts.len(), 1);
-        match &gemini_content.parts[0] {
-            GeminiPart::FunctionCall { function_call } => {
+        match gemini_content.parts.get(0) {
+            Some(GeminiPart::FunctionCall { function_call }) => {
                 assert_eq!(function_call.name, "bash");
                 assert_eq!(function_call.args, serde_json::json!({"command": "ls"}));
             }
@@ -615,10 +612,13 @@ mod tests {
             .unwrap();
         assert!(response.content.is_empty());
         assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].name, "bash");
         assert_eq!(
-            response.tool_calls[0].arguments,
-            serde_json::json!({"command": "ls -la"})
+            response.tool_calls.get(0).map(|t| &t.name),
+            Some(&"bash".to_string())
+        );
+        assert_eq!(
+            response.tool_calls.get(0).map(|t| &t.arguments),
+            Some(&serde_json::json!({"command": "ls -la"}))
         );
         assert!(!response.is_complete);
     }

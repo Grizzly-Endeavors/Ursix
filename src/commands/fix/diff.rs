@@ -7,7 +7,7 @@ use similar::{ChangeTag, TextDiff};
 
 /// Result of applying a replacement and generating a diff
 #[derive(Debug, Clone)]
-pub struct DiffResult {
+pub(crate) struct DiffResult {
     /// The unified diff string
     pub diff: String,
     /// The modified file content
@@ -28,7 +28,7 @@ pub struct DiffResult {
 /// # Returns
 /// The modified file content with the replacement applied
 #[must_use]
-pub fn apply_replacement(
+pub(crate) fn apply_replacement(
     file_content: &str,
     replacement: &str,
     line_range: (usize, usize),
@@ -72,7 +72,7 @@ pub fn apply_replacement(
 /// - `modified`: Modified file content
 /// - `context_lines`: Number of context lines around changes
 #[must_use]
-pub fn generate_unified_diff(
+pub(crate) fn generate_unified_diff(
     file_path: &str,
     original: &str,
     modified: &str,
@@ -108,7 +108,6 @@ pub fn generate_unified_diff(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

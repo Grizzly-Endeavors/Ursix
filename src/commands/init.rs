@@ -15,7 +15,7 @@ use crate::output::{CommandOutput, ExitCode, ExitStatus, InitResult, OutputMode}
 
 /// Options for the init command
 #[derive(Debug, Clone)]
-pub struct InitOptions {
+pub(crate) struct InitOptions {
     /// Skip connectivity test
     pub skip_test: bool,
     /// Force overwrite existing config files
@@ -26,7 +26,7 @@ pub struct InitOptions {
 ///
 /// # Errors
 /// Returns error if file operations fail or user cancels
-pub async fn cmd_init(options: InitOptions, output_mode: OutputMode) -> Result<ExitCode> {
+pub(crate) async fn cmd_init(options: InitOptions, output_mode: OutputMode) -> Result<ExitCode> {
     let working_dir = std::env::current_dir().context("failed to get current directory")?;
     let ursix_dir = working_dir.join(".ursix");
     let config_path = ursix_dir.join("config.toml");
@@ -197,7 +197,7 @@ fn guide_api_key_setup(
 /// Test connectivity to the configured provider
 async fn test_connectivity(provider: Provider, model: &str) -> bool {
     print!("Testing connectivity... ");
-    let _ = io::stdout().flush();
+    io::stdout().flush().ok();
 
     let result = match provider {
         Provider::Ollama => {
@@ -259,7 +259,7 @@ categories:
 "#;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 

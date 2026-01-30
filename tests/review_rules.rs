@@ -3,7 +3,8 @@
 //! These tests verify that the rules.yml loading and resolution works correctly
 //! with the review command.
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
+#![expect(clippy::expect_used, reason = "test code uses expect for clarity")]
 
 use std::fs;
 use std::path::Path;
@@ -16,20 +17,24 @@ use tempfile::TempDir;
 
 /// Helper to create a rules.yml file in a temp directory
 fn create_rules_file(dir: &Path, content: &str) {
-    fs::write(dir.join("rules.yml"), content).unwrap();
+    fs::write(dir.join("rules.yml"), content).expect("failed to write rules file");
 }
 
 /// Helper to create a .ursix/rules.yml file in a temp directory
 fn create_ursix_rules_file(dir: &Path, content: &str) {
     let ursix_dir = dir.join(".ursix");
-    fs::create_dir_all(&ursix_dir).unwrap();
-    fs::write(ursix_dir.join("rules.yml"), content).unwrap();
+    fs::create_dir_all(&ursix_dir).expect("failed to create .ursix directory");
+    fs::write(ursix_dir.join("rules.yml"), content).expect("failed to write ursix rules file");
 }
 
-#[test]
-fn rules_yaml_is_valid_yaml() {
-    // Test that a basic rules.yml parses correctly
-    let yaml = r#"
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rules_yaml_is_valid_yaml() {
+        // Test that a basic rules.yml parses correctly
+        let yaml = r#"
 categories:
   style:
     - name: doc-comments
@@ -43,14 +48,14 @@ categories:
       files: "src/**/*.rs"
 "#;
 
-    // Should parse without error
-    let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
-    assert!(parsed.get("categories").is_some());
-}
+        // Should parse without error
+        let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        assert!(parsed.get("categories").is_some());
+    }
 
-#[test]
-fn rules_yaml_supports_all_severity_levels() {
-    let yaml = r#"
+    #[test]
+    fn rules_yaml_supports_all_severity_levels() {
+        let yaml = r#"
 categories:
   test:
     - name: error-level
@@ -64,52 +69,64 @@ categories:
       severity: info
 "#;
 
-    let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
-    let categories = parsed.get("categories").unwrap();
-    let test_rules = categories.get("test").unwrap().as_sequence().unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let categories = parsed.get("categories").unwrap();
+        let test_rules = categories.get("test").unwrap().as_sequence().unwrap();
 
-    assert_eq!(test_rules.len(), 3);
-    assert_eq!(
-        test_rules[0].get("severity").unwrap().as_str().unwrap(),
-        "error"
-    );
-    assert_eq!(
-        test_rules[1].get("severity").unwrap().as_str().unwrap(),
-        "warning"
-    );
-    assert_eq!(
-        test_rules[2].get("severity").unwrap().as_str().unwrap(),
-        "info"
-    );
-}
+        assert_eq!(test_rules.len(), 3);
+        assert_eq!(
+            test_rules
+                .get(0)
+                .and_then(|r| r.get("severity"))
+                .and_then(|s| s.as_str())
+                .unwrap(),
+            "error"
+        );
+        assert_eq!(
+            test_rules
+                .get(1)
+                .and_then(|r| r.get("severity"))
+                .and_then(|s| s.as_str())
+                .unwrap(),
+            "warning"
+        );
+        assert_eq!(
+            test_rules
+                .get(2)
+                .and_then(|r| r.get("severity"))
+                .and_then(|s| s.as_str())
+                .unwrap(),
+            "info"
+        );
+    }
 
-#[test]
-fn rules_yaml_optional_fields_work() {
-    // Severity and files are optional
-    let yaml = r#"
+    #[test]
+    fn rules_yaml_optional_fields_work() {
+        // Severity and files are optional
+        let yaml = r#"
 categories:
   minimal:
     - name: basic-rule
       description: "Just name and description"
 "#;
 
-    let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
-    let rules = parsed
-        .get("categories")
-        .unwrap()
-        .get("minimal")
-        .unwrap()
-        .as_sequence()
-        .unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let rules = parsed
+            .get("categories")
+            .unwrap()
+            .get("minimal")
+            .unwrap()
+            .as_sequence()
+            .unwrap();
 
-    assert_eq!(rules.len(), 1);
-    assert!(rules[0].get("severity").is_none());
-    assert!(rules[0].get("files").is_none());
-}
+        assert_eq!(rules.len(), 1);
+        assert!(rules.get(0).and_then(|r| r.get("severity")).is_none());
+        assert!(rules.get(0).and_then(|r| r.get("files")).is_none());
+    }
 
-#[test]
-fn rules_yaml_multiple_categories() {
-    let yaml = r#"
+    #[test]
+    fn rules_yaml_multiple_categories() {
+        let yaml = r#"
 categories:
   style:
     - name: rule1
@@ -125,52 +142,52 @@ categories:
       description: "Correctness rule"
 "#;
 
-    let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
-    let categories = parsed.get("categories").unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let categories = parsed.get("categories").unwrap();
 
-    assert!(categories.get("style").is_some());
-    assert!(categories.get("security").is_some());
-    assert!(categories.get("performance").is_some());
-    assert!(categories.get("correctness").is_some());
-}
+        assert!(categories.get("style").is_some());
+        assert!(categories.get("security").is_some());
+        assert!(categories.get("performance").is_some());
+        assert!(categories.get("correctness").is_some());
+    }
 
-#[test]
-fn rules_file_created_in_project_root() {
-    let temp_dir = TempDir::new().unwrap();
+    #[test]
+    fn rules_file_created_in_project_root() {
+        let temp_dir = TempDir::new().unwrap();
 
-    create_rules_file(
-        temp_dir.path(),
-        r#"
+        create_rules_file(
+            temp_dir.path(),
+            r#"
 categories:
   custom:
     - name: my-rule
       description: "Custom project rule"
 "#,
-    );
+        );
 
-    assert!(temp_dir.path().join("rules.yml").exists());
-}
+        assert!(temp_dir.path().join("rules.yml").exists());
+    }
 
-#[test]
-fn rules_file_created_in_ursix_dir() {
-    let temp_dir = TempDir::new().unwrap();
+    #[test]
+    fn rules_file_created_in_ursix_dir() {
+        let temp_dir = TempDir::new().unwrap();
 
-    create_ursix_rules_file(
-        temp_dir.path(),
-        r#"
+        create_ursix_rules_file(
+            temp_dir.path(),
+            r#"
 categories:
   custom:
     - name: my-rule
       description: "Custom project rule"
 "#,
-    );
+        );
 
-    assert!(temp_dir.path().join(".ursix").join("rules.yml").exists());
-}
+        assert!(temp_dir.path().join(".ursix").join("rules.yml").exists());
+    }
 
-#[test]
-fn rules_yaml_glob_patterns_are_valid() {
-    let yaml = r#"
+    #[test]
+    fn rules_yaml_glob_patterns_are_valid() {
+        let yaml = r#"
 categories:
   patterns:
     - name: rust-files
@@ -187,21 +204,21 @@ categories:
       files: "*.{rs,ts,js}"
 "#;
 
-    // Should parse without error
-    let _: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
-}
+        // Should parse without error
+        let _: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+    }
 
-#[test]
-fn empty_rules_yaml_is_valid() {
-    let yaml = "categories: {}";
-    let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
-    let categories = parsed.get("categories").unwrap();
-    assert!(categories.as_mapping().unwrap().is_empty());
-}
+    #[test]
+    fn empty_rules_yaml_is_valid() {
+        let yaml = "categories: {}";
+        let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let categories = parsed.get("categories").unwrap();
+        assert!(categories.as_mapping().unwrap().is_empty());
+    }
 
-#[test]
-fn rules_yaml_with_empty_category_is_valid() {
-    let yaml = r#"
+    #[test]
+    fn rules_yaml_with_empty_category_is_valid() {
+        let yaml = r#"
 categories:
   empty-category: []
   with-rules:
@@ -209,23 +226,24 @@ categories:
       description: "A rule"
 "#;
 
-    let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
-    let categories = parsed.get("categories").unwrap();
-    assert!(
-        categories
-            .get("empty-category")
-            .unwrap()
-            .as_sequence()
-            .unwrap()
-            .is_empty()
-    );
-    assert_eq!(
-        categories
-            .get("with-rules")
-            .unwrap()
-            .as_sequence()
-            .unwrap()
-            .len(),
-        1
-    );
+        let parsed: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let categories = parsed.get("categories").unwrap();
+        assert!(
+            categories
+                .get("empty-category")
+                .unwrap()
+                .as_sequence()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            categories
+                .get("with-rules")
+                .unwrap()
+                .as_sequence()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
 }

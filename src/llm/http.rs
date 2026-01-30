@@ -9,7 +9,7 @@ use super::LlmError;
 
 /// Configuration for HTTP client connection pooling
 #[derive(Debug, Clone)]
-pub struct HttpClientConfig {
+pub(crate) struct HttpClientConfig {
     /// Request timeout in seconds
     pub timeout_secs: u64,
     /// Maximum idle connections per host (default: 10)
@@ -31,7 +31,7 @@ impl Default for HttpClientConfig {
 impl HttpClientConfig {
     /// Create a config with the specified timeout and default pool settings
     #[must_use]
-    pub fn with_timeout(timeout_secs: u64) -> Self {
+    pub(crate) fn with_timeout(timeout_secs: u64) -> Self {
         Self {
             timeout_secs,
             ..Default::default()
@@ -44,7 +44,7 @@ impl HttpClientConfig {
 /// This wrapper uses `Arc` internally, making `Clone` cheap and allowing
 /// multiple LLM clients to share the same underlying connection pool.
 #[derive(Clone)]
-pub struct SharedHttpClient {
+pub(crate) struct SharedHttpClient {
     client: Arc<Client>,
     timeout_secs: u64,
 }
@@ -52,7 +52,7 @@ pub struct SharedHttpClient {
 impl SharedHttpClient {
     /// Create a new shared HTTP client with the specified configuration
     #[must_use]
-    pub fn new(config: &HttpClientConfig) -> Self {
+    pub(crate) fn new(config: &HttpClientConfig) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
             .pool_max_idle_per_host(config.pool_max_idle_per_host)
@@ -71,13 +71,13 @@ impl SharedHttpClient {
 
     /// Get a reference to the underlying HTTP client
     #[must_use]
-    pub fn client(&self) -> &Client {
+    pub(crate) fn client(&self) -> &Client {
         &self.client
     }
 
     /// Get the configured timeout in seconds
     #[must_use]
-    pub fn timeout_secs(&self) -> u64 {
+    pub(crate) fn timeout_secs(&self) -> u64 {
         self.timeout_secs
     }
 }
@@ -124,7 +124,6 @@ pub(crate) fn map_request_error(e: reqwest::Error, timeout_secs: u64) -> LlmErro
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

@@ -12,7 +12,7 @@ use serde::Serialize;
 
 /// Successful result from the `fix` command
 #[derive(Debug, Clone, Serialize)]
-pub struct FixResult {
+pub(crate) struct FixResult {
     /// Unified diff string
     pub diff: String,
     /// Path to the file being fixed
@@ -31,7 +31,7 @@ pub struct FixResult {
 /// Error codes for the fix command
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum FixErrorCode {
+pub(crate) enum FixErrorCode {
     /// Input validation failed (bad JSON, missing fields, etc.)
     InputValidation,
     /// LLM call failed (network, rate limit, etc.)
@@ -43,7 +43,7 @@ pub enum FixErrorCode {
 impl FixErrorCode {
     /// Get the corresponding exit code for this error
     #[must_use]
-    pub const fn to_exit_code(self) -> ExitCode {
+    pub(crate) const fn to_exit_code(self) -> ExitCode {
         match self {
             Self::InputValidation => ExitCode::UserError,
             Self::LlmError => ExitCode::TransientError,
@@ -54,7 +54,7 @@ impl FixErrorCode {
 
 /// Error result from the fix command
 #[derive(Debug, Clone, Serialize)]
-pub struct FixError {
+pub(crate) struct FixError {
     /// Human-readable error message
     pub message: String,
     /// Error code for programmatic handling
@@ -70,7 +70,7 @@ pub struct FixError {
 impl FixError {
     /// Create an input validation error
     #[must_use]
-    pub fn input_validation(message: impl Into<String>) -> Self {
+    pub(crate) fn input_validation(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             code: FixErrorCode::InputValidation,
@@ -81,7 +81,7 @@ impl FixError {
 
     /// Create an LLM error
     #[must_use]
-    pub fn llm_error(message: impl Into<String>) -> Self {
+    pub(crate) fn llm_error(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             code: FixErrorCode::LlmError,
@@ -92,7 +92,7 @@ impl FixError {
 
     /// Create an output validation error
     #[must_use]
-    pub fn output_validation(message: impl Into<String>) -> Self {
+    pub(crate) fn output_validation(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             code: FixErrorCode::OutputValidation,
@@ -103,14 +103,14 @@ impl FixError {
 
     /// Add raw LLM output for --partial mode
     #[must_use]
-    pub fn with_raw_output(mut self, output: impl Into<String>) -> Self {
+    pub(crate) fn with_raw_output(mut self, output: impl Into<String>) -> Self {
         self.raw_output = Some(output.into());
         self
     }
 
     /// Add validation warnings
     #[must_use]
-    pub fn with_warnings(mut self, warnings: Vec<String>) -> Self {
+    pub(crate) fn with_warnings(mut self, warnings: Vec<String>) -> Self {
         self.warnings = warnings;
         self
     }
@@ -122,12 +122,12 @@ impl CommandOutput for FixResult {
         let mut output = String::new();
 
         // Show file info
-        let _ = writeln!(
+        writeln!(
             output,
             "Fixed {} (lines {}..{})",
             self.file, self.lines.0, self.lines.1
         );
-        let _ = writeln!(
+        writeln!(
             output,
             "+{} -{} lines\n",
             self.lines_added, self.lines_removed
@@ -135,7 +135,7 @@ impl CommandOutput for FixResult {
 
         // Show warnings if any
         for warning in &self.warnings {
-            let _ = writeln!(output, "warning: {warning}");
+            writeln!(output, "warning: {warning}").ok();
         }
         if !self.warnings.is_empty() {
             output.push('\n');
@@ -159,14 +159,14 @@ impl CommandOutput for FixError {
         use std::fmt::Write;
         let mut output = String::new();
 
-        let _ = writeln!(output, "error: {}", self.message);
+        writeln!(output, "error: {}", self.message).ok();
 
         for warning in &self.warnings {
-            let _ = writeln!(output, "warning: {warning}");
+            writeln!(output, "warning: {warning}").ok();
         }
 
         if let Some(ref raw) = self.raw_output {
-            let _ = writeln!(output, "\nraw output:\n{raw}");
+            writeln!(output, "\nraw output:\n{raw}").ok();
         }
 
         output
@@ -185,7 +185,7 @@ impl ExitStatus for FixError {
 
 /// Failed issue in whole-file mode
 #[derive(Debug, Clone, Serialize)]
-pub struct IssueFailure {
+pub(crate) struct IssueFailure {
     /// The issue description that failed
     pub issue: String,
     /// Line range that was being fixed
@@ -196,7 +196,7 @@ pub struct IssueFailure {
 
 /// Successful result from whole-file fix mode
 #[derive(Debug, Clone, Serialize)]
-pub struct WholeFileFixResult {
+pub(crate) struct WholeFileFixResult {
     /// Combined unified diff for all fixes
     pub diff: String,
     /// Path to the file that was fixed
@@ -220,14 +220,14 @@ impl CommandOutput for WholeFileFixResult {
         let mut output = String::new();
 
         // Show summary
-        let _ = writeln!(
+        writeln!(
             output,
             "Fixed {}/{} issues in {}",
             self.issues_fixed,
             self.issues_fixed + self.issues_failed,
             self.file
         );
-        let _ = writeln!(
+        writeln!(
             output,
             "+{} -{} lines\n",
             self.lines_added, self.lines_removed
@@ -235,7 +235,7 @@ impl CommandOutput for WholeFileFixResult {
 
         // Show failures if any
         for failure in &self.issue_failures {
-            let _ = writeln!(
+            writeln!(
                 output,
                 "failed: lines {}..{}: {} - {}",
                 failure.lines.0, failure.lines.1, failure.issue, failure.error
@@ -263,7 +263,7 @@ impl ExitStatus for WholeFileFixResult {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 

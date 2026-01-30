@@ -29,11 +29,11 @@ use diff::{apply_replacement, generate_unified_diff};
 use input::{FixInput, ValidatedFixInput, ValidatedIssue, ValidatedWholeFileInput, WholeFileInput};
 use validation::{sanitize_replacement, validate_replacement};
 
-pub use crate::output::{FixError, FixResult, IssueFailure, WholeFileFixResult};
+pub(crate) use crate::output::{FixError, FixResult, IssueFailure, WholeFileFixResult};
 
 /// Options for the fix command
 #[derive(Debug, Clone)]
-pub struct FixOptions {
+pub(crate) struct FixOptions {
     /// Fix mode: atomic (single issue) or whole-file (multiple issues)
     pub mode: FixMode,
     /// Number of context lines in unified diff output
@@ -50,7 +50,7 @@ pub struct FixOptions {
 ///
 /// # Errors
 /// Returns error if input parsing, validation, or LLM call fails.
-pub async fn cmd_fix(
+pub(crate) async fn cmd_fix(
     config: &Config,
     options: FixOptions,
     file: Option<PathBuf>,
@@ -246,7 +246,7 @@ fn build_user_request(validated: &ValidatedFixInput, retry_context: Option<&str>
 
     if let Some(ctx) = retry_context {
         use std::fmt::Write;
-        let _ = write!(request, "\n\n{ctx}");
+        write!(request, "\n\n{ctx}").ok();
     }
 
     request
@@ -490,7 +490,6 @@ async fn execute_single_issue_fix(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

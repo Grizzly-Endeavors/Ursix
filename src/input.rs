@@ -23,7 +23,7 @@ fn read_stdin() -> Result<String> {
 /// - `--- a/...` or `--- /dev/null`
 /// - `+++ b/...` or `+++ /dev/null`
 #[must_use]
-pub fn is_diff_format(content: &str) -> bool {
+pub(crate) fn is_diff_format(content: &str) -> bool {
     // Check for git diff header
     if content.contains("diff --git ") {
         return true;
@@ -49,7 +49,7 @@ pub fn is_diff_format(content: &str) -> bool {
 /// - File read fails
 /// - stdin read fails
 /// - Input is empty
-pub async fn read_input(from: Option<&PathBuf>) -> Result<String> {
+pub(crate) async fn read_input(from: Option<&PathBuf>) -> Result<String> {
     let content = match from {
         Some(path) if path.as_os_str() == "-" => read_stdin()?,
         Some(path) => tokio::fs::read_to_string(path)
@@ -66,7 +66,7 @@ pub async fn read_input(from: Option<&PathBuf>) -> Result<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
     use tempfile::TempDir;
@@ -127,7 +127,7 @@ index 1234567..abcdefg 100644
 
     #[test]
     fn test_is_diff_format_unified_diff() {
-        let content = r"--- a/file.txt
+        let content = "--- a/file.txt
 +++ b/file.txt
 @@ -1,3 +1,4 @@
  line1
@@ -139,7 +139,7 @@ index 1234567..abcdefg 100644
 
     #[test]
     fn test_is_diff_format_dev_null() {
-        let content = r"diff --git a/new_file.rs b/new_file.rs
+        let content = "diff --git a/new_file.rs b/new_file.rs
 new file mode 100644
 --- /dev/null
 +++ b/new_file.rs

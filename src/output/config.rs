@@ -5,14 +5,14 @@ use serde::Serialize;
 
 /// Result from the `config` command
 #[derive(Debug, Serialize)]
-pub struct ConfigResult {
+pub(crate) struct ConfigResult {
     /// Configuration entries
     pub entries: Vec<ConfigEntry>,
 }
 
 /// A single configuration entry
 #[derive(Debug, Serialize)]
-pub struct ConfigEntry {
+pub(crate) struct ConfigEntry {
     /// Configuration key
     pub key: String,
     /// Configuration value
@@ -36,7 +36,6 @@ impl ExitStatus for ConfigResult {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

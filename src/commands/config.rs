@@ -5,8 +5,11 @@ use anyhow::Result;
 use crate::config::Config;
 use crate::output::{CommandOutput, ConfigEntry, ConfigResult, ExitCode, OutputMode};
 
-#[allow(clippy::unnecessary_wraps)]
-pub fn cmd_config(
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "function returns Result to maintain consistent error handling interface"
+)]
+pub(crate) fn cmd_config(
     config: &Config,
     key: Option<String>,
     list: bool,

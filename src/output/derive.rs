@@ -8,7 +8,7 @@ use serde::Serialize;
 /// The result varies based on the derive type requested.
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum DeriveResult {
+pub(crate) enum DeriveResult {
     /// Result for commit-msg derive type
     CommitMsg {
         /// The full commit message (title + body)
@@ -48,7 +48,7 @@ impl ExitStatus for DeriveResult {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 

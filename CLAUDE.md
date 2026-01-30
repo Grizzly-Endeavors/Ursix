@@ -108,7 +108,7 @@ Clippy pedantic is enabled with strict error handling:
 - `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented` - **denied**
 - `missing_errors_doc`, `missing_panics_doc`, `must_use_candidate` - warnings
 
-Test modules have `#[allow(clippy::unwrap_used)]` for readability.
+Test modules have `#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]` for readability.
 
 DO NOT, under any circumstance, change this config or add allow macros without explicit approval from the user.
 

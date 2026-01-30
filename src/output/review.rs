@@ -5,7 +5,7 @@ use serde::Serialize;
 
 /// Result from the `review` command
 #[derive(Debug, Serialize)]
-pub struct ReviewResult {
+pub(crate) struct ReviewResult {
     /// The review summary
     pub summary: String,
     /// Identified issues
@@ -23,7 +23,7 @@ pub struct ReviewResult {
 
 /// Information about a chunk that failed during chunked processing
 #[derive(Debug, Clone, Serialize)]
-pub struct ChunkFailure {
+pub(crate) struct ChunkFailure {
     /// The file path that failed
     pub file_path: String,
     /// Error message describing the failure
@@ -32,7 +32,7 @@ pub struct ChunkFailure {
 
 /// An issue identified during code review
 #[derive(Debug, Clone, Serialize)]
-pub struct ReviewIssue {
+pub(crate) struct ReviewIssue {
     /// Issue severity (error, warning, info)
     pub severity: String,
     /// File path
@@ -55,25 +55,25 @@ impl CommandOutput for ReviewResult {
 
         // Show chunking info if applicable
         if let Some(chunks) = self.chunks_processed {
-            let _ = writeln!(output, "Processed {chunks} file(s)");
+            writeln!(output, "Processed {chunks} file(s)").ok();
             if self.chunk_failures.is_empty() {
                 output.push('\n');
             } else {
                 let failed_count = self.chunk_failures.len();
-                let _ = writeln!(output, "  ({failed_count} failed, results are partial)\n");
+                writeln!(output, "  ({failed_count} failed, results are partial)\n").ok();
             }
         }
 
         // Show summary
         if !self.summary.is_empty() {
-            let _ = writeln!(output, "{}\n", self.summary);
+            writeln!(output, "{}\n", self.summary).ok();
         }
 
         // Show issues
         if self.issues.is_empty() {
             output.push_str("No issues found.");
         } else {
-            let _ = writeln!(output, "Issues ({}):", self.issues.len());
+            writeln!(output, "Issues ({}):", self.issues.len()).ok();
             for issue in &self.issues {
                 // Build location string (file:line format)
                 let location = match (&issue.file, issue.line) {
@@ -85,22 +85,23 @@ impl CommandOutput for ReviewResult {
 
                 // Format: [severity] location: message
                 if location.is_empty() {
-                    let _ = writeln!(output, "  [{}] {}", issue.severity, issue.message);
+                    writeln!(output, "  [{}] {}", issue.severity, issue.message).ok();
                 } else {
-                    let _ = writeln!(
+                    writeln!(
                         output,
                         "  [{}] {}: {}",
                         issue.severity, location, issue.message
-                    );
+                    )
+                    .ok();
                 }
             }
         }
 
         // Show chunk failures if any
         if !self.chunk_failures.is_empty() {
-            let _ = writeln!(output, "\nChunk failures ({}):", self.chunk_failures.len());
+            writeln!(output, "\nChunk failures ({}):", self.chunk_failures.len()).ok();
             for failure in &self.chunk_failures {
-                let _ = writeln!(output, "  {}: {}", failure.file_path, failure.error);
+                writeln!(output, "  {}: {}", failure.file_path, failure.error).ok();
             }
         }
 
@@ -119,7 +120,6 @@ impl ExitStatus for ReviewResult {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

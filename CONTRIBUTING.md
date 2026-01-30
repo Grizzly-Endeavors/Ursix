@@ -32,18 +32,25 @@ These hooks are mandatory. Do not bypass them.
 
 ### Linting
 
-Clippy pedantic is enabled with strict error handling:
+The lint rules in `Cargo.toml` are intentionally aggressive. This project is primarily developed and maintained by AI coding agents, which will take every shortcut that isn't a hard error. Most rules are standard Rust best practices with the severity turned up — if you write idiomatic Rust, you'll rarely hit them.
 
-```toml
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-todo = "deny"
-unimplemented = "deny"
-unsafe_code = "forbid"
-```
+**Key rules and how to work with them:**
 
-Test modules may use `#[allow(clippy::unwrap_used)]` for readability.
+| Rule | What it means for you |
+|---|---|
+| `unwrap_used`, `expect_used`, `panic` = deny | Use `?`, `ok_or()`, `ok_or_else()`, or pattern matching. Never panic in production code. |
+| `indexing_slicing`, `string_slice` = deny | Use `.get()` with proper error handling instead of `vec[i]` or `&s[0..4]`. |
+| `get_unwrap` = deny | `.get(i).unwrap()` is still an unwrap. Use `.get(i).ok_or()?` or match. |
+| `exit` = deny | Only `main()` calls `process::exit`. Return errors up the call stack instead. |
+| `dbg_macro`, `todo`, `unimplemented` = deny | No debug or placeholder code in commits. |
+| `dead_code`, `unreachable_pub` = deny | Remove unused code. Use `pub(crate)` instead of `pub` for internal items. |
+| `wildcard_enum_match_arm` = deny | Match all enum variants explicitly — no `_ =>` catch-alls on enums. |
+| `allow_attributes` = deny | Use `#[expect(lint, reason = "...")]` instead of `#[allow(lint)]`. This ensures stale suppressions get flagged automatically. |
+| `missing_errors_doc`, `missing_panics_doc` = deny | Document error conditions and panic behavior on public functions. |
+
+**Test modules** use `#[expect(clippy::unwrap_used, reason = "...")]` for readability — `unwrap()` is fine in tests, just suppress it explicitly.
+
+If a lint feels wrong for your use case, suppress it locally with `#[expect]` and a reason — don't fight the linter globally. If you think a rule should be changed project-wide, open an issue.
 
 ### Error Handling
 

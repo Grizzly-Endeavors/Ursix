@@ -5,7 +5,7 @@ use serde::Serialize;
 
 /// Result from the `init` command
 #[derive(Debug, Serialize)]
-pub struct InitResult {
+pub(crate) struct InitResult {
     /// Whether initialization succeeded
     pub success: bool,
     /// Files that were created
@@ -76,7 +76,7 @@ impl ExitStatus for InitResult {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 

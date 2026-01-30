@@ -20,7 +20,7 @@ use crate::tokens::{TokenLimits, check_token_limits, count_context_tokens};
 
 /// The type of content to derive from the input
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeriveType {
+pub(crate) enum DeriveType {
     /// Generate a commit message from a diff
     CommitMsg,
     /// Generate an explanation of code
@@ -34,7 +34,7 @@ impl DeriveType {
     ///
     /// # Errors
     /// Returns error if the type string is not recognized.
-    pub fn from_str(s: &str) -> Result<Self> {
+    pub(crate) fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "commit-msg" | "commit" => Ok(Self::CommitMsg),
             "explanation" | "explain" => Ok(Self::Explanation),
@@ -47,7 +47,7 @@ impl DeriveType {
 
     /// Get the command name for prompts and dry-run output
     #[must_use]
-    pub fn command_name(self) -> &'static str {
+    pub(crate) fn command_name(self) -> &'static str {
         match self {
             Self::CommitMsg => "derive:commit-msg",
             Self::Explanation => "derive:explanation",
@@ -57,7 +57,7 @@ impl DeriveType {
 }
 
 /// Options for the derive command
-pub struct DeriveOptions {
+pub(crate) struct DeriveOptions {
     /// Type of content to derive
     pub derive_type: DeriveType,
     /// Enable chunking for large inputs
@@ -72,7 +72,7 @@ pub struct DeriveOptions {
 ///
 /// # Errors
 /// Returns error if input reading, LLM call, or response parsing fails.
-pub async fn cmd_derive(
+pub(crate) async fn cmd_derive(
     config: &Config,
     options: DeriveOptions,
     file: Option<PathBuf>,
@@ -290,7 +290,12 @@ fn split_by_tokens(content: &str, target_tokens: usize) -> Vec<String> {
 fn find_split_point(content: &str, target: usize) -> usize {
     let search_start = target.saturating_sub(500);
     let search_end = (target + 500).min(content.len());
-    let search_range = &content[search_start..search_end];
+
+    // Use get to safely slice the string
+    let search_range = match content.get(search_start..search_end) {
+        Some(range) => range,
+        None => content,
+    };
 
     // Look for paragraph boundary first
     if let Some(pos) = search_range.rfind("\n\n") {
@@ -380,7 +385,7 @@ fn parse_derive_result(derive_type: DeriveType, response: &str) -> Result<Derive
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -421,14 +426,14 @@ mod tests {
         let content = "small input";
         let chunks = split_by_tokens(content, 1000);
         assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0], "small input");
+        assert_eq!(chunks.get(0), Some(&"small input".to_string()));
     }
 
     #[test]
     fn test_split_by_tokens_empty() {
         let chunks = split_by_tokens("", 1000);
         assert_eq!(chunks.len(), 1);
-        assert!(chunks[0].is_empty());
+        assert!(chunks.get(0).map_or(false, |c| c.is_empty()));
     }
 
     #[test]
@@ -450,13 +455,13 @@ mod tests {
 
     #[test]
     fn test_build_user_request() {
-        let req = build_user_request(DeriveType::CommitMsg);
-        assert!(req.contains("conventional"));
+        let req_commit = build_user_request(DeriveType::CommitMsg);
+        assert!(req_commit.contains("conventional"));
 
-        let req = build_user_request(DeriveType::Explanation);
-        assert!(req.contains("Explain"));
+        let req_explain = build_user_request(DeriveType::Explanation);
+        assert!(req_explain.contains("Explain"));
 
-        let req = build_user_request(DeriveType::Summary);
-        assert!(req.contains("Summarize"));
+        let req_summary = build_user_request(DeriveType::Summary);
+        assert!(req_summary.contains("Summarize"));
     }
 }

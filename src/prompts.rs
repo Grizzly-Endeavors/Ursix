@@ -17,7 +17,7 @@ use crate::config::PromptsConfig;
 /// If a custom prompt is configured, returns a reference to it.
 /// Otherwise, returns the default prompt for that command.
 #[must_use]
-pub fn get_prompt<'a>(command: &str, config: &'a PromptsConfig) -> &'a str {
+pub(crate) fn get_prompt<'a>(command: &str, config: &'a PromptsConfig) -> &'a str {
     match command {
         "review" => config.review.as_deref().unwrap_or(REVIEW_PIPELINE_PROMPT),
         "commit-msg" | "commit" => config
@@ -39,7 +39,7 @@ pub fn get_prompt<'a>(command: &str, config: &'a PromptsConfig) -> &'a str {
 /// If `custom_base` is provided, uses it instead of the default review prompt.
 /// Rules are still injected into the prompt regardless of which base is used.
 #[must_use]
-pub fn get_review_prompt(config: &PromptsConfig, rules_section: &str) -> String {
+pub(crate) fn get_review_prompt(config: &PromptsConfig, rules_section: &str) -> String {
     if let Some(ref custom) = config.review {
         // Custom prompt replaces base, but we still inject rules
         if rules_section.is_empty() {
@@ -59,7 +59,7 @@ pub fn get_review_prompt(config: &PromptsConfig, rules_section: &str) -> String 
 // The LLM must return structured JSON that can be parsed into result types.
 
 /// Pipeline prompt for the review command (no tools, JSON output)
-pub const REVIEW_PIPELINE_PROMPT: &str = r#"You are a thorough code reviewer. Your task is to review the provided code changes and provide constructive feedback.
+pub(crate) const REVIEW_PIPELINE_PROMPT: &str = r#"You are a thorough code reviewer. Your task is to review the provided code changes and provide constructive feedback.
 
 When reviewing code, analyze:
 - Correctness and potential bugs
@@ -92,7 +92,7 @@ Notes:
 Output ONLY the JSON, no other text."#;
 
 /// Pipeline prompt for the commit command (no tools, JSON output)
-pub const COMMIT_PIPELINE_PROMPT: &str = r#"You are a commit message generator. Your task is to analyze the provided code changes and generate an appropriate commit message.
+pub(crate) const COMMIT_PIPELINE_PROMPT: &str = r#"You are a commit message generator. Your task is to analyze the provided code changes and generate an appropriate commit message.
 
 Generate a commit message following conventional commits format:
 - Type: feat, fix, docs, style, refactor, test, chore
@@ -114,7 +114,7 @@ Notes:
 Output ONLY the JSON, no other text."#;
 
 /// Pipeline prompt for the explain command (no tools, JSON output)
-pub const EXPLAIN_PIPELINE_PROMPT: &str = r#"You are a code explanation expert. Your task is to explain the provided code clearly and concisely.
+pub(crate) const EXPLAIN_PIPELINE_PROMPT: &str = r#"You are a code explanation expert. Your task is to explain the provided code clearly and concisely.
 
 When explaining code, cover:
 1. A high-level overview of what the code does
@@ -139,7 +139,7 @@ Output ONLY the JSON, no other text."#;
 /// - LLM receives the issue description and code snippet
 /// - LLM outputs ONLY the replacement code (no JSON, no metadata)
 /// - Diff generation and validation are done programmatically
-pub const FIX_PIPELINE_PROMPT: &str = r"You are a code transformation specialist. Your task is to fix the described issue in the provided code snippet.
+pub(crate) const FIX_PIPELINE_PROMPT: &str = "You are a code transformation specialist. Your task is to fix the described issue in the provided code snippet.
 
 IMPORTANT:
 - Output ONLY the fixed code
@@ -155,7 +155,7 @@ Your output will be used directly as a replacement for the original snippet, so 
 ///
 /// The ask command in pipeline mode returns a simple text response,
 /// not structured JSON, since it handles general queries.
-pub const ASK_PIPELINE_PROMPT: &str = r"You are a helpful coding assistant.
+pub(crate) const ASK_PIPELINE_PROMPT: &str = "You are a helpful coding assistant.
 
 Answer the user's question directly and concisely. Focus on providing accurate, actionable information.
 
@@ -167,7 +167,7 @@ If the question requires file access or command execution that you cannot perfor
 ///
 /// Pipeline prompts instruct the LLM to return structured JSON output
 /// that can be parsed into the corresponding result types.
-pub fn pipeline_prompt_for_command(command: &str) -> &'static str {
+pub(crate) fn pipeline_prompt_for_command(command: &str) -> &'static str {
     match command {
         "explain" => EXPLAIN_PIPELINE_PROMPT,
         "review" => REVIEW_PIPELINE_PROMPT,
@@ -183,8 +183,8 @@ pub fn pipeline_prompt_for_command(command: &str) -> &'static str {
 /// This injects the rules section between the analysis instructions and
 /// the output format instructions.
 #[must_use]
-pub fn build_review_prompt(rules_section: &str) -> String {
-    let base = r"You are a thorough code reviewer. Your task is to review the provided code changes and provide constructive feedback.
+pub(crate) fn build_review_prompt(rules_section: &str) -> String {
+    let base = "You are a thorough code reviewer. Your task is to review the provided code changes and provide constructive feedback.
 
 When reviewing code, analyze:
 - Correctness and potential bugs
@@ -235,9 +235,9 @@ Output ONLY the JSON, no other text."#;
 /// Unlike `build_review_prompt`, this creates a prompt focused on reviewing
 /// only one category of rules, enabling per-category LLM calls.
 #[must_use]
-pub fn build_category_review_prompt(category: &str, rules_section: &str) -> String {
+pub(crate) fn build_category_review_prompt(category: &str, rules_section: &str) -> String {
     let base = format!(
-        r"You are a code reviewer focused on {category} issues. Your task is to review the provided code for {category} concerns only.
+        "You are a code reviewer focused on {category} issues. Your task is to review the provided code for {category} concerns only.
 
 Focus exclusively on {category} issues. Do not report issues outside this category.
 "
@@ -300,7 +300,7 @@ fn capitalize_first(s: &str) -> String {
 use crate::commands::DeriveType;
 
 /// Get the appropriate prompt for a derive type
-pub fn derive_prompt_for_type(derive_type: DeriveType) -> &'static str {
+pub(crate) fn derive_prompt_for_type(derive_type: DeriveType) -> &'static str {
     match derive_type {
         DeriveType::CommitMsg => COMMIT_PIPELINE_PROMPT,
         DeriveType::Explanation => EXPLAIN_PIPELINE_PROMPT,
@@ -309,7 +309,7 @@ pub fn derive_prompt_for_type(derive_type: DeriveType) -> &'static str {
 }
 
 /// Pipeline prompt for the summary derive type
-pub const DERIVE_SUMMARY_PROMPT: &str = r#"You are a content summarization expert. Your task is to provide a clear, concise summary of the provided content.
+pub(crate) const DERIVE_SUMMARY_PROMPT: &str = r#"You are a content summarization expert. Your task is to provide a clear, concise summary of the provided content.
 
 When summarizing:
 1. Identify the main purpose and key points
@@ -334,7 +334,7 @@ Output ONLY the JSON, no other text."#;
 // These prompts are used when processing large inputs in chunks.
 
 /// Chunk processing prompt for commit-msg derive type
-pub const DERIVE_COMMIT_CHUNK_PROMPT: &str = r#"You are analyzing a portion of a code diff. Your task is to summarize what changes were made in this section.
+pub(crate) const DERIVE_COMMIT_CHUNK_PROMPT: &str = r#"You are analyzing a portion of a code diff. Your task is to summarize what changes were made in this section.
 
 Focus on:
 - What files were modified
@@ -349,7 +349,7 @@ Return your summary as JSON in this exact format:
 Output ONLY the JSON, no other text."#;
 
 /// Chunk processing prompt for explanation derive type
-pub const DERIVE_EXPLANATION_CHUNK_PROMPT: &str = r#"You are explaining a section of code. Your task is to explain what this section does.
+pub(crate) const DERIVE_EXPLANATION_CHUNK_PROMPT: &str = r#"You are explaining a section of code. Your task is to explain what this section does.
 
 Focus on:
 - The purpose of the code in this section
@@ -364,7 +364,7 @@ Return your explanation as JSON in this exact format:
 Output ONLY the JSON, no other text."#;
 
 /// Chunk processing prompt for summary derive type
-pub const DERIVE_SUMMARY_CHUNK_PROMPT: &str = r#"You are summarizing a section of content. Your task is to capture the key points from this section.
+pub(crate) const DERIVE_SUMMARY_CHUNK_PROMPT: &str = r#"You are summarizing a section of content. Your task is to capture the key points from this section.
 
 Focus on:
 - Main ideas and important details
@@ -384,7 +384,7 @@ Output ONLY the JSON, no other text."#;
 // These prompts combine chunk results into a final unified output.
 
 /// Synthesis prompt for commit-msg derive type
-pub const DERIVE_COMMIT_SYNTHESIS_PROMPT: &str = r#"You are combining summaries of different parts of a code diff into a single commit message.
+pub(crate) const DERIVE_COMMIT_SYNTHESIS_PROMPT: &str = r#"You are combining summaries of different parts of a code diff into a single commit message.
 
 The input contains summaries of different sections of the diff. Combine them into a cohesive commit message following conventional commits format:
 - Type: feat, fix, docs, style, refactor, test, chore
@@ -407,7 +407,7 @@ Notes:
 Output ONLY the JSON, no other text."#;
 
 /// Synthesis prompt for explanation derive type
-pub const DERIVE_EXPLANATION_SYNTHESIS_PROMPT: &str = r#"You are combining explanations of different code sections into a cohesive overall explanation.
+pub(crate) const DERIVE_EXPLANATION_SYNTHESIS_PROMPT: &str = r#"You are combining explanations of different code sections into a cohesive overall explanation.
 
 The input contains explanations of different parts of the code. Combine them into a unified explanation that:
 1. Provides a high-level overview of what the code does
@@ -428,7 +428,7 @@ Notes:
 Output ONLY the JSON, no other text."#;
 
 /// Synthesis prompt for summary derive type
-pub const DERIVE_SUMMARY_SYNTHESIS_PROMPT: &str = r#"You are combining partial summaries into a comprehensive overall summary.
+pub(crate) const DERIVE_SUMMARY_SYNTHESIS_PROMPT: &str = r#"You are combining partial summaries into a comprehensive overall summary.
 
 The input contains summaries of different sections of the content. Combine them into a cohesive summary that:
 1. Captures the main purpose and key points from all sections

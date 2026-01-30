@@ -8,7 +8,7 @@ use super::{
 
 /// Ollama API client
 #[derive(Clone)]
-pub struct OllamaClient {
+pub(crate) struct OllamaClient {
     http: SharedHttpClient,
     base_url: String,
     model: String,
@@ -19,7 +19,11 @@ impl OllamaClient {
     ///
     /// This creates a new HTTP client internally. For connection reuse across
     /// multiple clients, use [`with_http_client`](Self::with_http_client) instead.
-    pub fn new(base_url: impl Into<String>, model: impl Into<String>, timeout_secs: u64) -> Self {
+    pub(crate) fn new(
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        timeout_secs: u64,
+    ) -> Self {
         let base_url = base_url.into();
         warn_if_insecure_remote(&base_url);
         let http = SharedHttpClient::new(&HttpClientConfig::with_timeout(timeout_secs));
@@ -34,7 +38,7 @@ impl OllamaClient {
     /// Create a new Ollama client with a shared HTTP client
     ///
     /// Use this constructor to share connection pools across multiple LLM clients.
-    pub fn with_http_client(
+    pub(crate) fn with_http_client(
         http: SharedHttpClient,
         base_url: impl Into<String>,
         model: impl Into<String>,
@@ -52,7 +56,7 @@ impl OllamaClient {
     /// Create a new Ollama client from an existing HTTP client (deprecated alias)
     #[doc(hidden)]
     #[deprecated(since = "0.1.0", note = "Use with_http_client instead")]
-    pub fn from_http_client(
+    pub(crate) fn from_http_client(
         http: SharedHttpClient,
         base_url: impl Into<String>,
         model: impl Into<String>,
@@ -69,7 +73,7 @@ impl OllamaClient {
     ///
     /// # Errors
     /// Returns error if the API request fails or response cannot be parsed
-    pub async fn list_models(&self) -> Result<Vec<String>, LlmError> {
+    pub(crate) async fn list_models(&self) -> Result<Vec<String>, LlmError> {
         let url = format!("{}/api/tags", self.base_url);
         let response = self
             .http
@@ -125,11 +129,7 @@ impl LlmClient for OllamaClient {
                 Some(ollama_tools)
             },
             stream: false,
-            format: if options.json_mode {
-                Some("json")
-            } else {
-                None
-            },
+            format: options.json_mode.then_some("json"),
         };
 
         let response = self
@@ -277,7 +277,7 @@ struct OllamaModel {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
     use crate::llm::ChatOptions;
@@ -385,8 +385,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].name, "bash");
-        assert_eq!(response.tool_calls[0].id, "call_0");
+        assert_eq!(
+            response.tool_calls.get(0).map(|t| &t.name),
+            Some(&"bash".to_string())
+        );
+        assert_eq!(
+            response.tool_calls.get(0).map(|t| &t.id),
+            Some(&"call_0".to_string())
+        );
         assert!(!response.is_complete); // Has tool calls, so not complete
     }
 

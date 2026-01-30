@@ -17,7 +17,7 @@ use thiserror::Error;
 ///
 /// The snippet is always inferred from file content at the specified lines.
 #[derive(Debug, Clone, Deserialize)]
-pub struct FixInput {
+pub(crate) struct FixInput {
     /// Description of the problem to fix
     pub issue: String,
     /// Path to the file containing the code
@@ -28,7 +28,7 @@ pub struct FixInput {
 
 /// Errors that can occur during input validation
 #[derive(Debug, Error)]
-pub enum InputValidationError {
+pub(crate) enum InputValidationError {
     #[error("failed to parse input JSON: {0}")]
     ParseError(#[from] serde_json::Error),
 
@@ -66,7 +66,7 @@ impl FixInput {
     ///
     /// # Errors
     /// Returns `InputValidationError::ParseError` if JSON is malformed or missing required fields.
-    pub fn parse(input: &str) -> Result<Self, InputValidationError> {
+    pub(crate) fn parse(input: &str) -> Result<Self, InputValidationError> {
         let parsed: Self = serde_json::from_str(input)?;
         Ok(parsed)
     }
@@ -82,7 +82,10 @@ impl FixInput {
     ///
     /// # Errors
     /// Returns appropriate `InputValidationError` if any validation fails.
-    pub fn validate(&self, working_dir: &Path) -> Result<ValidatedFixInput, InputValidationError> {
+    pub(crate) fn validate(
+        &self,
+        working_dir: &Path,
+    ) -> Result<ValidatedFixInput, InputValidationError> {
         // Check required fields are non-empty
         if self.issue.trim().is_empty() {
             return Err(InputValidationError::EmptyIssue);
@@ -127,7 +130,10 @@ impl FixInput {
         }
 
         // Extract snippet from file (1-indexed to 0-indexed)
-        let snippet: String = lines[(start - 1)..end].join("\n");
+        let snippet: String = lines
+            .get((start - 1)..end)
+            .map(|slice| slice.join("\n"))
+            .unwrap_or_default();
 
         Ok(ValidatedFixInput {
             issue: self.issue.clone(),
@@ -146,7 +152,7 @@ impl FixInput {
 /// - The snippet matches the file content at the specified lines
 /// - The line range is valid
 #[derive(Debug, Clone)]
-pub struct ValidatedFixInput {
+pub(crate) struct ValidatedFixInput {
     /// Description of the problem to fix
     pub issue: String,
     /// Exact code lines to transform
@@ -162,7 +168,7 @@ pub struct ValidatedFixInput {
 impl ValidatedFixInput {
     /// Get the relative file path for output
     #[must_use]
-    pub fn relative_path(&self, working_dir: &Path) -> String {
+    pub(crate) fn relative_path(&self, working_dir: &Path) -> String {
         self.file_path.strip_prefix(working_dir).map_or_else(
             |_| self.file_path.display().to_string(),
             |p| p.display().to_string(),
@@ -176,7 +182,7 @@ impl ValidatedFixInput {
 
 /// Issue specification for whole-file mode
 #[derive(Debug, Clone, Deserialize)]
-pub struct IssueSpec {
+pub(crate) struct IssueSpec {
     /// Description of the problem to fix
     pub issue: String,
     /// Line range [start, end] (1-indexed, inclusive)
@@ -191,7 +197,7 @@ pub struct IssueSpec {
 ///
 /// Issues are processed bottom-to-top to preserve line numbers.
 #[derive(Debug, Clone, Deserialize)]
-pub struct WholeFileInput {
+pub(crate) struct WholeFileInput {
     /// Path to the file containing the code
     pub file: String,
     /// List of issues to fix
@@ -200,7 +206,7 @@ pub struct WholeFileInput {
 
 /// Validated issue with snippet extracted from file
 #[derive(Debug, Clone)]
-pub struct ValidatedIssue {
+pub(crate) struct ValidatedIssue {
     /// Description of the problem to fix
     pub issue: String,
     /// Exact code lines to transform (extracted from file)
@@ -211,7 +217,7 @@ pub struct ValidatedIssue {
 
 /// Validated whole-file input with resolved file path and content
 #[derive(Debug, Clone)]
-pub struct ValidatedWholeFileInput {
+pub(crate) struct ValidatedWholeFileInput {
     /// Resolved absolute path to the file
     pub file_path: std::path::PathBuf,
     /// Full content of the file
@@ -223,7 +229,7 @@ pub struct ValidatedWholeFileInput {
 impl ValidatedWholeFileInput {
     /// Get the relative file path for output
     #[must_use]
-    pub fn relative_path(&self, working_dir: &Path) -> String {
+    pub(crate) fn relative_path(&self, working_dir: &Path) -> String {
         self.file_path.strip_prefix(working_dir).map_or_else(
             |_| self.file_path.display().to_string(),
             |p| p.display().to_string(),
@@ -236,7 +242,7 @@ impl WholeFileInput {
     ///
     /// # Errors
     /// Returns `InputValidationError::ParseError` if JSON is malformed or missing required fields.
-    pub fn parse(input: &str) -> Result<Self, InputValidationError> {
+    pub(crate) fn parse(input: &str) -> Result<Self, InputValidationError> {
         let parsed: Self = serde_json::from_str(input)?;
         Ok(parsed)
     }
@@ -254,7 +260,7 @@ impl WholeFileInput {
     ///
     /// # Errors
     /// Returns appropriate `InputValidationError` if any validation fails.
-    pub fn validate(
+    pub(crate) fn validate(
         &self,
         working_dir: &Path,
     ) -> Result<ValidatedWholeFileInput, InputValidationError> {
@@ -325,7 +331,10 @@ impl WholeFileInput {
             }
 
             // Extract snippet from file (1-indexed to 0-indexed)
-            let snippet: String = lines[(start - 1)..end].join("\n");
+            let snippet: String = lines
+                .get((start - 1)..end)
+                .map(|slice| slice.join("\n"))
+                .unwrap_or_default();
 
             validated_issues.push(ValidatedIssue {
                 issue: issue.issue.clone(),
@@ -349,14 +358,14 @@ impl WholeFileInput {
 ///
 /// Ranges are inclusive: (start, end) means lines start through end.
 #[must_use]
-pub fn ranges_overlap(a: (usize, usize), b: (usize, usize)) -> bool {
+pub(crate) fn ranges_overlap(a: (usize, usize), b: (usize, usize)) -> bool {
     // Two ranges [a_start, a_end] and [b_start, b_end] overlap if:
     // a_start <= b_end AND b_start <= a_end
     a.0 <= b.1 && b.0 <= a.1
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
     use std::io::Write;
@@ -542,10 +551,16 @@ mod tests {
         let input = WholeFileInput::parse(json).unwrap();
         assert_eq!(input.file, "src/main.rs");
         assert_eq!(input.issues.len(), 2);
-        assert_eq!(input.issues[0].issue, "unused var");
-        assert_eq!(input.issues[0].lines, (10, 10));
-        assert_eq!(input.issues[1].issue, "missing error handling");
-        assert_eq!(input.issues[1].lines, (25, 28));
+        assert_eq!(
+            input.issues.get(0).map(|i| &i.issue),
+            Some(&"unused var".to_string())
+        );
+        assert_eq!(input.issues.get(0).map(|i| i.lines), Some((10, 10)));
+        assert_eq!(
+            input.issues.get(1).map(|i| &i.issue),
+            Some(&"missing error handling".to_string())
+        );
+        assert_eq!(input.issues.get(1).map(|i| i.lines), Some((25, 28)));
     }
 
     #[test]
@@ -570,11 +585,17 @@ mod tests {
         let validated = input.validate(dir.path()).unwrap();
         assert_eq!(validated.issues.len(), 2);
         // Should be sorted descending by line number
-        assert_eq!(validated.issues[0].lines, (4, 5));
-        assert_eq!(validated.issues[1].lines, (1, 1));
+        assert_eq!(validated.issues.get(0).map(|i| i.lines), Some((4, 5)));
+        assert_eq!(validated.issues.get(1).map(|i| i.lines), Some((1, 1)));
         // Snippets should be extracted
-        assert_eq!(validated.issues[0].snippet, "line 4\nline 5");
-        assert_eq!(validated.issues[1].snippet, "line 1");
+        assert_eq!(
+            validated.issues.get(0).map(|i| &i.snippet),
+            Some(&"line 4\nline 5".to_string())
+        );
+        assert_eq!(
+            validated.issues.get(1).map(|i| &i.snippet),
+            Some(&"line 1".to_string())
+        );
     }
 
     #[test]

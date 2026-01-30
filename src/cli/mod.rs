@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use thiserror::Error;
 
-pub use args::{Cli, Command, FixMode, RetryOptions};
+pub(crate) use args::{Cli, Command, FixMode, RetryOptions};
 pub(crate) use dispatch::run_pipeline;
 
 use crate::commands::{
@@ -23,7 +23,7 @@ use crate::pipeline::PipelineError;
 
 /// CLI-specific errors with appropriate exit codes
 #[derive(Debug, Error)]
-pub enum CliError {
+pub(crate) enum CliError {
     #[error("{0}")]
     Config(#[source] anyhow::Error),
 
@@ -54,7 +54,7 @@ impl ToExitCode for CliError {
 ///
 /// # Errors
 /// Returns error if command execution fails or if working directory cannot be determined
-pub async fn run() -> Result<ExitCode> {
+pub(crate) async fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
 
     let working_dir = std::env::current_dir().context("failed to get current directory")?;
@@ -72,8 +72,7 @@ pub async fn run() -> Result<ExitCode> {
 
     // CLI flags override everything
     // Parse --provider NAME [URL] [API-KEY]
-    if !cli.provider.is_empty() {
-        let provider_name = &cli.provider[0];
+    if let Some(provider_name) = cli.provider.first() {
         config.provider = provider_name
             .parse()
             .map_err(|e: String| CliError::Config(anyhow::anyhow!(e)))?;
@@ -164,7 +163,6 @@ pub async fn run() -> Result<ExitCode> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

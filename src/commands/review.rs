@@ -23,7 +23,7 @@ use crate::tokens::{TokenCheck, TokenLimits, check_token_limits, count_context_t
 
 /// How diff format is determined for review input
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiffDetection {
+pub(crate) enum DiffDetection {
     /// Auto-detect diff format from content (default)
     Auto,
     /// Force diff format (`--diff` flag)
@@ -31,7 +31,7 @@ pub enum DiffDetection {
 }
 
 /// Options for the review command
-pub struct ReviewOptions {
+pub(crate) struct ReviewOptions {
     /// How to detect diff format
     pub diff_detection: DiffDetection,
     /// Enable chunked processing
@@ -95,7 +95,7 @@ fn validate_input(
     }
 }
 
-pub async fn cmd_review(
+pub(crate) async fn cmd_review(
     config: &Config,
     options: ReviewOptions,
     file: Option<PathBuf>,
@@ -398,7 +398,7 @@ fn handle_review_dry_run(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 

@@ -12,7 +12,7 @@ use crate::output::{ExitCode, ToExitCode};
 
 /// Error type for pipeline execution
 #[derive(Debug, Error)]
-pub enum PipelineError {
+pub(crate) enum PipelineError {
     #[error("LLM error: {0}")]
     Llm(#[from] LlmError),
     #[error("token limit exceeded: {0}")]
@@ -32,14 +32,14 @@ impl ToExitCode for PipelineError {
 ///
 /// The pipeline makes a single LLM call without tools or message history mutation.
 /// Use this for simple tasks that don't require iterative tool execution.
-pub struct Pipeline<L: LlmClient> {
+pub(crate) struct Pipeline<L: LlmClient> {
     client: L,
 }
 
 impl<L: LlmClient + Clone + 'static> Pipeline<L> {
     /// Create a new pipeline with the given LLM client
     #[must_use]
-    pub fn new(client: L) -> Self {
+    pub(crate) fn new(client: L) -> Self {
         Self { client }
     }
 
@@ -58,7 +58,7 @@ impl<L: LlmClient + Clone + 'static> Pipeline<L> {
     ///
     /// # Errors
     /// Returns error if the LLM call fails after all retry attempts
-    pub async fn execute(
+    pub(crate) async fn execute(
         &self,
         system_prompt: &str,
         context: &InputContext,
@@ -120,7 +120,7 @@ impl<L: LlmClient + Clone + 'static> Pipeline<L> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
     use crate::llm::{LlmResponse, ToolDefinition};

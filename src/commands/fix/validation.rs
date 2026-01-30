@@ -10,7 +10,7 @@ const MAX_EXPANSION_RATIO: f64 = 10.0;
 
 /// Validation errors for LLM output
 #[derive(Debug, Error)]
-pub enum ValidationError {
+pub(crate) enum ValidationError {
     #[error(
         "replacement is {ratio:.1}x longer than original (max {max}x); likely includes explanation or metadata"
     )]
@@ -22,13 +22,13 @@ pub enum ValidationError {
 
 /// Warning for potential issues that don't block the fix
 #[derive(Debug, Clone)]
-pub struct ValidationWarning {
+pub(crate) struct ValidationWarning {
     pub message: String,
 }
 
 /// Result of validating LLM output
 #[derive(Debug)]
-pub struct ValidationResult {
+pub(crate) struct ValidationResult {
     /// Warnings that don't block the fix
     pub warnings: Vec<ValidationWarning>,
 }
@@ -55,7 +55,7 @@ impl ValidationResult {
 ///
 /// # Errors
 /// Returns `ValidationError` if replacement fails hard validation checks.
-pub fn validate_replacement(
+pub(crate) fn validate_replacement(
     original: &str,
     replacement: &str,
 ) -> Result<ValidationResult, ValidationError> {
@@ -67,7 +67,10 @@ pub fn validate_replacement(
 
     if original_len > 0 {
         // Precision loss is acceptable for ratio calculation
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "precision loss acceptable for ratio calculation"
+        )]
         let ratio = replacement_len as f64 / original_len as f64;
         if ratio > MAX_EXPANSION_RATIO {
             return Err(ValidationError::LengthExceeded {
@@ -189,7 +192,7 @@ fn check_common_mistakes(code: &str, result: &mut ValidationResult) {
 /// IMPORTANT: Preserves leading whitespace (indentation) on code lines.
 /// Only blank lines and fence lines are removed, not indentation.
 #[must_use]
-pub fn sanitize_replacement(raw: &str) -> String {
+pub(crate) fn sanitize_replacement(raw: &str) -> String {
     let mut lines: Vec<&str> = raw.lines().collect();
 
     // Remove blank lines from the start
@@ -227,7 +230,7 @@ pub fn sanitize_replacement(raw: &str) -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -265,7 +268,12 @@ mod tests {
         let replacement = "```rust\nlet _x = 1;\n```";
         let result = validate_replacement(original, replacement).unwrap();
         assert!(!result.warnings.is_empty());
-        assert!(result.warnings[0].message.contains("code fences"));
+        assert!(
+            result
+                .warnings
+                .get(0)
+                .map_or(false, |w| w.message.contains("code fences"))
+        );
     }
 
     #[test]
@@ -274,7 +282,12 @@ mod tests {
         let replacement = "Here's the fixed code:\nlet _x = 1;";
         let result = validate_replacement(original, replacement).unwrap();
         assert!(!result.warnings.is_empty());
-        assert!(result.warnings[0].message.contains("explanation"));
+        assert!(
+            result
+                .warnings
+                .get(0)
+                .map_or(false, |w| w.message.contains("explanation"))
+        );
     }
 
     #[test]
@@ -302,7 +315,7 @@ mod tests {
     fn test_check_delimiter_balance_in_string() {
         // Delimiters inside strings should be ignored
         assert!(check_delimiter_balance(r#"let s = "({[";"#).is_none());
-        assert!(check_delimiter_balance(r"let s = '(';").is_none());
+        assert!(check_delimiter_balance("let s = '(';").is_none());
     }
 
     #[test]
