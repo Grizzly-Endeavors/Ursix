@@ -329,10 +329,9 @@ Extracted from CLAUDE.md: development setup, code style, testing, PR process.
 
 Created `.ursix.toml.example` and `rules.example.yml` for onboarding.
 
-### [ ] CHANGELOG automation
+### [ ] Update integration tests to use stable assert_cmd API
 
-Set up `git-cliff` or similar to auto-generate changelog from conventional commits at release time.
-See: https://github.com/orhun/git-cliff
+Remove `#[allow(deprecated)]` and replace `Command::cargo_bin("usx")` with `cargo_bin_cmd!("usx")` in `tests/integration.rs`. The assert_cmd API is now stable, but the runtime `cargo_bin` function has been deprecated in favor of the compile-time `cargo_bin_cmd!` macro.
 
 ---
 

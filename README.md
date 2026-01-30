@@ -58,6 +58,7 @@ Most AI coding tools are chat interfaces, or basic auto-complete. Ursix is diffe
 - **Rust 1.85+** (2024 edition)
 - **An LLM provider**:
   - [Ollama](https://ollama.ai/) for local models (default)
+  - [Google](https://aistudio.google.com)
   - Any OpenAI-compatible API endpoint
 
 ### Installation
