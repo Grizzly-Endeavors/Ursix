@@ -363,6 +363,27 @@ Added: `repository`, `keywords`, `categories`, `readme`, `rust-version`.
 
 Lower priority items to revisit later.
 
+### [ ] Implement playbooks system
+
+Design and implement reusable workflow playbooks for common development tasks.
+
+**Location:** `.ursix/playbooks/` (project-specific) and `~/.config/ursix/playbooks/` (global)
+
+**Example directory:** `examples/playbooks/`
+
+**Requirements:**
+- Provide workflow templates (e.g., "pre-commit review", "release checklist")
+- Be composable with other Unix tools via stdin/stdout
+- Support parameterization via environment variables or flags
+- Include comprehensive examples for onboarding
+
+**Potential playbooks:**
+- `pre-commit.yml` - Run review on staged changes before commit
+- `release.yml` - Validation checklist for releases
+- `onboarding.yml` - New contributor setup tasks
+- `audit.yml` - Comprehensive codebase audit workflow
+- `refactor.yml` - Safe refactoring workflow with validation steps
+
 ### Revisit review→fix pipeline (dedicated apply command?)
 
 The `fix` command now only outputs suggested fixes - it no longer applies them automatically.

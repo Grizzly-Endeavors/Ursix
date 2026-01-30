@@ -36,7 +36,7 @@ Run the interactive setup wizard:
 usx init
 ```
 
-This creates `.ursix.toml` (configuration) and `.ursix/rules.yml` (review rules).
+This creates `.ursix/config.toml` (configuration) and `.ursix/rules.yml` (review rules).
 
 ### Basic Usage
 
@@ -78,8 +78,8 @@ Ursix loads configuration from (highest to lowest precedence):
 
 1. CLI flags
 2. Environment variables (`URSIX_API_KEY`, `URSIX_PROVIDER_URL`)
-3. `.ursix.toml` in working directory
-4. `~/.ursix.toml` in home directory
+3. `.ursix/config.toml` in working directory or parent directories
+4. `~/.config/ursix/config.toml` in home directory
 5. Built-in defaults
 
 See [CLI Reference](cli-reference.md#configuration) for available settings.

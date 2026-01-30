@@ -23,7 +23,7 @@ The `init` command guides you through first-time setup:
 2. **Provider selection**: Choose between `ollama` (local) or `openai` (cloud)
 3. **API key guidance**: For OpenAI, explains how to set `URSIX_API_KEY`
 4. **Model selection**: Choose model with sensible defaults per provider
-5. **Create config**: Writes `.ursix.toml` with your selections
+5. **Create config**: Writes `.ursix/config.toml` with your selections
 6. **Create rules**: Writes `.ursix/rules.yml` with LLM-focused starter rules
 7. **Test connectivity**: Verifies the provider is accessible (unless `--skip-test`)
 
@@ -31,7 +31,7 @@ The `init` command guides you through first-time setup:
 
 | File | Purpose |
 |------|---------|
-| `.ursix.toml` | Project configuration |
+| `.ursix/config.toml` | Project configuration |
 | `.ursix/rules.yml` | Review rules (LLM-focused, beyond linters) |
 
 ### Starter Rules
@@ -69,7 +69,7 @@ Testing connectivity... OK
 Ursix initialized successfully!
 
 Created files:
-  - .ursix.toml
+  - .ursix/config.toml
   - .ursix/rules.yml
 
 Provider: ollama
@@ -82,7 +82,7 @@ Connectivity test: passed
 ```json
 {
   "success": true,
-  "files_created": [".ursix.toml", ".ursix/rules.yml"],
+  "files_created": [".ursix/config.toml", ".ursix/rules.yml"],
   "provider": "ollama",
   "model": "llama3.2",
   "connectivity_test": true,
@@ -117,7 +117,7 @@ URSIX_PROVIDER=openai URSIX_MODEL=gpt-4o usx init --skip-test
 
 After running `usx init`, you'll have:
 
-### .ursix.toml
+### .ursix/config.toml
 
 ```toml
 provider = "ollama"

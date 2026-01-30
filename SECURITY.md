@@ -38,7 +38,7 @@ Ursix handles API keys for LLM providers. Our security measures:
 ### Best Practices for Users
 
 - Use environment variables (`URSIX_API_KEY`) rather than CLI flags to avoid shell history exposure
-- Never commit `.ursix.toml` files containing credentials (they shouldn't have any, but check)
+- Never commit `.ursix/config.toml` files containing credentials (they shouldn't have any, but check)
 - Use separate API keys for CI/CD with minimal permissions
 
 ## Dependency Security

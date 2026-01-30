@@ -95,6 +95,16 @@ git diff --staged | usx review --text
 git diff --staged | usx derive commit-msg --text
 ```
 
+### Examples
+
+The `examples/` directory contains reference configurations and templates:
+
+- **`examples/config.toml`** - Example configuration file with all available options
+- **`examples/rules.yml`** - Example review rules for semantic linting
+- **`examples/playbooks/`** - Placeholder for future workflow templates
+
+Copy these to `.ursix/config.toml` and `.ursix/rules.yml` in your project, or use `usx init` for interactive setup.
+
 ## Commands
 
 ### `usx derive` — Transform Text
@@ -402,13 +412,13 @@ Layered configuration (highest priority first):
 
 1. **CLI flags** — `--model qwen2.5-coder:7b`
 2. **Environment variables** — `URSIX_MODEL=qwen2.5-coder:7b`
-3. **Project config** — `.ursix.toml` in current or parent directories
+3. **Project config** — `.ursix/config.toml` in current or parent directories
 4. **Global config** — `~/.config/ursix/config.toml`
 
 ### Configuration File
 
 ```toml
-# .ursix.toml
+# .ursix/config.toml
 provider = "ollama"
 model = "qwen2.5-coder:7b"
 provider_url = "http://localhost:11434"  # Optional: override default for selected provider

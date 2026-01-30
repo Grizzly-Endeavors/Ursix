@@ -3,7 +3,7 @@
 //! Configuration is loaded from multiple sources with the following priority:
 //! 1. CLI flags (highest priority)
 //! 2. Environment variables (URSIX_*)
-//! 3. Project config (.ursix.toml in current or parent directories)
+//! 3. Project config (.ursix/config.toml)
 //! 4. Global config (~/.config/ursix/config.toml)
 //! 5. Defaults (lowest priority)
 
@@ -111,7 +111,7 @@ impl Config {
     fn find_project_config() -> Option<PathBuf> {
         let mut dir = std::env::current_dir().ok()?;
         loop {
-            let config_path = dir.join(".ursix.toml");
+            let config_path = dir.join(".ursix").join("config.toml");
             if config_path.exists() {
                 return Some(config_path);
             }
@@ -425,5 +425,62 @@ mod tests {
             loaded.provider_url,
             Some("http://localhost:8080/v1".to_string())
         );
+    }
+
+    #[test]
+    fn test_find_project_config_finds_config() {
+        let temp = TempDir::new().unwrap();
+        let ursix_dir = temp.path().join(".ursix");
+        std::fs::create_dir(&ursix_dir).unwrap();
+        let config_path = ursix_dir.join("config.toml");
+        std::fs::write(&config_path, "model = \"test\"\n").unwrap();
+
+        // Change to temp directory
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let found = Config::find_project_config();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), config_path);
+
+        // Restore original directory
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_find_project_config_walks_up_tree() {
+        let temp = TempDir::new().unwrap();
+        let ursix_dir = temp.path().join(".ursix");
+        std::fs::create_dir(&ursix_dir).unwrap();
+        let config_path = ursix_dir.join("config.toml");
+        std::fs::write(&config_path, "model = \"test\"\n").unwrap();
+
+        // Create nested directory
+        let nested_dir = temp.path().join("nested").join("deeper");
+        std::fs::create_dir_all(&nested_dir).unwrap();
+
+        // Change to nested directory
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&nested_dir).unwrap();
+
+        // Should find config in parent directory
+        let found = Config::find_project_config();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), config_path);
+
+        // Restore original directory
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_find_project_config_returns_none_when_not_found() {
+        let temp = TempDir::new().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let found = Config::find_project_config();
+        assert!(found.is_none());
+
+        std::env::set_current_dir(original_dir).unwrap();
     }
 }

@@ -36,14 +36,14 @@ API keys are displayed as `[set]` or `[not set]` for security. The actual key va
 
 ### Editing Configuration
 
-The `config` command is read-only. To change settings, directly edit `.ursix.toml`:
+The `config` command is read-only. To change settings, directly edit `.ursix/config.toml`:
 
 ```bash
 # Edit project config
-$EDITOR .ursix.toml
+$EDITOR .ursix/config.toml
 
 # Edit global config
-$EDITOR ~/.ursix.toml
+$EDITOR ~/.config/ursix/config.toml
 ```
 
 ## Available Keys
@@ -123,24 +123,22 @@ usx config openai_api_key
 Configuration is loaded from (highest to lowest precedence):
 
 1. CLI flags
-2. Environment variables (`URSIX_OPENAI_API_KEY`)
-3. `.ursix.toml` in working directory (project config)
-4. `~/.ursix.toml` in home directory (global config)
+2. Environment variables (`URSIX_API_KEY`)
+3. `.ursix/config.toml` in working directory or parent directories (project config)
+4. `~/.config/ursix/config.toml` in home directory (global config)
 5. Built-in defaults
 
 ### Example Configuration File
 
 ```toml
-# .ursix.toml
+# .ursix/config.toml
 
 # LLM Provider
 provider = "openai"
 model = "gpt-4"
 
-# API Endpoints
-ollama_url = "http://localhost:11434"
-openai_url = "https://api.openai.com/v1"
-openai_api_key = "sk-..."
+# Optional: Override the default provider URL
+provider_url = "https://api.openai.com/v1"
 
 # Tokenizer
 tokenizer_mode = "heuristic"

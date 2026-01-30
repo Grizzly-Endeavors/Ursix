@@ -1,7 +1,7 @@
 //! The `init` command implementation
 //!
 //! Interactive setup wizard for first-time Ursix configuration.
-//! Creates `.ursix.toml` configuration and `.ursix/rules.yml` with starter rules.
+//! Creates `.ursix/config.toml` configuration and `.ursix/rules.yml` with starter rules.
 
 use std::fs;
 use std::io::{self, Write};
@@ -28,16 +28,16 @@ pub struct InitOptions {
 /// Returns error if file operations fail or user cancels
 pub async fn cmd_init(options: InitOptions, output_mode: OutputMode) -> Result<ExitCode> {
     let working_dir = std::env::current_dir().context("failed to get current directory")?;
-    let config_path = working_dir.join(".ursix.toml");
-    let rules_dir = working_dir.join(".ursix");
-    let rules_path = rules_dir.join("rules.yml");
+    let ursix_dir = working_dir.join(".ursix");
+    let config_path = ursix_dir.join("config.toml");
+    let rules_path = ursix_dir.join("rules.yml");
 
     let mut warnings = Vec::new();
     let mut files_created = Vec::new();
 
     // Check for existing config
     if config_path.exists() && !options.force {
-        eprintln!("Configuration file .ursix.toml already exists.");
+        eprintln!("Configuration file .ursix/config.toml already exists.");
         eprintln!("Use --force to overwrite existing configuration.");
         let result = InitResult {
             success: false,
@@ -91,13 +91,13 @@ pub async fn cmd_init(options: InitOptions, output_mode: OutputMode) -> Result<E
 
     let config_toml = toml::to_string_pretty(&config_file).context("failed to serialize config")?;
 
-    fs::write(&config_path, &config_toml).context("failed to write .ursix.toml")?;
-    files_created.push(".ursix.toml".to_string());
-
-    // Create rules directory and file
-    if !rules_dir.exists() {
-        fs::create_dir(&rules_dir).context("failed to create .ursix directory")?;
+    // Create .ursix directory if it doesn't exist
+    if !ursix_dir.exists() {
+        fs::create_dir(&ursix_dir).context("failed to create .ursix directory")?;
     }
+
+    fs::write(&config_path, &config_toml).context("failed to write config.toml")?;
+    files_created.push(".ursix/config.toml".to_string());
 
     if !rules_path.exists() || options.force {
         fs::write(&rules_path, STARTER_RULES).context("failed to write rules.yml")?;

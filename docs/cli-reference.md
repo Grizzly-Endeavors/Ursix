@@ -192,14 +192,14 @@ Configuration is loaded from multiple sources (highest to lowest precedence):
 
 1. CLI flags
 2. Environment variables
-3. `.ursix.toml` in working directory
-4. `~/.ursix.toml` in home directory
+3. `.ursix/config.toml` in working directory or parent directories
+4. `~/.config/ursix/config.toml` in home directory
 5. Built-in defaults
 
 ### Configuration File Format
 
 ```toml
-# .ursix.toml
+# .ursix/config.toml
 provider = "openai"
 model = "gpt-4"
 provider_url = "https://api.openai.com/v1"

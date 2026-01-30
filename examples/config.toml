@@ -1,5 +1,5 @@
-# Ursix configuration file
-# Copy to .ursix.toml in your project root or ~/.config/ursix/config.toml for global settings
+# Example Ursix configuration file
+# Copy to .ursix/config.toml in your project root or ~/.config/ursix/config.toml for global settings
 
 # LLM provider: "ollama" (default) or "openai"
 provider = "ollama"

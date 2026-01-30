@@ -1,0 +1,30 @@
+# Example Ursix Review Rules
+# These rules focus on issues that LLMs can detect beyond traditional linters.
+
+categories:
+  clarity:
+    - name: vague-naming
+      description: "Flag variables/functions with unclear names (data, temp, result, handle) that don't convey purpose"
+      severity: warning
+    - name: misleading-names
+      description: "Flag names that don't match behavior (e.g., getUser that also modifies state)"
+      severity: warning
+    - name: redundant-comments
+      description: "Flag comments that just restate what the code already does - comments should add context, not narrate"
+      severity: info
+
+  robustness:
+    - name: error-message-quality
+      description: "Error messages should include context for debugging, not just 'failed' or 'invalid input'"
+      severity: warning
+    - name: missing-edge-cases
+      description: "Flag obvious unhandled edge cases (empty input, null, boundary conditions)"
+      severity: warning
+
+  maintainability:
+    - name: magic-values
+      description: "Unexplained magic numbers or strings that should be named constants"
+      severity: warning
+    - name: boolean-parameter-blindness
+      description: "Boolean parameters unclear at call site - consider named parameters, enum, or builder"
+      severity: info
