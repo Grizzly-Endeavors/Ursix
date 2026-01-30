@@ -45,24 +45,20 @@ pub(crate) async fn cmd_status(
         api_key_set,
     );
 
-    // Check 1: Config - already loaded successfully if we got here
     result.add_check(StatusCheck::pass(
         "config",
         "configuration loaded successfully",
     ));
 
-    // Check 2: Provider type and URL validation
     result.add_check(StatusCheck::pass(
         "provider",
         format!("{} at {}", config.provider, provider_url),
     ));
 
-    // Check 3: API key requirements
     let api_key_check = check_api_key(config, &provider_url);
     let api_key_ok = api_key_check.passed;
     result.add_check(api_key_check);
 
-    // Check 4: Connectivity (only if API key check passed)
     if api_key_ok {
         let connectivity_result = check_connectivity(config, &provider_url, options.verbose).await;
         result.add_check(connectivity_result.check);

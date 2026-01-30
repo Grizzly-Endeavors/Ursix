@@ -89,14 +89,12 @@ impl TypedError {
     #[must_use]
     pub(crate) fn exit_code(&self) -> ExitCode {
         match self {
-            // User-fixable errors (exit 2)
             Self::InvalidArguments { .. }
             | Self::ConfigError { .. }
             | Self::InputError { .. }
             | Self::GitError { .. }
             | Self::TokenLimitError { .. } => ExitCode::UserError,
 
-            // Transient errors (exit 3) - check retryable flag
             Self::NetworkError {
                 retryable: true, ..
             }
@@ -104,7 +102,6 @@ impl TypedError {
                 retryable: true, ..
             } => ExitCode::TransientError,
 
-            // Permanent errors (exit 4)
             Self::NetworkError {
                 retryable: false, ..
             }
@@ -265,7 +262,7 @@ impl ErrorResponse {
     /// Render as JSON string
     ///
     /// # Errors
-    /// Returns error if JSON serialization fails (should not happen).
+    /// Returns error if JSON serialization fails.
     pub(crate) fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }

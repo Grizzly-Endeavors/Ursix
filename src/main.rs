@@ -37,7 +37,7 @@ async fn main() {
             match response.to_json() {
                 Ok(json) => eprintln!("{json}"),
                 Err(json_err) => {
-                    // Fallback to text if JSON serialization fails (should never happen)
+                    // Fallback to text if JSON serialization fails
                     eprintln!("Error: {e:#}");
                     eprintln!("(JSON serialization failed: {json_err})");
                 }

@@ -178,7 +178,7 @@ impl CommandOutput for DryRunResult {
             writeln!(output).ok();
             writeln!(
                 output,
-                "Note: Input exceeds warning threshold. Consider using --chunk for better results."
+                "Input exceeds warning threshold. Consider using --chunk for better results."
             );
         }
 

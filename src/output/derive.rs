@@ -3,9 +3,7 @@
 use super::{CommandOutput, ExitCode, ExitStatus};
 use serde::Serialize;
 
-/// Result from the `derive` command
-///
-/// The result varies based on the derive type requested.
+/// Holds the structured LLM response, tagged by derive type for JSON serialization.
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum DeriveResult {

@@ -131,3 +131,44 @@ categories:
       description: "Functions with a dry_run parameter should check it before making LLM calls or network requests. Flag run_pipeline() calls without a preceding dry_run check."
       severity: warning
       files: "src/commands/**/*.rs"
+
+  ai-slop:
+    - name: hedging-comments
+      description: "Flag comments containing uncertain, wishy-washy language characteristic of LLM output: 'should work', 'might need to', 'may need adjustment', 'probably', 'hopefully', 'TODO: consider', 'you may want to'. These indicate the author didn't actually verify the code works. Do NOT flag genuine uncertainty documented for future work (e.g., 'TODO(#123): evaluate X after benchmarking')."
+      severity: warning
+      files: "*.rs"
+
+    - name: narrating-comments
+      description: "Flag tutorial-style numbered step comments that narrate code like a walkthrough: '// Step 1:', '// First, we', '// Next, we', '// Now we', '// Finally, we'. Code should be self-explanatory through structure and naming, not narrated like a blog post. Do NOT flag doc comments (/// or //!) describing API usage steps, or comments in #[cfg(test)] modules."
+      severity: warning
+      files: "*.rs"
+
+    - name: verbose-match-over-combinators
+      description: "Flag match blocks on Option or Result that could be replaced with combinators. Examples: match on Option just to map the inner value (use .map()), match to provide a default (use .unwrap_or() or .unwrap_or_else()), match to chain fallible operations (use .and_then()), match to convert None to an error (use .ok_or() or .ok_or_else()). Verbose match is a strong signal of LLM-generated Rust. Do NOT flag matches with complex logic in arms or matches with more than 2 arms."
+      severity: warning
+      files: "*.rs"
+
+    - name: gratuitous-clone
+      description: "Flag .clone() calls that appear unnecessary: cloning a value immediately before passing it to a function that could accept a reference, cloning a String to pass where &str would work, cloning inside a loop when the value doesn't change between iterations, or multiple .clone() calls on the same variable within a few lines. LLMs sprinkle .clone() to satisfy the borrow checker without understanding ownership. Do NOT flag clones that are clearly needed for shared ownership (Arc, thread spawning) or moves into closures."
+      severity: warning
+      files: "*.rs"
+
+    - name: tautological-doc-comments
+      description: "Flag doc comments (///) that merely restate the function/struct name or signature with no additional insight. Examples: '/// Creates a new Foo' on fn new(), '/// Returns the name' on fn name(), '/// The configuration struct' on struct Config. Doc comments should add value beyond what the signature already communicates: behavior, invariants, panics, errors, or examples. This complements why-not-what-comments which explicitly excludes doc comments."
+      severity: warning
+      files: "*.rs"
+
+    - name: ai-filler-phrases
+      description: "Flag comments and doc comments containing characteristic LLM filler phrases that pad without adding substance: 'Note that', 'It's important to note', 'It's worth mentioning', 'This ensures that' (when the 'what' is obvious), 'for safety' (without explaining what safety concern), 'This is necessary because' (followed by restating the code), 'as expected', 'accordingly', 'robust', 'leverage'. These are statistical artifacts of LLM training, not meaningful documentation."
+      severity: info
+      files: "*.rs"
+
+    - name: premature-trait-abstraction
+      description: "Flag trait definitions that have exactly one implementation in the same file and no obvious reason for the abstraction (e.g., not needed for dynamic dispatch, testing, or public API flexibility). LLMs over-engineer by creating traits where a concrete struct with methods would be simpler. Do NOT flag traits clearly designed for mockability in tests, traits in public API modules, or traits with multiple implementations."
+      severity: info
+      files: "*.rs"
+
+    - name: redundant-return-binding
+      description: "Flag patterns where a value is bound to a variable on one line and immediately returned or used as the sole expression on the next line with no intervening logic: 'let result = some_call(); result' or 'let output = transform(x); Ok(output)'. The intermediate binding adds no clarity - return the expression directly. Do NOT flag bindings used for debugging (preceded by a debug! or dbg!), or bindings that improve readability of very long expressions."
+      severity: info
+      files: "*.rs"

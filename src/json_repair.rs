@@ -112,7 +112,6 @@ pub(crate) fn repair_json(response: &str) -> Result<RepairResult, RepairError> {
     let mut repairs = Vec::new();
     let mut attempts = Vec::new();
 
-    // Phase 1: Try parsing as-is
     if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
         return Ok(RepairResult {
             json: trimmed.to_string(),
@@ -121,7 +120,6 @@ pub(crate) fn repair_json(response: &str) -> Result<RepairResult, RepairError> {
         });
     }
 
-    // Phase 2: Extract JSON block (remove code fences, preamble, postamble)
     let (extracted, extraction_repairs) = extract_json_block(trimmed);
     repairs.extend(extraction_repairs);
 
@@ -139,7 +137,6 @@ pub(crate) fn repair_json(response: &str) -> Result<RepairResult, RepairError> {
     }
     attempts.push("extraction".to_string());
 
-    // Phase 3: Value normalization (Python booleans, None)
     let (normalized, norm_repairs) = normalize_values(&extracted);
     repairs.extend(norm_repairs.clone());
 
@@ -154,7 +151,6 @@ pub(crate) fn repair_json(response: &str) -> Result<RepairResult, RepairError> {
         attempts.push("value normalization".to_string());
     }
 
-    // Phase 4: Quote fixes (single -> double, unquoted keys)
     let (quoted, quote_repairs) = fix_quotes(&normalized);
     repairs.extend(quote_repairs.clone());
 
@@ -169,7 +165,6 @@ pub(crate) fn repair_json(response: &str) -> Result<RepairResult, RepairError> {
         attempts.push("quote fixes".to_string());
     }
 
-    // Phase 5: Structure fixes (trailing commas, escape control chars)
     let (structured, struct_repairs) = fix_structure(&quoted);
     repairs.extend(struct_repairs.clone());
 
@@ -184,7 +179,6 @@ pub(crate) fn repair_json(response: &str) -> Result<RepairResult, RepairError> {
         attempts.push("structure fixes".to_string());
     }
 
-    // Phase 6: Try adding missing closers (last resort for truncated JSON)
     let (completed, closer_repairs) = add_missing_closers(&structured);
     repairs.extend(closer_repairs.clone());
 
@@ -199,7 +193,6 @@ pub(crate) fn repair_json(response: &str) -> Result<RepairResult, RepairError> {
         attempts.push("adding closers".to_string());
     }
 
-    // Check if it looks truncated
     if looks_truncated(&structured) {
         return Err(RepairError::Truncated {
             context: truncation_context(&structured),

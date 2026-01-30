@@ -39,11 +39,11 @@ pub(crate) fn cmd_config(
                 },
                 ConfigEntry {
                     key: "provider_url".to_string(),
-                    value: provider_url_display.clone(),
+                    value: provider_url_display,
                 },
                 ConfigEntry {
                     key: "api_key".to_string(),
-                    value: api_key_display.clone(),
+                    value: api_key_display,
                 },
                 ConfigEntry {
                     key: "tokenizer_mode".to_string(),

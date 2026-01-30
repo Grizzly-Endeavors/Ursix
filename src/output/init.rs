@@ -3,7 +3,7 @@
 use super::{CommandOutput, ExitCode, ExitStatus};
 use serde::Serialize;
 
-/// Result from the `init` command
+/// Captures files created, provider/model chosen, and connectivity test outcome.
 #[derive(Debug, Serialize)]
 pub(crate) struct InitResult {
     /// Whether initialization succeeded

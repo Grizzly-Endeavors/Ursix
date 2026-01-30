@@ -3,7 +3,7 @@
 use super::{CommandOutput, ExitCode, ExitStatus};
 use serde::Serialize;
 
-/// Result from the `config` command
+/// Key-value pairs from configuration lookup, rendered as table or JSON.
 #[derive(Debug, Serialize)]
 pub(crate) struct ConfigResult {
     /// Configuration entries
