@@ -8,6 +8,10 @@ Not a chatty assistant. Not a magic developer. Just a function that transforms t
 
 ## What Ursix Is
 
+### A Semantic Linter
+
+At its core, Ursix is a semantic linter — it catches issues that traditional linters can't: vague naming, poor error messages, missing edge cases, hardcoded secrets, style violations that require understanding intent. The `review` command is the flagship, and everything else (`derive`, `fix`, `status`) supports the semantic linting workflow.
+
 ### A Link in a Chain
 
 Ursix is one step in your pipeline. It doesn't know what came before, doesn't care what comes after, and won't try to orchestrate a workflow for you.
@@ -40,12 +44,12 @@ This means:
 
 Commands are defined by their input/output contracts:
 
-| Command | Input | Output | Exit Codes |
-|---------|-------|--------|------------|
-| `derive` | arbitrary text | text (mode-dependent) | 0, 2, 3, 4 |
-| `review` | diff or code file | issues array + passed | 0, 1, 2, 3, 4 |
-| `fix` | code + context | atomic fixes | (coming soon) |
-| `config` | none | configuration values | 0, 2 |
+| Command | Input | Output | Exit Codes | Status |
+|---------|-------|--------|------------|--------|
+| `review` | diff or code file | issues array + passed | 0, 1, 2, 3, 4 | Stable |
+| `derive` | arbitrary text | text (mode-dependent) | 0, 2, 3, 4 | Stable |
+| `fix` | structured JSON | unified diff | 0, 2, 3, 4 | Experimental |
+| `config` | none | configuration values | 0, 2 | Stable |
 
 `review` earns its own command because the contract is different—it outputs structured issues, returns exit code 1 when issues are found, and integrates with rules.yml. `derive` is the generic transform.
 

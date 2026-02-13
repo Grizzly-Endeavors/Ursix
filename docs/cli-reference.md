@@ -46,9 +46,9 @@ usx review --provider gemini
 
 - [`init`](commands/init.md) - Initialize Ursix configuration
 - [`status`](commands/status.md) - Check configuration and provider connectivity
+- [`review`](commands/review.md) - Semantic code review — the primary command for CI/CD integration
 - [`derive`](commands/derive.md) - Derive content from input (commit-msg, explanation, summary)
-- [`review`](commands/review.md) - Review code changes from stdin or file
-- [`fix`](commands/fix.md) - Transform code snippets using structured input
+- [`fix`](commands/fix.md) - Generate code fixes from structured input (**experimental**)
 - [`config`](commands/config.md) - View configuration
 
 ## Input Handling
@@ -128,7 +128,7 @@ Chunking flags (shared by derive and review):
 
 **Important:** The `--chunk` flag for review only works with diff input. Single files cannot be chunked and will fall back to single-pass processing.
 
-Note: The `fix` command operates on single snippets and does not support chunking. It uses structured JSON input to specify exact code locations.
+Note: The `fix` command is **experimental** — it operates on single snippets and does not support chunking. It uses structured JSON input to specify exact code locations. Generated code is not validated for compilation or type correctness. See [fix limitations](commands/fix.md#limitations) for details.
 
 ## Exit Codes
 

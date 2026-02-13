@@ -3,11 +3,11 @@ name = "ursix"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Unix utilities powered by LLMs. Stateless, composable, automation-first."
+description = "Semantic linting for the age of AI. Stateless, composable, automation-first."
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/grizzly-endeavors/ursix"
-keywords = ["cli", "llm", "code-review", "developer-tools", "automation"]
+keywords = ["cli", "llm", "semantic-linting", "code-review", "linter"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]

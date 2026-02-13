@@ -18,7 +18,7 @@ pub(crate) enum FixMode {
 
 #[derive(Parser, Debug)]
 #[command(name = "usx")]
-#[command(about = "Ursix - Unix utilities powered by LLMs")]
+#[command(about = "Ursix - Semantic linter for CI/CD pipelines")]
 #[command(version)]
 pub(crate) struct Cli {
     /// Output as plain text instead of JSON (default: JSON)

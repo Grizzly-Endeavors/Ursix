@@ -9,14 +9,14 @@ Comprehensive documentation for the Ursix CLI tool.
 - [Commands](commands/) - Detailed documentation for each command:
   - [init](commands/init.md) - Initialize Ursix configuration
   - [status](commands/status.md) - Check configuration and provider connectivity
+  - [review](commands/review.md) - Semantic code review (primary command)
   - [derive](commands/derive.md) - Derive content from input (commit-msg, explanation, summary)
-  - [review](commands/review.md) - Review code changes from stdin or file
-  - [fix](commands/fix.md) - Transform code snippets using structured input
+  - [fix](commands/fix.md) - Generate code fixes from structured input (**experimental**)
   - [config](commands/config.md) - View configuration
 
 ## Overview
 
-Ursix is a CLI tool providing Unix utilities powered by LLMs. It uses a stateless pipeline model for fast, predictable results.
+Ursix is a semantic linter that uses LLMs to catch issues traditional linters can't — vague naming, poor error messages, missing edge cases, hardcoded secrets. It uses a stateless pipeline model for fast, predictable results that integrate directly into CI/CD.
 
 ### Execution
 

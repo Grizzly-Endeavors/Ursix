@@ -2,7 +2,7 @@
 
 # Ursix
 
-**LLM as a boring Unix utility**
+**Semantic linting for the age of AI**
 
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Ollama](https://img.shields.io/badge/ollama-compatible-blue.svg)](https://ollama.ai/)
@@ -10,7 +10,7 @@
 
 [Getting Started](#getting-started) •
 [Commands](#commands) •
-[Semantic Linting](#semantic-linting-with-rulesyml) •
+[Rules](#semantic-linting-with-rulesyml) •
 [CI/CD](#cicd-integration) •
 [Philosophy](PHILOSOPHY.md)
 
@@ -20,16 +20,16 @@
 
 ## What is Ursix?
 
-Ursix treats LLMs as compute primitives. Pipe text in, get structured output, compose with the rest of your toolkit.
+Ursix is a semantic linter — it catches issues that traditional linters can't: vague naming, poor error messages, missing edge cases, hardcoded secrets. Where `clippy` checks syntax and `eslint` checks formatting, Ursix checks *intent*.
 
 ```bash
-# These are commands, not conversations
-git diff --staged | usx derive commit-msg    # Generate a commit message
-cat src/auth.rs | usx derive explanation     # Explain what code does
-git diff --staged | usx review               # Find issues in changes
+# Semantic review of staged changes
+git diff --staged | usx review                # Find issues linters miss
+usx review src/auth.rs                        # Review a specific file
+git diff | usx review --checks security       # Focus on security rules
 ```
 
-**The JSON Guarantee**: Despite LLMs under the hood, output is always valid, parseable JSON. Exit codes are always meaningful. Your scripts won't break.
+**Built for CI/CD, not chat.** Output is always valid, parseable JSON. Exit codes are always meaningful. Your scripts won't break.
 
 ```bash
 # Reliable enough for CI
@@ -39,14 +39,14 @@ git diff | usx review && echo "Clean" || echo "Issues found (exit $?)"
 
 ## Why Ursix?
 
-Most AI coding tools are chat interfaces, or basic auto-complete. Ursix is different:
+A semantic linter only works if you can trust it in CI/CD. Most AI coding tools fail here — they're chat interfaces designed for humans, not pipelines. Ursix is designed for automation:
 
-| Chat Wrapper | Ursix |
-|--------------|-------|
+| Chat-Based AI Review | Ursix |
+|----------------------|-------|
 | "Can you review my code?" | `git diff \| usx review` |
 | Copy-paste into chat | Pipe directly to stdin |
 | Parse prose response manually | JSON output, structured fields |
-| Hope it remembers context | Stateless—same input, same output |
+| Hope it remembers context | Stateless — same input, same output |
 | Can't automate | Exit codes, stdin/stdout, CI-native |
 
 **No magic. No batteries.** Ursix won't assume you want anything. If you don't provide input, it won't look for it. If you don't enable chunking, it won't chunk. Explicit over implicit, always.
@@ -107,6 +107,93 @@ Copy these to `.ursix/config.toml` and `.ursix/rules.yml` in your project, or us
 
 ## Commands
 
+### Semantic Linting with rules.yml
+
+Codify your team's standards in version-controlled YAML. The LLM enforces them.
+
+Traditional linters check syntax. Ursix checks intent:
+
+```yaml
+# .ursix/rules.yml
+categories:
+  security:
+    - name: no-hardcoded-secrets
+      description: "Never hardcode API keys, passwords, or secrets"
+      severity: error
+
+    - name: no-unwrap-in-handlers
+      description: "HTTP handlers must use proper error handling, not .unwrap()"
+      severity: error
+
+  style:
+    - name: why-not-what-comments
+      description: "Comments should explain WHY, not WHAT. Flag comments that just restate the code."
+      severity: warning
+```
+
+These aren't regex patterns — they're instructions the LLM understands and applies contextually.
+
+```bash
+usx review                                  # Apply all rules
+usx review --checks security                # Only security rules
+usx review --checks security,style          # Multiple categories
+```
+
+Filter output by rule:
+```bash
+usx review | jq '.issues[] | select(.rule == "no-unwrap-in-handlers")'
+```
+
+**Rule Locations** (in order of precedence):
+1. `.ursix/rules.yml` (project)
+2. `rules.yml` (project root)
+3. `~/.config/ursix/rules.yml` (global)
+
+Project rules extend global rules per-category.
+
+---
+
+### `usx review` — Semantic Linting
+
+Review code changes and output structured issues. Designed for CI pipelines.
+
+```bash
+git diff --staged | usx review                       # Review staged changes
+usx review src/auth.rs                               # Review a single file
+git diff HEAD~3 | usx review                         # Review commit range
+git diff | usx review --checks security              # Focus on specific rules
+```
+
+**Output (JSON):**
+```json
+{
+  "_meta": { "schema_version": "1", "model": "qwen2.5-coder:7b", "duration_ms": 1200 },
+  "summary": "Found 2 issues",
+  "issues": [
+    { "severity": "error", "file": "src/auth.rs", "line": 42, "message": "Hardcoded secret", "rule": "no-hardcoded-secrets" }
+  ],
+  "passed": false
+}
+```
+
+**Exit codes for CI:**
+- `0` — Passed (no issues or warnings only)
+- `1` — Failed (errors found)
+
+> **Limitations:** Review performs static text analysis only — no cross-file context, no type checking, no code execution. Results vary by model quality and rule descriptions. See [full limitations](docs/commands/review.md#limitations--accuracy).
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `[FILE]` | Input file (omit for stdin, use `-` for explicit stdin) |
+| `--checks LIST` | Comma-separated rule categories (e.g., `security,style`) |
+| `--chunk` | Split diff by file, process in parallel |
+| `--concurrency N` | Max concurrent chunks (default: 4) |
+| `--partial` | Return partial results if some chunks fail |
+| `--dry-run` | Show token estimate and chunking plan |
+
+---
+
 ### `usx derive` — Transform Text
 
 Generic text transformation. The LLM derives content based on the mode you specify.
@@ -139,46 +226,9 @@ cat huge_file.rs | usx derive explanation --chunk
 
 ---
 
-### `usx review` — Semantic Linting
+### `usx fix` — Code Transformation (Experimental)
 
-Review code changes and output structured issues. Designed for CI pipelines.
-
-```bash
-git diff --staged | usx review                       # Review staged changes
-usx review src/auth.rs                               # Review a single file
-git diff HEAD~3 | usx review                         # Review commit range
-git diff | usx review --checks security              # Focus on specific rules
-```
-
-**Output (JSON):**
-```json
-{
-  "_meta": { "schema_version": "1", "model": "qwen2.5-coder:7b", "duration_ms": 1200 },
-  "summary": "Found 2 issues",
-  "issues": [
-    { "severity": "error", "file": "src/auth.rs", "line": 42, "message": "Hardcoded secret", "rule": "no-hardcoded-secrets" }
-  ],
-  "passed": false
-}
-```
-
-**Exit codes for CI:**
-- `0` — Passed (no issues or warnings only)
-- `1` — Failed (errors found)
-
-**Options:**
-| Flag | Description |
-|------|-------------|
-| `[FILE]` | Input file (omit for stdin, use `-` for explicit stdin) |
-| `--checks LIST` | Comma-separated rule categories (e.g., `security,style`) |
-| `--chunk` | Split diff by file, process in parallel |
-| `--concurrency N` | Max concurrent chunks (default: 4) |
-| `--partial` | Return partial results if some chunks fail |
-| `--dry-run` | Show token estimate and chunking plan |
-
----
-
-### `usx fix` — Atomic Code Transformation
+> **Experimental — not recommended for production use.** Generated code is not validated for compilation, type correctness, or test compatibility. Always review diffs before applying. See [full limitations](docs/commands/fix.md#limitations).
 
 Transform specific code snippets with structured input. The fix command takes exact location information and outputs a unified diff. The snippet is automatically inferred from the file content at the specified lines.
 
@@ -287,56 +337,6 @@ fi
 usx config --list                           # Show all settings
 usx config model                            # Show specific value
 ```
-
-## Semantic Linting with rules.yml
-
-Codify your team's standards in version-controlled YAML. The LLM enforces them.
-
-### Why Rules?
-
-Traditional linters check syntax. Ursix checks intent:
-
-```yaml
-# .ursix/rules.yml
-categories:
-  security:
-    - name: no-hardcoded-secrets
-      description: "Never hardcode API keys, passwords, or secrets"
-      severity: error
-
-    - name: no-unwrap-in-handlers
-      description: "HTTP handlers must use proper error handling, not .unwrap()"
-      severity: error
-
-  style:
-    - name: why-not-what-comments
-      description: "Comments should explain WHY, not WHAT. Flag comments that just restate the code."
-      severity: warning
-```
-
-These aren't regex patterns—they're instructions the LLM understands and applies contextually.
-
-### Using Rules
-
-```bash
-usx review                                  # Apply all rules
-usx review --checks security                # Only security rules
-usx review --checks security,style          # Multiple categories
-```
-
-Filter output by rule:
-```bash
-usx review | jq '.issues[] | select(.rule == "no-unwrap-in-handlers")'
-```
-
-### Rule Locations
-
-Rules are loaded from (in order of precedence):
-1. `.ursix/rules.yml` (project)
-2. `rules.yml` (project root)
-3. `~/.config/ursix/rules.yml` (global)
-
-Project rules extend global rules per-category.
 
 ## CI/CD Integration
 

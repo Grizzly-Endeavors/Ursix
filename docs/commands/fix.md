@@ -2,6 +2,10 @@
 
 Transform code snippets using structured input. The fix command takes a specific issue description and location, then generates a unified diff with the fix.
 
+> **Experimental — not recommended for production use.**
+>
+> Generated code is not validated for compilation, type correctness, or test compatibility. Always review diffs before applying.
+
 ## Syntax
 
 ```bash
@@ -199,6 +203,29 @@ Error codes:
 - `input_validation` - Bad input JSON, missing file, overlapping ranges
 - `llm_error` - LLM call failed (network, timeout)
 - `output_validation` - LLM output failed validation
+
+## Limitations
+
+- **No semantic validation** — does not check that generated code compiles, passes type checks, or is test-compatible
+- **No cross-file context** — each fix is isolated to the specified lines in a single file
+- **Length limit** — replacements longer than 10x the original snippet are rejected, which may prevent legitimate refactorings
+- **Single-pass only** — no iterative refinement; the LLM gets one attempt (or two with `--retry`)
+- **Indentation preservation** — depends on LLM behavior; whitespace may shift
+- **Whole-file mode ordering** — if an intermediate fix fails, remaining line numbers may be misaligned
+
+## When to Use Fix
+
+**Good for:**
+- Exploring potential fixes interactively
+- Learning how an issue might be addressed
+- Prototyping quick experiments
+
+**Not for:**
+- Production CI/CD automation — fixes are not validated for correctness
+- Batch fixing across a codebase — no cross-file awareness
+- Refactoring — length limits and single-pass design are too constraining
+
+**Recommendation:** Use `usx review` to find issues, then fix them manually or with language-specific tooling (e.g., `cargo fix`, `eslint --fix`). Use `usx fix` for exploration, not automation.
 
 ## Examples
 

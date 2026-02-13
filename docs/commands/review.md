@@ -101,6 +101,26 @@ When combined with `--chunk`, the `--partial` flag allows processing to continue
 
 Without `--partial`, the first chunk failure stops all processing.
 
+## Limitations & Accuracy
+
+### What review does well
+
+- **Pattern detection** — anti-patterns, hardcoded secrets, common mistakes
+- **Style consistency** — naming conventions, comment quality, code organization
+- **Custom rule enforcement** — team standards codified in `rules.yml`
+
+### Known limitations
+
+- **No cross-file analysis** — exclusively analyzes the input provided; cannot reason about imports, call sites, or type definitions in other files
+- **Static text analysis only** — no code execution, no type checking, no test running; the LLM reads text, not a compiler's AST
+- **Rules are suggestions, not constraints** — rules are natural language descriptions that the LLM may ignore, misapply, or interpret differently than intended
+- **Model-dependent quality** — results vary significantly across models; larger models generally produce more accurate reviews
+- **Non-deterministic** — same input may produce slightly different results across runs
+
+### Recommendation
+
+Treat review as a first-pass filter. Combine with traditional linters (`clippy`, `eslint`), type checkers, and test suites for comprehensive coverage. See [Writing Effective Rules](../writing-effective-rules.md) to improve accuracy.
+
 ## Output
 
 ### Human Format
