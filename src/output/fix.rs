@@ -126,12 +126,14 @@ impl CommandOutput for FixResult {
             output,
             "Fixed {} (lines {}..{})",
             self.file, self.lines.0, self.lines.1
-        );
+        )
+        .ok();
         writeln!(
             output,
             "+{} -{} lines\n",
             self.lines_added, self.lines_removed
-        );
+        )
+        .ok();
 
         // Show warnings if any
         for warning in &self.warnings {
@@ -226,12 +228,14 @@ impl CommandOutput for WholeFileFixResult {
             self.issues_fixed,
             self.issues_fixed + self.issues_failed,
             self.file
-        );
+        )
+        .ok();
         writeln!(
             output,
             "+{} -{} lines\n",
             self.lines_added, self.lines_removed
-        );
+        )
+        .ok();
 
         // Show failures if any
         for failure in &self.issue_failures {
@@ -239,7 +243,8 @@ impl CommandOutput for WholeFileFixResult {
                 output,
                 "failed: lines {}..{}: {} - {}",
                 failure.lines.0, failure.lines.1, failure.issue, failure.error
-            );
+            )
+            .ok();
         }
         if !self.issue_failures.is_empty() {
             output.push('\n');

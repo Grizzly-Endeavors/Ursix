@@ -130,13 +130,15 @@ impl CommandOutput for DryRunResult {
             } else {
                 ""
             }
-        );
+        )
+        .ok();
         writeln!(
             output,
             "  Error threshold: {} {}",
             self.error_threshold,
             if self.exceeds_error { "(EXCEEDED)" } else { "" }
-        );
+        )
+        .ok();
 
         if !self.files.is_empty() {
             writeln!(output).ok();
@@ -152,13 +154,15 @@ impl CommandOutput for DryRunResult {
                 output,
                 "Chunking: {} chunks",
                 self.chunking.chunk_count.unwrap_or(0)
-            );
+            )
+            .ok();
             for chunk in &self.chunking.chunks {
                 writeln!(
                     output,
                     "  - {}: ~{} tokens",
                     chunk.id, chunk.tokens_estimated
-                );
+                )
+                .ok();
                 for file in &chunk.files {
                     writeln!(output, "      {file}").ok();
                 }
@@ -173,13 +177,15 @@ impl CommandOutput for DryRunResult {
             writeln!(
                 output,
                 "WARNING: Input exceeds error threshold. Use --chunk or reduce input size."
-            );
+            )
+            .ok();
         } else if self.exceeds_warning {
             writeln!(output).ok();
             writeln!(
                 output,
                 "Input exceeds warning threshold. Consider using --chunk for better results."
-            );
+            )
+            .ok();
         }
 
         output

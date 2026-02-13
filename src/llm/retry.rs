@@ -88,6 +88,11 @@ where
                     clippy::cast_precision_loss,
                     reason = "precision loss acceptable for duration calculation"
                 )]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "jittered delay is always positive and fits in u64"
+                )]
                 let jittered_delay =
                     Duration::from_millis((delay.as_millis() as f64 + jitter) as u64);
                 sleep(jittered_delay).await;
