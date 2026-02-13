@@ -31,21 +31,21 @@ pub(crate) struct ChunkFailure {
 }
 
 /// An issue identified during code review
+///
+/// All fields are always present — `file` and `line` are injected by the caller,
+/// `rule` is validated at parse time.
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct ReviewIssue {
     /// Issue severity (error, warning, info)
     pub severity: String,
     /// File path
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
+    pub file: String,
     /// Line number
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<usize>,
+    pub line: usize,
     /// Issue description
     pub message: String,
-    /// Rule name that triggered this issue (if applicable)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rule: Option<String>,
+    /// Rule name that triggered this issue
+    pub rule: String,
 }
 
 impl CommandOutput for ReviewResult {
@@ -75,25 +75,12 @@ impl CommandOutput for ReviewResult {
         } else {
             writeln!(output, "Issues ({}):", self.issues.len()).ok();
             for issue in &self.issues {
-                // Build location string (file:line format)
-                let location = match (&issue.file, issue.line) {
-                    (Some(file), Some(line)) => format!("{file}:{line}"),
-                    (Some(file), None) => file.clone(),
-                    (None, Some(line)) => format!("line {line}"),
-                    (None, None) => String::new(),
-                };
-
-                // Format: [severity] location: message
-                if location.is_empty() {
-                    writeln!(output, "  [{}] {}", issue.severity, issue.message).ok();
-                } else {
-                    writeln!(
-                        output,
-                        "  [{}] {}: {}",
-                        issue.severity, location, issue.message
-                    )
-                    .ok();
-                }
+                writeln!(
+                    output,
+                    "  [{}] {}:{} ({}): {}",
+                    issue.severity, issue.file, issue.line, issue.rule, issue.message
+                )
+                .ok();
             }
         }
 
@@ -141,10 +128,10 @@ mod tests {
             summary: "Issues found".to_string(),
             issues: vec![ReviewIssue {
                 severity: "error".to_string(),
-                file: Some("test.rs".to_string()),
-                line: Some(10),
+                file: "test.rs".to_string(),
+                line: 10,
                 message: "bug".to_string(),
-                rule: None,
+                rule: "no-bugs".to_string(),
             }],
             passed: false,
             chunks_processed: None,
@@ -173,10 +160,10 @@ mod tests {
             summary: "Found some issues".to_string(),
             issues: vec![ReviewIssue {
                 severity: "error".to_string(),
-                file: Some("src/main.rs".to_string()),
-                line: Some(42),
+                file: "src/main.rs".to_string(),
+                line: 42,
                 message: "unused variable".to_string(),
-                rule: None,
+                rule: "no-unused-vars".to_string(),
             }],
             passed: false,
             chunks_processed: None,
@@ -184,64 +171,7 @@ mod tests {
         };
         let output = result.render_human();
         assert!(output.contains("Issues (1):"));
-        assert!(output.contains("[error] src/main.rs:42: unused variable"));
-    }
-
-    #[test]
-    fn test_review_result_render_human_file_only() {
-        let result = ReviewResult {
-            summary: String::new(),
-            issues: vec![ReviewIssue {
-                severity: "warning".to_string(),
-                file: Some("lib.rs".to_string()),
-                line: None,
-                message: "missing docs".to_string(),
-                rule: None,
-            }],
-            passed: false,
-            chunks_processed: None,
-            chunk_failures: vec![],
-        };
-        let output = result.render_human();
-        assert!(output.contains("[warning] lib.rs: missing docs"));
-    }
-
-    #[test]
-    fn test_review_result_render_human_line_only() {
-        let result = ReviewResult {
-            summary: String::new(),
-            issues: vec![ReviewIssue {
-                severity: "info".to_string(),
-                file: None,
-                line: Some(100),
-                message: "consider refactoring".to_string(),
-                rule: None,
-            }],
-            passed: true,
-            chunks_processed: None,
-            chunk_failures: vec![],
-        };
-        let output = result.render_human();
-        assert!(output.contains("[info] line 100: consider refactoring"));
-    }
-
-    #[test]
-    fn test_review_result_render_human_no_location() {
-        let result = ReviewResult {
-            summary: String::new(),
-            issues: vec![ReviewIssue {
-                severity: "error".to_string(),
-                file: None,
-                line: None,
-                message: "global issue".to_string(),
-                rule: None,
-            }],
-            passed: false,
-            chunks_processed: None,
-            chunk_failures: vec![],
-        };
-        let output = result.render_human();
-        assert!(output.contains("[error] global issue"));
+        assert!(output.contains("[error] src/main.rs:42 (no-unused-vars): unused variable"));
     }
 
     #[test]
@@ -251,17 +181,17 @@ mod tests {
             issues: vec![
                 ReviewIssue {
                     severity: "error".to_string(),
-                    file: Some("a.rs".to_string()),
-                    line: Some(1),
+                    file: "a.rs".to_string(),
+                    line: 1,
                     message: "first issue".to_string(),
-                    rule: None,
+                    rule: "rule-a".to_string(),
                 },
                 ReviewIssue {
                     severity: "warning".to_string(),
-                    file: Some("b.rs".to_string()),
-                    line: Some(2),
+                    file: "b.rs".to_string(),
+                    line: 2,
                     message: "second issue".to_string(),
-                    rule: None,
+                    rule: "rule-b".to_string(),
                 },
             ],
             passed: false,
@@ -270,8 +200,8 @@ mod tests {
         };
         let output = result.render_human();
         assert!(output.contains("Issues (2):"));
-        assert!(output.contains("[error] a.rs:1: first issue"));
-        assert!(output.contains("[warning] b.rs:2: second issue"));
+        assert!(output.contains("[error] a.rs:1 (rule-a): first issue"));
+        assert!(output.contains("[warning] b.rs:2 (rule-b): second issue"));
     }
 
     #[test]
@@ -280,10 +210,10 @@ mod tests {
             summary: "Reviewed 3 files".to_string(),
             issues: vec![ReviewIssue {
                 severity: "warning".to_string(),
-                file: Some("src/lib.rs".to_string()),
-                line: Some(5),
+                file: "src/lib.rs".to_string(),
+                line: 5,
                 message: "unused import".to_string(),
-                rule: None,
+                rule: "no-unused-imports".to_string(),
             }],
             passed: false,
             chunks_processed: Some(3),

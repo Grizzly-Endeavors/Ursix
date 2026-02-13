@@ -38,8 +38,14 @@ pub(crate) fn get_prompt<'a>(command: &str, config: &'a PromptsConfig) -> &'a st
 ///
 /// If `custom_base` is provided, uses it instead of the default review prompt.
 /// Rules are still injected into the prompt regardless of which base is used.
+///
+/// See [`build_review_prompt`] for the `include_file` parameter.
 #[must_use]
-pub(crate) fn get_review_prompt(config: &PromptsConfig, rules_section: &str) -> String {
+pub(crate) fn get_review_prompt(
+    config: &PromptsConfig,
+    rules_section: &str,
+    include_file: bool,
+) -> String {
     if let Some(ref custom) = config.review {
         // Custom prompt replaces base, but we still inject rules
         if rules_section.is_empty() {
@@ -48,7 +54,7 @@ pub(crate) fn get_review_prompt(config: &PromptsConfig, rules_section: &str) -> 
             format!("{custom}\n\n{rules_section}")
         }
     } else {
-        build_review_prompt(rules_section)
+        build_review_prompt(rules_section, include_file)
     }
 }
 
@@ -59,6 +65,10 @@ pub(crate) fn get_review_prompt(config: &PromptsConfig, rules_section: &str) -> 
 // The LLM must return structured JSON that can be parsed into result types.
 
 /// Pipeline prompt for the review command (no tools, JSON output)
+///
+/// Fallback constant used when no rules are loaded and no custom prompt is set.
+/// In practice, rules are always loaded (the command fails early if none exist),
+/// so `build_review_prompt` is used instead.
 pub(crate) const REVIEW_PIPELINE_PROMPT: &str = r#"You are a thorough code reviewer. Your task is to review the provided code changes and provide constructive feedback.
 
 When reviewing code, analyze:
@@ -79,14 +89,17 @@ Return your review as JSON in this exact format:
       "severity": "error|warning|info",
       "file": "path/to/file.rs",
       "line": 42,
-      "message": "Description of the issue"
+      "message": "Description of the issue",
+      "rule": "rule-name"
     }
   ]
 }
 
 Notes:
 - The "issues" array can be empty if no issues were found
-- The "file" and "line" fields are optional if the issue is general
+- The "line" field is REQUIRED — MUST reference actual line numbers from the code provided
+- The "file" field is REQUIRED — extract from diff headers
+- The "rule" field is REQUIRED — must name the violated rule
 - Use "error" sparingly, only for critical bugs or security issues
 
 Output ONLY the JSON, no other text."#;
@@ -182,8 +195,12 @@ pub(crate) fn pipeline_prompt_for_command(command: &str) -> &'static str {
 ///
 /// This injects the rules section between the analysis instructions and
 /// the output format instructions.
+///
+/// - `include_file`: when `true` (single-pass diff mode), the JSON example includes a `"file"` field
+///   and the LLM is told to extract it from diff headers. When `false` (single-file or chunked mode),
+///   the `"file"` field is omitted from the example and the LLM is told not to include it.
 #[must_use]
-pub(crate) fn build_review_prompt(rules_section: &str) -> String {
+pub(crate) fn build_review_prompt(rules_section: &str, include_file: bool) -> String {
     let base = "You are a thorough code reviewer. Your task is to review the provided code changes and provide constructive feedback.
 
 When reviewing code, analyze:
@@ -200,32 +217,46 @@ When reviewing code, analyze:
         format!("{rules_section}\n")
     };
 
-    let suffix = r#"Be constructive and explain why something is an issue, not just that it is.
+    let (file_field, file_note) = if include_file {
+        (
+            "\n      \"file\": \"path/to/file.rs\",",
+            "- The \"file\" field is REQUIRED — extract the file path from diff headers (e.g. `--- a/path/to/file.rs`)",
+        )
+    } else {
+        (
+            "",
+            "- Do NOT include a \"file\" field — the caller will fill it in",
+        )
+    };
+
+    let suffix = format!(
+        r#"Be constructive and explain why something is an issue, not just that it is.
 Categorize issues by severity: "error" for critical bugs, "warning" for potential problems, "info" for suggestions.
+ONLY report issues that violate one of the rules listed above.
 
 Return your review as JSON in this exact format:
-{
+{{
   "summary": "Brief summary of the review findings",
   "issues": [
-    {
-      "severity": "error|warning|info",
-      "file": "path/to/file.rs",
+    {{
+      "severity": "error|warning|info",{file_field}
       "line": 42,
       "message": "Description of the issue",
       "rule": "rule-name"
-    }
+    }}
   ]
-}
+}}
 
 Notes:
 - The "issues" array can be empty if no issues were found
-- The "line" field MUST reference actual line numbers from the code provided (the code is numbered for reference)
-- The "file" field is optional - omit it, the caller will fill it in
-- The "rule" field is optional - include it when the issue relates to a specific rule from above
+- The "line" field is REQUIRED — MUST reference actual line numbers from the code provided (the code is numbered for reference)
+- {file_note}
+- The "rule" field is REQUIRED — must reference a rule name from above
 - Use "error" sparingly, only for critical bugs or security issues
 - IMPORTANT: Each issue MUST be its own object in the array. Do NOT combine multiple issues into one object. This output is parsed by downstream pipelines.
 
-Output ONLY the JSON, no other text."#;
+Output ONLY the JSON, no other text."#
+    );
 
     format!("{base}{rules_part}{suffix}")
 }
@@ -234,8 +265,14 @@ Output ONLY the JSON, no other text."#;
 ///
 /// Unlike `build_review_prompt`, this creates a prompt focused on reviewing
 /// only one category of rules, enabling per-category LLM calls.
+///
+/// See [`build_review_prompt`] for the `include_file` parameter.
 #[must_use]
-pub(crate) fn build_category_review_prompt(category: &str, rules_section: &str) -> String {
+pub(crate) fn build_category_review_prompt(
+    category: &str,
+    rules_section: &str,
+    include_file: bool,
+) -> String {
     let base = format!(
         "You are a code reviewer focused on {category} issues. Your task is to review the provided code for {category} concerns only.
 
@@ -249,17 +286,29 @@ Focus exclusively on {category} issues. Do not report issues outside this catego
         format!("{rules_section}\n")
     };
 
+    let (file_field, file_note): (&str, &str) = if include_file {
+        (
+            "\n      \"file\": \"path/to/file.rs\",",
+            "- The \"file\" field is REQUIRED — extract the file path from diff headers (e.g. `--- a/path/to/file.rs`)",
+        )
+    } else {
+        (
+            "",
+            "- Do NOT include a \"file\" field — the caller will fill it in",
+        )
+    };
+
     let suffix = format!(
         r#"Be constructive and explain why something is an issue, not just that it is.
 Categorize issues by severity: "error" for critical bugs, "warning" for potential problems, "info" for suggestions.
+ONLY report issues that violate one of the rules listed above.
 
 Return your review as JSON in this exact format:
 {{
   "summary": "Brief summary of {category} findings",
   "issues": [
     {{
-      "severity": "error|warning|info",
-      "file": "path/to/file.rs",
+      "severity": "error|warning|info",{file_field}
       "line": 42,
       "message": "Description of the {category} issue",
       "rule": "rule-name"
@@ -269,9 +318,9 @@ Return your review as JSON in this exact format:
 
 Notes:
 - The "issues" array can be empty if no {category} issues were found
-- The "line" field MUST reference actual line numbers from the code provided (the code is numbered for reference)
-- The "file" field is optional - omit it, the caller will fill it in
-- The "rule" field is optional - include it when the issue relates to a specific rule from above
+- The "line" field is REQUIRED — MUST reference actual line numbers from the code provided (the code is numbered for reference)
+- {file_note}
+- The "rule" field is REQUIRED — must reference a rule name from above
 - Use "error" sparingly, only for critical problems
 - ONLY report {category} issues - ignore issues that belong to other categories
 - IMPORTANT: Each issue MUST be its own object in the array. Do NOT combine multiple issues into one object. This output is parsed by downstream pipelines.
@@ -503,7 +552,7 @@ mod tests {
 
     #[test]
     fn test_build_review_prompt_empty_rules() {
-        let prompt = build_review_prompt("");
+        let prompt = build_review_prompt("", false);
         assert!(prompt.contains("code reviewer"));
         assert!(prompt.contains("JSON"));
         assert!(!prompt.contains("## Review Rules"));
@@ -512,7 +561,7 @@ mod tests {
     #[test]
     fn test_build_review_prompt_with_rules() {
         let rules = "## Review Rules\n\n- **no-unwrap** [error]: Avoid unwrap";
-        let prompt = build_review_prompt(rules);
+        let prompt = build_review_prompt(rules, false);
         assert!(prompt.contains("code reviewer"));
         assert!(prompt.contains("## Review Rules"));
         assert!(prompt.contains("no-unwrap"));
@@ -521,13 +570,34 @@ mod tests {
 
     #[test]
     fn test_build_review_prompt_includes_rule_field() {
-        let prompt = build_review_prompt("");
+        let prompt = build_review_prompt("", false);
         assert!(prompt.contains("\"rule\":"));
     }
 
     #[test]
+    fn test_build_review_prompt_required_fields() {
+        let prompt = build_review_prompt("", false);
+        assert!(prompt.contains("\"line\" field is REQUIRED"));
+        assert!(prompt.contains("\"rule\" field is REQUIRED"));
+    }
+
+    #[test]
+    fn test_build_review_prompt_include_file_true() {
+        let prompt = build_review_prompt("", true);
+        assert!(prompt.contains("\"file\": \"path/to/file.rs\""));
+        assert!(prompt.contains("\"file\" field is REQUIRED"));
+    }
+
+    #[test]
+    fn test_build_review_prompt_include_file_false() {
+        let prompt = build_review_prompt("", false);
+        assert!(!prompt.contains("\"file\": \"path/to/file.rs\""));
+        assert!(prompt.contains("Do NOT include a \"file\" field"));
+    }
+
+    #[test]
     fn test_build_category_review_prompt_empty_rules() {
-        let prompt = build_category_review_prompt("security", "");
+        let prompt = build_category_review_prompt("security", "", false);
         assert!(prompt.contains("focused on security"));
         assert!(prompt.contains("security concerns only"));
         assert!(prompt.contains("JSON"));
@@ -537,7 +607,7 @@ mod tests {
     #[test]
     fn test_build_category_review_prompt_with_rules() {
         let rules = "## Review Rules - Security\n\n- **no-unwrap** [error]: Avoid unwrap";
-        let prompt = build_category_review_prompt("security", rules);
+        let prompt = build_category_review_prompt("security", rules, false);
         assert!(prompt.contains("focused on security"));
         assert!(prompt.contains("## Review Rules - Security"));
         assert!(prompt.contains("no-unwrap"));
@@ -545,14 +615,26 @@ mod tests {
 
     #[test]
     fn test_build_category_review_prompt_different_categories() {
-        let security_prompt = build_category_review_prompt("security", "");
-        let style_prompt = build_category_review_prompt("style", "");
+        let security_prompt = build_category_review_prompt("security", "", false);
+        let style_prompt = build_category_review_prompt("style", "", false);
 
         assert!(security_prompt.contains("security issues"));
         assert!(!security_prompt.contains("style issues"));
 
         assert!(style_prompt.contains("style issues"));
         assert!(!style_prompt.contains("security issues"));
+    }
+
+    #[test]
+    fn test_build_category_review_prompt_include_file() {
+        let with_file = build_category_review_prompt("security", "", true);
+        let without_file = build_category_review_prompt("security", "", false);
+
+        assert!(with_file.contains("\"file\": \"path/to/file.rs\""));
+        assert!(with_file.contains("\"file\" field is REQUIRED"));
+
+        assert!(!without_file.contains("\"file\": \"path/to/file.rs\""));
+        assert!(without_file.contains("Do NOT include a \"file\" field"));
     }
 
     #[test]
@@ -596,7 +678,7 @@ mod tests {
     #[test]
     fn test_get_review_prompt_default() {
         let config = PromptsConfig::default();
-        let prompt = get_review_prompt(&config, "");
+        let prompt = get_review_prompt(&config, "", false);
         assert!(prompt.contains("code reviewer"));
     }
 
@@ -606,7 +688,7 @@ mod tests {
             review: Some("Custom reviewer".to_string()),
             ..Default::default()
         };
-        let prompt = get_review_prompt(&config, "## Rules\n- test rule");
+        let prompt = get_review_prompt(&config, "## Rules\n- test rule", false);
         assert!(prompt.contains("Custom reviewer"));
         assert!(prompt.contains("## Rules"));
     }
@@ -617,7 +699,7 @@ mod tests {
             review: Some("Custom reviewer".to_string()),
             ..Default::default()
         };
-        let prompt = get_review_prompt(&config, "");
+        let prompt = get_review_prompt(&config, "", false);
         assert_eq!(prompt, "Custom reviewer");
     }
 }

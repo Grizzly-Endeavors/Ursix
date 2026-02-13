@@ -16,7 +16,7 @@ use crate::output::{
     ChunkFailure, ChunkInfo, ChunkPlan, CommandOutput, DryRunResult, ExitCode, ExitStatus,
     OutputMode, ReviewIssue, ReviewResult,
 };
-use crate::parsers::parse_review_response;
+use crate::parsers::{ParsedReviewIssue, ParsedReviewResult, parse_review_response};
 use crate::prompts::{build_category_review_prompt, build_review_prompt};
 use crate::rules::RulesConfig;
 use crate::tokens::{TokenCheck, TokenLimits, check_token_limits, count_context_tokens};
@@ -95,6 +95,40 @@ fn validate_input(
     }
 }
 
+/// Convert parsed issues to final output issues, injecting the file path.
+///
+/// - `override_file`: if `Some`, use for all issues (single-file and chunked modes)
+/// - `override_file`: if `None`, require each issue to have its own file (diff mode)
+fn finalize_issues(
+    parsed: Vec<ParsedReviewIssue>,
+    override_file: Option<&str>,
+) -> Result<Vec<ReviewIssue>> {
+    parsed
+        .into_iter()
+        .enumerate()
+        .map(|(idx, issue)| {
+            let file = if let Some(f) = override_file {
+                f.to_string()
+            } else {
+                issue.file.with_context(|| {
+                    format!(
+                        "issue #{} ({:?}) is missing \"file\" field (required in diff mode)",
+                        idx + 1,
+                        issue.message
+                    )
+                })?
+            };
+            Ok(ReviewIssue {
+                severity: issue.severity,
+                file,
+                line: issue.line,
+                message: issue.message,
+                rule: issue.rule,
+            })
+        })
+        .collect()
+}
+
 pub(crate) async fn cmd_review(
     config: &Config,
     options: ReviewOptions,
@@ -162,12 +196,14 @@ pub(crate) async fn cmd_review(
     }
 
     // Build system prompt with rules (same for all chunks)
+    // Only single-pass diff mode needs the LLM to extract file paths from diff headers
+    let include_file = matches!(input_type, InputType::Diff) && !chunk_mode;
     let rules_section = rules_config.resolve(checks, &[]).to_prompt_section();
     let system_prompt = if checks.is_empty() {
-        build_review_prompt(&rules_section)
+        build_review_prompt(&rules_section, include_file)
     } else {
         let categories = checks.join(", ");
-        build_category_review_prompt(&categories, &rules_section)
+        build_category_review_prompt(&categories, &rules_section, include_file)
     };
 
     // Branch based on chunking mode
@@ -201,16 +237,27 @@ pub(crate) async fn cmd_review(
     )
     .await?;
 
-    let mut result = parse_review_response(&response)?;
+    let review_parsed = parse_review_response(&response)?;
 
-    // For single-file reviews, inject the actual filename into all issues
-    // (LLMs often hallucinate filenames, so we override with the known correct path)
-    if let InputType::SingleFile(path) = &input_type {
-        let file_str = path.display().to_string();
-        for issue in &mut result.issues {
-            issue.file = Some(file_str.clone());
-        }
-    }
+    // Determine file override: single-file mode injects the known path,
+    // diff mode expects the LLM to extract file paths from diff headers
+    let override_file = match &input_type {
+        InputType::SingleFile(path) => Some(path.display().to_string()),
+        InputType::Diff => None,
+    };
+    let issues = finalize_issues(review_parsed.issues, override_file.as_deref())?;
+
+    let has_issues = issues
+        .iter()
+        .any(|i| i.severity == "error" || i.severity == "warning");
+
+    let result = ReviewResult {
+        summary: review_parsed.summary,
+        issues,
+        passed: !has_issues,
+        chunks_processed: None,
+        chunk_failures: vec![],
+    };
 
     let exit_code = result.exit_code();
     println!("{}", result.render(output_mode));
@@ -233,7 +280,7 @@ async fn execute_chunked_diff_review(
     let shared_prompt: Arc<str> = Arc::from(system_prompt);
 
     // Process chunks with bounded concurrency
-    let results: Vec<(String, Result<ReviewResult, String>)> = stream::iter(chunks)
+    let results: Vec<(String, Result<ParsedReviewResult, String>)> = stream::iter(chunks)
         .map(|chunk| {
             let file_path = chunk.file_path.clone();
             let prompt = Arc::clone(&shared_prompt);
@@ -246,17 +293,28 @@ async fn execute_chunked_diff_review(
         .collect()
         .await;
 
-    // Aggregate results
+    // Aggregate results, injecting the file path from each chunk
     let mut all_issues: Vec<ReviewIssue> = Vec::new();
     let mut chunk_failures: Vec<ChunkFailure> = Vec::new();
     let mut successful_chunks = 0;
 
     for (file_path, result) in results {
         match result {
-            Ok(review_result) => {
-                successful_chunks += 1;
-                all_issues.extend(review_result.issues);
-            }
+            Ok(parsed) => match finalize_issues(parsed.issues, Some(&file_path)) {
+                Ok(issues) => {
+                    successful_chunks += 1;
+                    all_issues.extend(issues);
+                }
+                Err(e) => {
+                    let error = format!("finalize failed: {e}");
+                    if partial {
+                        eprintln!("warning: chunk failed for {file_path}: {error}");
+                        chunk_failures.push(ChunkFailure { file_path, error });
+                    } else {
+                        return Err(anyhow::anyhow!("review failed for {file_path}: {error}"));
+                    }
+                }
+            },
             Err(error) => {
                 if partial {
                     eprintln!("warning: chunk failed for {file_path}: {error}");
@@ -306,12 +364,12 @@ async fn execute_chunked_diff_review(
     Ok(exit_code)
 }
 
-/// Process a single diff chunk and return the review result
+/// Process a single diff chunk and return the parsed review result
 async fn process_single_chunk(
     config: &Config,
     system_prompt: &str,
     chunk: &DiffChunk,
-) -> Result<ReviewResult, String> {
+) -> Result<ParsedReviewResult, String> {
     let ctx = InputContext::new(&chunk.content);
 
     // Check token limits for this chunk

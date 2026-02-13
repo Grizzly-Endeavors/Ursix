@@ -112,21 +112,24 @@ Review Summary:
 [summary text]
 
 Issues (2):
-  [warning] src/main.rs:42 - Description
-  [error] src/lib.rs:67 - Description
+  [warning] src/main.rs:42 (rule-name): Description
+  [error] src/lib.rs:67 (rule-name): Description
 ```
 
 ### JSON Format (default)
+
+All issue fields (`file`, `line`, `rule`) are always present — never null or omitted.
 
 ```json
 {
   "summary": "...",
   "issues": [
     {
+      "severity": "warning",
       "file": "src/main.rs",
       "line": 42,
-      "severity": "warning",
-      "message": "..."
+      "message": "...",
+      "rule": "rule-name"
     }
   ],
   "passed": false,

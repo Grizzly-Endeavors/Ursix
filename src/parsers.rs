@@ -8,7 +8,28 @@ use anyhow::{Context, Result};
 
 use crate::commands::DeriveType;
 use crate::json_repair::{RepairError, repair_json};
-use crate::output::{DeriveResult, ReviewIssue, ReviewResult};
+use crate::output::DeriveResult;
+
+/// Intermediate review issue from parsing (before file injection)
+///
+/// The parser validates `line` and `rule` are present but leaves `file` optional —
+/// the caller is responsible for injecting the file path in single-file and chunked modes.
+#[derive(Debug, Clone)]
+pub(crate) struct ParsedReviewIssue {
+    pub severity: String,
+    pub file: Option<String>,
+    pub line: usize,
+    pub message: String,
+    pub rule: String,
+}
+
+/// Intermediate review result from parsing (before file injection)
+#[derive(Debug)]
+pub(crate) struct ParsedReviewResult {
+    pub summary: String,
+    pub issues: Vec<ParsedReviewIssue>,
+    pub passed: bool,
+}
 
 /// Intermediate commit message result from parsing
 pub(crate) struct ParsedCommit {
@@ -71,8 +92,11 @@ pub(crate) fn parse_commit_response(response: &str) -> Result<ParsedCommit> {
     })
 }
 
-/// Parse the LLM JSON response into a [`ReviewResult`]
-pub(crate) fn parse_review_response(response: &str) -> Result<ReviewResult> {
+/// Parse the LLM JSON response into a [`ParsedReviewResult`]
+///
+/// Validates that every issue has a `line` and `rule` field. The `file` field
+/// remains optional at this stage — callers inject it based on the input mode.
+pub(crate) fn parse_review_response(response: &str) -> Result<ParsedReviewResult> {
     #[derive(serde::Deserialize)]
     struct ReviewJson {
         summary: String,
@@ -89,32 +113,43 @@ pub(crate) fn parse_review_response(response: &str) -> Result<ReviewResult> {
     }
 
     let json_str = extract_and_repair_json(response)?;
-    let parsed: ReviewJson = serde_json::from_str(&json_str)
+    let review_json: ReviewJson = serde_json::from_str(&json_str)
         .with_context(|| format!("failed to parse review JSON: {json_str}"))?;
 
-    let issues: Vec<ReviewIssue> = parsed
-        .issues
-        .into_iter()
-        .map(|i| ReviewIssue {
-            severity: i.severity,
-            file: i.file,
-            line: i.line,
-            message: i.message,
-            rule: i.rule,
-        })
-        .collect();
+    let mut issues = Vec::with_capacity(review_json.issues.len());
+    for (idx, raw) in review_json.issues.into_iter().enumerate() {
+        let line = raw.line.with_context(|| {
+            format!(
+                "issue #{} ({:?}) is missing required \"line\" field",
+                idx + 1,
+                raw.message
+            )
+        })?;
+        let rule = raw.rule.with_context(|| {
+            format!(
+                "issue #{} ({:?}) is missing required \"rule\" field",
+                idx + 1,
+                raw.message
+            )
+        })?;
+        issues.push(ParsedReviewIssue {
+            severity: raw.severity,
+            file: raw.file,
+            line,
+            message: raw.message,
+            rule,
+        });
+    }
 
-    let review_passed = issues.is_empty()
+    let passed = issues.is_empty()
         || !issues
             .iter()
             .any(|i| i.severity == "error" || i.severity == "warning");
 
-    Ok(ReviewResult {
-        summary: parsed.summary,
+    Ok(ParsedReviewResult {
+        summary: review_json.summary,
         issues,
-        passed: review_passed,
-        chunks_processed: None,
-        chunk_failures: vec![],
+        passed,
     })
 }
 
@@ -216,10 +251,13 @@ mod tests {
 
     #[test]
     fn test_parse_review_response_valid() {
-        let input = r#"{"summary": "Code looks good", "issues": [{"severity": "warning", "file": "src/main.rs", "line": 10, "message": "Unused variable"}]}"#;
+        let input = r#"{"summary": "Code looks good", "issues": [{"severity": "warning", "file": "src/main.rs", "line": 10, "message": "Unused variable", "rule": "no-unused-vars"}]}"#;
         let result = parse_review_response(input).unwrap();
         assert_eq!(result.summary, "Code looks good");
         assert_eq!(result.issues.len(), 1);
+        assert_eq!(result.issues[0].line, 10);
+        assert_eq!(result.issues[0].rule, "no-unused-vars");
+        assert_eq!(result.issues[0].file, Some("src/main.rs".to_string()));
         assert!(!result.passed); // Has a warning
     }
 
@@ -229,6 +267,40 @@ mod tests {
         let result = parse_review_response(input).unwrap();
         assert!(result.passed);
         assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn test_parse_review_response_missing_line_fails() {
+        let input = r#"{"summary": "Issues", "issues": [{"severity": "warning", "message": "bad code", "rule": "some-rule"}]}"#;
+        let result = parse_review_response(input);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("missing required \"line\" field"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_parse_review_response_missing_rule_fails() {
+        let input = r#"{"summary": "Issues", "issues": [{"severity": "warning", "line": 5, "message": "bad code"}]}"#;
+        let result = parse_review_response(input);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("missing required \"rule\" field"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_parse_review_response_file_optional_at_parse_stage() {
+        let input = r#"{"summary": "OK", "issues": [{"severity": "info", "line": 3, "message": "consider refactoring", "rule": "code-style"}]}"#;
+        let result = parse_review_response(input).unwrap();
+        assert_eq!(result.issues.len(), 1);
+        assert!(result.issues[0].file.is_none());
+        assert_eq!(result.issues[0].line, 3);
+        assert_eq!(result.issues[0].rule, "code-style");
     }
 
     #[test]
@@ -257,10 +329,11 @@ mod tests {
 
     #[test]
     fn test_parse_review_with_python_booleans() {
-        // LLMs sometimes output Python-style booleans
+        // LLMs sometimes output Python-style booleans — empty issues still works
         let input = r#"{"summary": "Code looks good", "issues": []}"#;
         let result = parse_review_response(input).unwrap();
         assert!(result.passed);
+        assert!(result.issues.is_empty());
     }
 
     #[test]
