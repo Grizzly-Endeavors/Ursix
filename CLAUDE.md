@@ -171,19 +171,6 @@ DO NOT, under any circumstance, change this config or add allow macros without e
 - **trace**: verbose diagnostics (full payloads, timing)
 - Use structured fields: `info!(chunks = count, "starting chunked review")` not string interpolation
 
-# Agent Usage
-
-When spawning sub-agents for parallel or delegated work, always include these instructions in the agent prompt:
-
-> **Do NOT run tests, linting, or formatting checks.** Do NOT attempt to commit changes. Focus only on implementing the requested changes. Verification (tests, clippy, fmt) will be run after all agents complete.
-
-This prevents agents from:
-- Wasting cycles on verification that will be done centrally
-- Creating conflicting commits from parallel work
-- Blocking on test failures that may depend on other agents' changes
-
-The orchestrating agent is responsible for running `cargo fmt`, `cargo clippy`, and `cargo test` after all sub-agent work is complete, then creating a single commit.
-
 # Misc Notes
 - Testing is a first class operation, NEVER skip test implementation.
 - Commits should be made frequently, especially for large multi-phase tasks.
